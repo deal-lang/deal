@@ -1,0 +1,24 @@
+{
+  "source_path": "/Users/dunnock/projects/deal-lang/spec/grammar/lexical.ebnf",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "DEAL Lexical Grammar — lexical.ebnf",
+  "summary": "W3C EBNF lexical grammar defining ~125 shared token types for the DEAL lexer used by both .deal and .dealx parsers.",
+  "scope": [
+    "DEAL language",
+    "lexer",
+    "token definitions",
+    "lexical grammar",
+    ".deal files",
+    ".dealx files",
+    "W3C EBNF notation"
+  ],
+  "cross_refs": [
+    "deal.ebnf",
+    "dealx.ebnf"
+  ],
+  "locked": false,
+  "precedence": 1,
+  "notes": ""
+}

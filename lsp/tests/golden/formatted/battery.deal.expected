@@ -1,0 +1,129 @@
+@header {
+    path:       packages/vehicle/battery.deal
+    schema:     deal/0.1
+    created:    2026-05-16T09:00:00Z by "David Dunnock <david.dunnock@l3harris.com>"
+    modified:   2026-05-16T13:45:00Z by "David Dunnock <david.dunnock@l3harris.com>" via claude:claude-code
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package vehicle.battery;
+
+import deal.std.units.{kg, kWh, V, A, kW, degC, ohm, percent};
+import interfaces.{HVDCPort, CoolantPort, ThermallyManaged, CANBus};
+
+/**
+ * Individual lithium-ion pouch cell.
+ * NMC 811 chemistry — high energy density, moderate cycle life.
+ */
+part def BatteryCell {
+    @confidence: 0.95
+    @rationale: "NMC 811 selected over LFP per trade study TS-2026-004"
+    @assumes: "Cell supplier delivers to IEC 62660-1 qualification"
+    @simulation:<<computes>> thermalRunaway {
+        equation: "T_cell > 150°C triggers thermal event";
+        tool: "ANSYS Fluent";
+        fidelity: "CFD";
+    }
+    public (
+        attribute nominalVoltage : Voltage [1] = V(3.7);
+        attribute capacity : Energy [1] = kWh(0.186);
+        attribute mass : Mass [1] = kg(0.45);
+        attribute maxChargeRate : Real [1] = 3.0;
+        attribute maxDischargeRate : Real [1] = 5.0;
+    )
+    protected (
+        attribute internalResistance : Resistance [1] = ohm(0.015);
+        derived attribute specificEnergy : Real = capacity / mass;
+    )
+}
+
+/**
+ * Battery module — group of cells in series/parallel configuration.
+ * 12s4p configuration: 12 series × 4 parallel = 48 cells per module.
+ */
+part def BatteryModule {
+    @confidence: 0.88
+    @concerns: "Module-level thermal uniformity not yet validated"
+    public (
+        ordered part cells : BatteryCell [48];
+        attribute seriesCount : Integer [1] = 12;
+        attribute parallelCount : Integer [1] = 4;
+        derived attribute moduleVoltage : Voltage = cells.nominalVoltage * seriesCount;
+        derived attribute moduleCapacity : Energy = cells.capacity * parallelCount;
+        derived attribute moduleMass : Mass = cells.mass * 48 + kg(2.5);
+        in port coolantIn : CoolantPort [1];
+        out port coolantOut : CoolantPort [1];
+    )
+    private (
+        attribute busbarResistance : Resistance [1] = ohm(0.002);
+    )
+}
+
+/**
+ * Complete battery pack assembly.
+ * Contains modules, BMS, contactors, and thermal management.
+ *
+ * Pack architecture: 20 modules in series for 800V nominal.
+ * Total: 20 modules × 48 cells = 960 cells.
+ *
+ * @see REQ_BAT_001 — energy capacity requirement
+ * @see REQ_BAT_002 — fast charge requirement
+ * @see REQ_BAT_003 — temperature range requirement
+ * @see ADR-012 — 800V architecture decision
+ */
+part def BatteryPack <<specializes>> ThermallyManaged {
+    @confidence: 0.82
+    @rationale: "800V architecture selected for charging speed per ADR-012"
+    @concerns: "Pack-level crash safety analysis incomplete"
+    @assumes: "Structural enclosure passes FMVSS 305 per supplier commitment"
+    @simulation:<<computes>> thermalProfile {
+        equation: "Lumped-parameter thermal model with coolant loop";
+        tool: "python";
+        entry: "simulations/thermal/battery_thermal.py";
+        fidelity: "analytical";
+    }
+    @simulation:<<validates against>> ChargeCycleTest {
+        source: "test/data/charge-cycle-data.csv";
+        tolerance: percent(0.05);
+    }
+    public (
+        out port hvOut : HVDCPort [1] {
+            <<redefines>> voltage = V(800);
+            <<redefines>> maxCurrent = A(350);
+        }
+        in port chargeIn : HVDCPort [1];
+        inout port canBus : CANBus [1];
+        ordered part modules : BatteryModule [20];
+        attribute totalCapacity : Energy [1] = kWh(89);
+        attribute usableCapacity : Energy [1] = kWh(85);
+        attribute packMass : Mass [1] = kg(550);
+        attribute nominalVoltage : Voltage [1] = V(800);
+        attribute soc : Real [1];
+        attribute soh : Real [1];
+        derived attribute remainingEnergy : Energy = usableCapacity * soc * soh;
+    )
+    protected (
+        <<redefines>> maxOperatingTemp = degC(45);
+        <<redefines>> thermalMass = packMass;
+        <<redefines>> heatGenerated = totalCurrent * totalCurrent * packResistance;
+        attribute packResistance : Resistance [1] = ohm(0.05);
+        attribute totalCurrent : Current [1] = A(250);
+    )
+    private (
+        attribute cellBalanceThreshold : Voltage [1] = V(0.02);
+        attribute contactorState : String [1] = "open";
+    )
+}
+
+/**
+ * Battery management system — monitors and balances cells.
+ */
+part def BMS {
+    public (
+        attribute cellCount : Integer [1];
+        attribute balancingMethod : String [1] = "passive";
+        out port cellMonitor : CANBus [1];
+        inout port canBus : CANBus [1];
+    )
+}

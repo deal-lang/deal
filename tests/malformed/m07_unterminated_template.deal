@@ -1,0 +1,2 @@
+package foo;
+part def P { attribute msg = `hello ${world; }

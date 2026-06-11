@@ -1,0 +1,14 @@
+// Regression fixture — Check #2 type checking (E2100)
+// Expects exactly 1 diagnostic: e_type_mismatch on attribute type GhostType.
+//
+// SEMA-EXPECTED: [{code: "E2100"}]
+
+package sema.fixtures.type_check;
+
+// GhostType is NOT declared or imported in this file.
+// Sema must emit E2100 (type not defined) for the attribute usage.
+part def Sensor {
+    public (
+        attribute reading : GhostType [1];
+    )
+}

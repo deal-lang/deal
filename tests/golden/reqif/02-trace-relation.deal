@@ -1,0 +1,28 @@
+// Golden fixture 02: two requirements linked by a trace relation
+// Exercises: @trace:<<satisfies>> → SpecRelation mapping
+// Package: gold.reqif02.trace
+// Elements: REQ_RANGE (requirement_def), REQ_CAPACITY (requirement_def)
+//           Battery part satisfies REQ_CAPACITY via @trace
+
+package gold.reqif02.trace;
+
+/** The vehicle shall achieve a minimum range of 300 km. */
+requirement def REQ_RANGE {
+    public (
+        attribute text : String [1] = "The vehicle shall achieve a minimum range of 300 km on a single charge.";
+    )
+}
+
+/** The battery pack shall provide a minimum usable capacity of 85 kWh. */
+requirement def REQ_CAPACITY {
+    public (
+        attribute text : String [1] = "The battery pack shall provide a minimum usable energy capacity of 85 kWh.";
+    )
+}
+
+part def Battery {
+    @trace:<<satisfies>> REQ_CAPACITY
+    public (
+        attribute usableCapacity : String [1] = "85 kWh";
+    )
+}

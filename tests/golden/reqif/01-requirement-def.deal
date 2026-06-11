@@ -1,0 +1,18 @@
+// Golden fixture 01: single requirement definition (ReqIF emitter)
+// Exercises: RequirementDefinition → SpecObject mapping
+// Package: gold.reqif01.req
+// Element: REQ_CHARGE_TIME (requirement_def with verification block)
+
+package gold.reqif01.req;
+
+/** The battery shall charge from 10% to 80% SOC within 30 minutes. */
+requirement def REQ_CHARGE_TIME {
+    public (
+        attribute text : String [1] = "The battery shall charge from 10% to 80% SOC in 30 minutes or less.";
+        attribute maxTime : String [1] = "30 min";
+    )
+    verification {
+        accepts: [test];
+        rejects: [analysis, simulation];
+    }
+}

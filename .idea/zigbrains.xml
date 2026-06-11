@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="BuildScanner">
+    <option name="projects">
+      <list><![CDATA[{
+  "name": "deal",
+  "version": "0.1.0-draft",
+  "path": "/Users/dunnock/projects/deal-lang/deal",
+  "steps": [
+    {
+      "name": "install",
+      "description": "Copy build artifacts to prefix path",
+      "kind": "install_artifact"
+    },
+    {
+      "name": "uninstall",
+      "description": "Remove build artifacts from prefix path",
+      "kind": "uninstall"
+    },
+    {
+      "name": "test",
+      "description": "Run Zig unit + snapshot tests",
+      "kind": "run"
+    },
+    {
+      "name": "gen-malformed",
+      "description": "Regenerate the malformed corpus from showcase mutations",
+      "kind": "run"
+    },
+    {
+      "name": "phase-1-gate",
+      "description": "Run the full Phase 1 exit-gate Zig test suite",
+      "kind": "top_level"
+    },
+    {
+      "name": "phase-1.5-gate",
+      "description": "Run the full Phase 1.5 exit-gate Zig test suite",
+      "kind": "top_level"
+    },
+    {
+      "name": "phase-1.5-gate-fresh",
+      "description": "Run phase-1.5-gate inside a freshly-created ephemeral worktree with submodule init (closes the false-GREEN class of bug per ADR-phase-1.5-fresh-worktree-verification)",
+      "kind": "run"
+    },
+    {
+      "name": "phase-2-gate",
+      "description": "Run the full Phase 2 exit-gate Zig test suite (inherits Phase 1.5)",
+      "kind": "top_level"
+    },
+    {
+      "name": "phase-2-gate-fresh",
+      "description": "Run phase-2-gate inside a freshly-created ephemeral worktree with submodule init (per ADR-phase-1.5-fresh-worktree-verification)",
+      "kind": "run"
+    },
+    {
+      "name": "phase-3-gate",
+      "description": "Run the full Phase 3 exit-gate suite (Zig + cargo + tree-sitter + vscode-deal + smoke)",
+      "kind": "top_level"
+    },
+    {
+      "name": "phase-3-gate-fresh",
+      "description": "Run phase-3-gate inside a freshly-created ephemeral worktree with submodule init (per ADR-phase-1.5-fresh-worktree-verification)",
+      "kind": "run"
+    },
+    {
+      "name": "phase-4-gate",
+      "description": "Run the full Phase 4 exit-gate suite (Zig + cargo + stdlib check + reqif + init/install E2E + docs build + snippet gate, inheriting phase-3-gate)",
+      "kind": "top_level"
+    },
+    {
+      "name": "phase-4-gate-fresh",
+      "description": "Run phase-4-gate inside a freshly-created ephemeral worktree with sibling repos symlinked (per ADR-phase-1.5-fresh-worktree-verification)",
+      "kind": "run"
+    }
+  ],
+  "modules": [
+    {
+      "root": "src/lib.zig",
+      "public": false,
+      "imports": []
+    },
+    {
+      "root": "src/lib.zig",
+      "public": false,
+      "imports": []
+    },
+    {
+      "root": "tests/unit/_all.zig",
+      "public": false,
+      "imports": []
+    },
+    {
+      "root": "tools/gen-malformed.zig",
+      "public": false,
+      "imports": []
+    }
+  ],
+  "dependencies": []
+}]]></list>
+    </option>
+  </component>
+  <component name="ZigToolchain" toolchain="2d81cb80-eef5-4126-b10c-3e910aaf7b34" />
+</project>

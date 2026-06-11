@@ -1,0 +1,21 @@
+.{
+    // Package identity. In Zig 0.16.0 `.name` is an enum literal (not a
+    // string) — verified against /tmp/zig-probe output from `zig init`.
+    .name = .deal,
+    .version = "0.1.0-draft",
+    .fingerprint = 0xe3fec116726111a5,
+    .minimum_zig_version = "0.16.0",
+
+    // No external Zig dependencies in Phase 1. The FFI test harness is
+    // managed by Cargo, not the Zig package manager.
+    .dependencies = .{},
+
+    // Files included in the package hash.
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "include",
+        "tests",
+    },
+}

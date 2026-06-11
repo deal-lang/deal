@@ -1,0 +1,23 @@
+// Regression fixture — Check #7 dimensional algebra (E2503)
+// Expects at least 1 diagnostic: e_conversion_type_mismatch.
+//
+// A conversion call (to_kg) expects a Mass-dimension source argument.
+// The argument V(800) has Voltage dimension — wrong source dimension.
+// The sema must emit E2503: conversion type mismatch.
+//
+// This file MUST parse cleanly (parse exits 0).
+// The conversion-mismatch violation is a semantic error only — not a parse error.
+//
+// SEMA-EXPECTED: [{code: "E2503"}]
+
+package sema.fixtures.conversion_mismatch;
+
+import deal.std.units.{V, to_kg};
+
+part def ConversionTest {
+    public (
+        // Error: to_kg expects a Mass-dimension source, but V() is Voltage.
+        // E2503: conversion type mismatch — wrong source dimension for to_kg().
+        attribute convertedMass : Mass [1] = to_kg(V(800));
+    )
+}

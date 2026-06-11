@@ -1,0 +1,14 @@
+// Regression fixture — Check #3 multiplicity enforcement (E2200)
+// Expects exactly 1 diagnostic: e_multiplicity_violation on [5..2].
+//
+// SEMA-EXPECTED: [{code: "E2200"}]
+
+package sema.fixtures.multiplicity;
+
+// Lower bound (5) exceeds upper bound (2) — ill-formed multiplicity.
+// Sema must emit E2200 pointing at the multiplicity node.
+part def BadMultiplicity {
+    public (
+        attribute items : Real [5..2];
+    )
+}

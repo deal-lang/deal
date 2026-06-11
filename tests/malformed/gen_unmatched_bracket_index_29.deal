@@ -1,0 +1,15 @@
+@header {
+    path:       packages/vehicle/index.deal
+    schema:     deal/0.1
+    created:    2026-05-16T08:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T14:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package vehicle;
+
+export battery.{BatteryPack, BatteryModule, BatteryCell, BMS};
+export motor.{TractionMotor};
+export components.{Inverter, ReductionGear, CoolantPump, HeatExchanger, CoolantReservoir, Chassis, Wheel};
+export behaviors.{Accelerate, RegenerativeBrake, FastCharge, ThermalRegulate;

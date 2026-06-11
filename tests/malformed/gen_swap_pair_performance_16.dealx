@@ -1,0 +1,132 @@
+@header {
+    path:       model/variants/performance.dealx
+    schema:     deal/0.1
+    created:    2026-05-16T14:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T19:30:00Z by "David Dunnock <david.dunnock@redacted.com>" via claude:claude-code
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+
+package model.variants;
+
+import deal.std.units.{kg, km, kW, s, Nm, rpm, mm, V, A, m};
+import vehicle.*;
+import interfaces.connections.{HVDCCable, DriveShaft, PowerDelivery, TorqueTransmission};
+import reqs.system.{REQ_SYS_002, REQ_SYS_003};
+
+/**
+ * Performance variant — dual motor AWD, higher power.
+ * Extends the base EVPlatform with a front motor for all-wheel drive.
+ *
+ * Uses verified return values from EVPlatformTraces to compute
+ * remaining mass budget and range impact.
+ */
+[<system PerformanceVariant <<specializes>> EVPlatform>]
+
+    @confidence: 0.60
+    @concerns: `Mass budget critical — base platform verified at 
+        ${EVPlatformTraces.REQ_SYS_003.actualMass} leaves only 
+        ${EVPlatformTraces.REQ_SYS_003.remainingBudget - kg(250)} 
+        after dual-motor additions`
+    @assumes: "Front motor adds 45kg; structural reinforcement adds 30kg"
+
+    // ─── Additional Front Drive Unit ────────────────────────────
+
+    [<subsystem FrontDrive>]
+
+        [<TractionMotor as="frontMotor"
+            peakPower={kW(250)}
+            continuousPower={kW(180)}
+            peakTorque={Nm(430)}
+            maxSpeed={rpm(16000)}
+            motorMass={kg(35)}
+        />]
+
+        [<Inverter as="frontInverter"
+            peakPower={kW(270)}
+            efficiency={0.97}
+        />]
+
+        [<connect from="frontInverter.acOut" to="frontMotor.powerIn"
+            via={HVDCCable {
+                wireGauge: "2 AWG",
+                maxVoltage: V(850),
+                maxCurrent: A(400),
+                length: m(0.5),
+                connectorType: "RADSOK 150A"
+            }}
+            carrying={PowerDelivery {
+                voltage: V(800),
+                maxCurrent: A(350)
+            }}
+        />]
+
+        [<expose frontInverter.dcIn as="hvPowerIn" />]
+        [<expose frontMotor.shaftOut as="frontDriveShaft" />]
+        [<expose frontMotor.coolantIn as="coolantIn" />]
+        [<expose frontMotor.coolantOut as="coolantOut" />]
+
+    [</subsystem>]
+
+    // ─── Additional System-Level Wiring ─────────────────────────
+
+    [<connetc from="EnergyStorage.hvPowerOut" to="FrontDrive.hvPowerIn"
+        via={HVDCCable {
+            wireGauge: "2/0 AWG",
+            maxVoltage: V(850),
+            maxCurrent: A(400),
+            length: m(3.0),
+            connectorType: "RADSOK 200A"
+        }}
+        carrying={PowerDelivery {
+            voltage: V(800),
+            maxCurrent: A(350)
+        }}
+    />]
+
+    [<connect from="FrontDrive.frontDriveShaft" to="Drivetrain.frontLeft"
+        via={DriveShaft { diameter: mm(40), material: "4340 Steel", maxTorque: Nm(500) }}
+        carrying={TorqueTransmission { torque: Nm(430), speed: rpm(16000) }}
+    />]
+
+    [<connect from="FrontDrive.frontDriveShaft" to="Drivetrain.frontRight"
+        via={DriveShaft { diameter: mm(40), material: "4340 Steel", maxTorque: Nm(500) }}
+        carrying={TorqueTransmission { torque: Nm(430), speed: rpm(16000) }}
+    />]
+
+    // ─── Performance-Specific Attributes ────────────────────────
+
+    attribute bodyStyle : String = "4-door sport sedan";
+    attribute dragCoefficient : Real = 0.25;
+    attribute curbWeight : Mass = kg(2350);
+    attribute zerotoSixty : Duration = s(3.2);
+    attribute totalRange : Length = km(410);
+
+    derived attribute combinedPower : Power =
+        Propulsion.motor.peakPower + FrontDrive.frontMotor.peakPower;
+
+    // Mass budget computed from verified base platform values
+    derived attribute addedMass : Mass =
+        curbWeight - EVPlatformTraces.REQ_SYS_003.actualMass;
+
+    derived attribute massBudgetRemaining : Mass =
+        REQ_SYS_003.maxMass - curbWeight;
+
+    // Range impact computed from verified base range
+    derived attribute rangeReduction : Length =
+        EVPlatformTraces.REQ_SYS_001.actualRange - totalRange;
+
+    // ─── Traces ─────────────────────────────────────────────────
+
+    @trace:<<satisfies>> REQ_SYS_002 {
+        evidence: "Dual motor 500kW combined achieves 3.2s 0-60";
+    }
+    @trace:<<partially satisfies>> REQ_SYS_003 {
+        coverage: 0.94;
+        gap: `${massBudgetRemaining} remaining — only ${
+            massBudgetRemaining / REQ_SYS_003.maxMass * 100
+        }% margin`;
+    }
+
+[</system>]

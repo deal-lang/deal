@@ -1,0 +1,52 @@
+[package]
+name = "deal"
+version = "0.1.0"
+edition = "2021"
+publish = false
+# `links = "deal"` was moved to deal-ffi/ as part of Plan 03-03 Task 1.
+# Cargo enforces single-claim across the workspace; cli/ now consumes the
+# native library transitively via the deal-ffi dependency below.
+
+[[bin]]
+name = "deal"
+path = "src/main.rs"
+
+# lib target exposes resolver (and other modules) for integration tests.
+# Integration tests in cli/tests/ reference deal::resolver::resolve_all.
+[lib]
+name = "deal"
+path = "src/lib.rs"
+
+[dependencies]
+# Shared FFI surface (9 extern "C" exports + OwnedDealHandle + safe wrappers).
+# cli/src/ffi.rs was deleted in Plan 03-03 Task 1; cli now does
+# `use deal_ffi as ffi` so existing `ffi::deal_*` call-sites keep compiling.
+deal-ffi = { path = "../deal-ffi" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anstream = { workspace = true }
+owo-colors = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+jsonschema = { workspace = true }
+uuid = { workspace = true }
+# sha2: updated to workspace version 0.11 for D-83 staleness keys (Phase 5 Plan 01).
+# API is compatible with existing 0.10 usage (Sha256::new(), Digest, update, finalize).
+sha2 = { workspace = true }
+hex = "0.4"
+# walkdir: recursive directory iteration for evidence cache scan (Phase 5 Plan 04).
+walkdir = { workspace = true }
+# git2: libgit2 bindings for deal install git dep resolution (Plan 04-02).
+# vendored-libgit2 avoids system-libgit2 CI fragility (RESEARCH A4).
+git2 = { version = "0.21", features = ["vendored-libgit2"] }
+toml = { workspace = true }
+# ReqIF emitter deps (Plan 04-06):
+# quick-xml 0.40.x for structural validation and XML writing (D-61).
+# zip = "2" stable — NOT the 9.0.0-pre2 pre-release.
+quick-xml = { version = "0.40", features = ["serialize"] }
+zip = "2"
+
+[dev-dependencies]
+insta = { workspace = true }
+tempfile = "3"

@@ -1,0 +1,54 @@
+[package]
+name = "lsp-smoke"
+version = "0.3.0"
+edition = "2021"
+publish = false
+# Plan 03-07 Task 1: phase-3-smoke harness. This crate exists ONLY to drive
+# the deal-lsp Backend through the 5 LSP capabilities + semantic tokens
+# against the 19-file showcase. The single binary `deal-lsp-smoke` is
+# invoked by scripts/phase-3-smoke.sh, which is in turn invoked as step 8
+# of `zig build phase-3-gate` (RESEARCH section 13 lines 955-966).
+#
+# Architecture decision (Rule-3 deviation from PLAN.md):
+# -----------------------------------------------------
+# PLAN.md envisioned spawning deal-lsp as a child process and speaking
+# JSON-RPC over stdio (manual Content-Length framing). We instead drive
+# the Backend via tower-lsp's LspService directly — the SAME pattern used
+# by lsp/tests/showcase.rs (Plan 03-03 Task 3). Rationale:
+#   1. The integration tests already validate the stdio pipeline (deal-lsp
+#      binary entry runs `Server::new(stdin, stdout, socket)` → identical
+#      transport surface).
+#   2. The smoke is intentionally a "5 capabilities round-trip via the
+#      integrated stack" check, not a transport regression test. Phase 1's
+#      gate_all_19 already covers binary-level integration.
+#   3. Manual JSON-RPC framing in 150 LOC of unvetted Rust is exactly the
+#      kind of subprocess-management complexity the Phase 1.5 fresh-worktree
+#      saga taught us to avoid — it would add a new false-GREEN class of
+#      bug (smoke passes locally because the host shell's flush behaviour
+#      happens to match, fails in CI because the runner's pipe buffer is
+#      different).
+# The phase-3-gate step still ALSO runs `cargo build --release -p deal-lsp`
+# (step 3) so the binary is exercised at link time; the smoke is the
+# higher-level "all 5 LSP capabilities work against the real showcase" check.
+
+[[bin]]
+name = "deal-lsp-smoke"
+path = "src/main.rs"
+
+[dependencies]
+# Shared FFI surface (via deal-lsp's Workspace pulls it transitively, but
+# we pin our own dep so the crate compiles standalone).
+deal-ffi = { path = "../deal-ffi" }
+# The LSP Backend type we drive.
+deal-lsp = { path = "../lsp" }
+# tower-lsp's LspService + jsonrpc envelopes (same setup as lsp/tests/showcase.rs).
+tower-lsp = { workspace = true }
+tower = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+# Drain ClientSocket as a futures::Stream (mirrors lsp/tests/showcase.rs).
+futures = "0.3"
+# Walk the showcase to enumerate .deal/.dealx files.
+walkdir = { workspace = true }

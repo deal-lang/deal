@@ -1,0 +1,31 @@
+@header {
+    path:       model/variants/sedan.dealx
+    schema:     deal/0.1
+    created:    2026-05-16T14:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T14:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+
+package model.variants;
+
+import deal.std.units.{kg, km, s, kWh};
+import vehicle.*;
+import reqs.system.{REQ_SYS_001};
+
+/**
+ * Sedan variant — optimized for range and efficiency.
+ * Extends the base EVPlatform with sedan-specific parameters.
+ *
+ * First-to-market variant targeting the mid-size sedan segment.
+ * Lower drag coefficient and lighter curb weight extend range
+ * beyond the base platform.
+ */
+[<system Sedan <<specializes>> EVPlatform>]
+
+    @confidence: 0.85
+    @rationale: "First-to-market variant targeting mid-size sedan segment"
+
+    // Override base platform props for sedan optimization
+  

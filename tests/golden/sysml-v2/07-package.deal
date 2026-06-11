@@ -1,0 +1,8 @@
+// Golden fixture 07: package containment hierarchy
+// Exercises: Package mapping (RESEARCH §Pattern 8 — package hierarchy)
+// Package: gold07.outer (contains gold07.outer.inner sub-package)
+// Element: Entity in inner package
+
+package gold07.outer.inner;
+
+part def Entity { }

@@ -1,0 +1,14 @@
+// Golden fixture 06: trace link (satisfies edge)
+// Exercises: Dependency with kind="satisfy" from @trace (RESEARCH §Pattern 8)
+// Package: gold06.trace
+// Elements: REQ_X (requirement_def), Battery (part_def)
+
+package gold06.trace;
+
+requirement def REQ_X {
+    public (
+        attribute text : String [1] = "Battery meets energy requirements.";
+    )
+}
+
+part def Battery { }

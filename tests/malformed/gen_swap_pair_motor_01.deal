@@ -1,0 +1,72 @@
+@header {
+    path:       packages/vehicle/motor.deal
+    schema:     deal/0.1
+    created:    2026-05-16T09:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T12:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+
+package vehicle.motor;
+
+import deal.std.units.{kg, kW, W, Nm, rpm, V, A, degC};
+import interfaces.{RegenPowerPort, CoolantPort, ThermallyManaged, ShaftPort, CANBus};
+
+/**
+ * Permanent magnet synchronous motor for EV traction.
+ * Interior permanent magnet (IPM) design for high power density
+ * and wide constant-power speed range.
+ *
+ * @see REQ_MOT_001 — peak power requirement
+ * @see REQ_SYS_002 — acceleration requirement (allocated)
+ */
+part def TractionMotor <<specializes>> ThermallyManaged {
+    @confidence: 0.90
+    @rationale: "IPM selected over induction for efficiency at partial load"
+    @assumes: "Rare earth magnet supply chain stable through 2030"
+    @concerns: "Demagnetization risk at temperatures above 180°C"
+
+    public (
+        in port powerIn : RegenPowerPort [1] {
+            <<redefines>> voltage = V(800);
+            <<redefines>> maxCurrent = A(400);
+            <<redefines>> regenEfficiency = 0.85;
+            <<redefines>> maxRegenPower = kW(80);
+        }
+
+        out port shaftOut : ShaftPort [1];
+        inout port canBus : CANBus [1];
+
+        attribute peakPower : Power [1] = kW(250);
+        attribute continuousPower : Power [1] = kW(180);
+        attribute peakTorque : Torque [1] = Nm(430);
+        attribute maxSpeed : AngularVelocity [1] = rpm(16000);
+        attribute motorMass : Mass [1] = kg(35);
+
+        derived attribute specificPower : Real = peakPower / motorMass;
+    )
+
+    protected (
+        <<redefines>> maxOperatingTemp = degC(108);
+        <<redefines>> thermalMass = motorMass;
+        <<redefines>> heatGenerated = powerIn.maxCurrent * windingResistance;
+
+        attribute windingResistance : Resistance [1];
+        attribute magnetTemp : Temperature [1];
+    )
+
+    @simulation:<<computes>> efficiencyMap {
+        equation: "2D lookup: torque × speed → efficiency";
+        tool: "matlab";
+        entry: "simulations/dynamics/motor_efficiency.m";
+        fidelity: "empirical";
+    }
+
+    @simulation:<<computes>> thermalDerating {
+        equation: "Power limit = f(winding_temp, magnet_temp)";
+        tool: "python";
+        entry: "simulations/thermal/motor_thermal.py";
+        fidelity: "analytical";
+    }
+}

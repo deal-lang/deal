@@ -1,0 +1,4 @@
+package foo;
+part def P {
+    @trace:<<satisfies>> R { voltage: 12, current: 5 }
+}

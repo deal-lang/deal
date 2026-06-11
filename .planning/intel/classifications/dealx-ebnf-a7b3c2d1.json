@@ -1,0 +1,27 @@
+{
+  "source_path": "/Users/dunnock/projects/deal-lang/spec/grammar/dealx.ebnf",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "DEAL Composition Grammar — dealx.ebnf",
+  "summary": "W3C EBNF grammar defining the lexical and syntactic contract for .dealx composition files, covering system, subsystem, connect, expose, traceability, satisfy, validate, and allocate blocks.",
+  "scope": [
+    ".dealx composition files",
+    "system block",
+    "subsystem block",
+    "connect block",
+    "expose block",
+    "traceability block",
+    "satisfy block",
+    "validate block",
+    "allocate block",
+    "DEAL composition grammar"
+  ],
+  "cross_refs": [
+    "lexical.ebnf",
+    "deal.ebnf",
+    "DESIGN-DECISIONS.md"
+  ],
+  "locked": false,
+  "precedence": 1
+}

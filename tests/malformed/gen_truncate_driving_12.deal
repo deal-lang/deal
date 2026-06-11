@@ -1,0 +1,61 @@
+@header {
+    path:       packages/use-cases/driving.deal
+    schema:     deal/0.1
+    created:    2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package use_cases.driving;
+
+import deal.std.units.{km, min, kW};
+import vehicle.{EVPlatform};
+
+/**
+ * Long-distance highway trip.
+ * Primary scenario for validating range and charging requirements.
+ *
+ * Driver departs with full charge, drives ~450km on highway,
+ * stops once for a fast charge, and arrives at destination.
+ */
+use case def LongDistanceTrip {
+    @flow:<<flows to>> cruiseHighway {
+        from: depart;
+    }
+    @flow:<<flows to>> stopForCharge {
+        from: cruiseHighway;
+    }
+    @flow:<<flows to>> resumeTrip {
+        from: stopForCharge;
+    }
+    @flow:<<flows to>> arrive {
+        from: resumeTrip;
+    }
+    public (
+        actor driver : Person [1];
+        subject vehicle : EVPlatform [1];
+        attribute tripDistance : Length [1] = km(450);
+        attribute chargeStops : Integer [1] = 1;
+    )
+    precondition batteryFull {
+        vehicle.battery.soc >= 0.95
+    }
+    postcondition arrived {
+        vehicle.distanceTraveled >= tripDistance
+    }
+    action depart;
+    action cruiseHighway;
+    action stopForCharge;
+    action resumeTrip;
+    action arrive;
+}
+
+/**
+ * Daily commute — short-distance round trip.
+ * Validates that typical daily use doesn't require charging.
+ */
+use case def DailyCommute {
+    @flow:<<flows to>> driveToWork {
+        from: departHome;
+  

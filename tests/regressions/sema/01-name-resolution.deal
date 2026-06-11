@@ -1,0 +1,14 @@
+// Regression fixture — Check #1 name resolution (E2000)
+// Expects exactly 1 diagnostic: e_name_not_found on <<specializes>> UnknownBase.
+//
+// SEMA-EXPECTED: [{code: "E2000"}]
+
+package sema.fixtures.name_resolution;
+
+// UndeclaredBase is NOT declared in this file and NOT imported.
+// Sema must emit E2000 pointing at the structural_relationship node.
+part def Widget <<specializes>> UndeclaredBase {
+    public (
+        attribute mass : Real [1] = 1.0;
+    )
+}

@@ -1,0 +1,69 @@
+@header {
+    path:       packages/requirements/needs.deal
+    schema:     deal/0.1
+    created:    2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     review
+    marking:    Unclassified
+}
+
+package requirements.needs;
+
+/**
+ * Stakeholder needs for the EV platform.
+ * Source: Customer focus groups and market analysis CN-2026-001.
+ *
+ * Needs are solution-agnostic statements of what stakeholders want.
+ * They trace forward to requirements, which add verifiable criteria.
+ */
+
+/** Customers want to drive long distances without range anxiety. */
+need def NEED_RANGE {
+    public (
+        attribute text : String [1] = "Vehicle owners shall be able to complete a full day of driving without needing to recharge.";
+        attribute source : String [1] = "CN-2026-001 §2."1;
+        attribute stakeholder : String [1] = "End Customer";
+        attribute priority : String [1] = "critical";
+    )
+}
+
+/** Recharging should not significantly interrupt a journey. */
+need def NEED_FAST_CHARGE {
+    public (
+        attribute text : String [1] = "Recharging should be comparable in time to a typical highway rest stop.";
+        attribute source : String [1] = "CN-2026-001 §2.3";
+        attribute stakeholder : String [1] = "End Customer";
+        attribute priority : String [1] = "high";
+    )
+}
+
+/** The vehicle must feel responsive and safe during normal driving. */
+need def NEED_PERFORMANCE {
+    public (
+        attribute text : String [1] = "The vehicle shall feel responsive during merging, passing, and emergency maneuvers.";
+        attribute source : String [1] = "CN-2026-001 §2.2";
+        attribute stakeholder : String [1] = "End Customer";
+        attribute priority : String [1] = "high";
+    )
+}
+
+/** The vehicle must be safe to operate in all weather conditions. */
+need def NEED_ALL_WEATHER {
+    public (
+        attribute text : String [1] = "The vehicle shall operate reliably in extreme heat and cold climates.";
+        attribute source : String [1] = "CN-2026-001 §2.5";
+        attribute stakeholder : String [1] = "End Customer / Fleet Operator";
+        attribute priority : String [1] = "critical";
+    )
+}
+
+/** The vehicle must comply with mass regulations for the target segment. */
+need def NEED_WEIGHT {
+    public (
+        attribute text : String [1] = "The vehicle gross weight shall remain within regulatory limits for the passenger vehicle class.";
+        attribute source : String [1] = "CN-2026-001 §3.1";
+        attribute stakeholder : String [1] = "Regulatory / Program Management";
+        attribute priority : String [1] = "critical";
+    )
+}

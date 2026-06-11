@@ -1,0 +1,89 @@
+@header {
+    path:       model/vehicle.dealx
+    schema:     deal/0.1
+    created:    2026-05-16T08:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T16:00:00Z by "David Dunnock <david.dunnock@redacted.com>" via claude:claude-code
+    reviewed:   2026-05-16T17:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     review
+    baseline:   v0.1.0
+    marking:    Unclassified
+}
+package model;
+
+import deal.std.units.{V, A, kW, kWh, kg, m, mm, s, degC, kPa, L, W, Nm, rpm, LPM};
+import vehicle.*;
+import interfaces.*;
+import interfaces.connections.*;
+import reqs.system.*;
+
+[<system EVPlatform>]
+
+        [<subsystem EnergyStorage>]
+                [<BatteryPack as="battery" totalCapacity={kWh(89)} usableCapacity={kWh(85)} packMass={kg(550)} nominalVoltage={V(800)} />]
+                [<BMS as="bms" cellCount=960 balancingMethod="active" />]
+                [<connect from="bms.cellMonitor" to="battery.canBus" via={CANHarness {connectorType: "Molex MX150"}} carrying={CANMessages {messageIds: ["0x100", "0x101", "0x102", "0x103"]}} />]
+                [<expose battery.hvOut as="hvPowerOut" />]
+                [<expose battery.chargeIn as="chargeIn" />]
+                [<expose battery.coolantIn as="coolantIn" />]
+                [<expose battery.coolantOut as="coolantOut" />]
+                [<expose bms.canBus as="bmsCAN" />]
+    [</subsystem>]
+
+        [<subsystem Propulsion>]
+                [<TractionMotor as="motor" peakPower={kW(250)} continuousPower={kW(180)} peakTorque={Nm(430)} maxSpeed={rpm(16000)} motorMass={kg(35)} />]
+@@@&&&!!!                [<Inverter as="inverter" peakPower={kW(270)} efficiency=0.97 />]
+                [<ReductionGear as="gearbox" ratio=9.0 efficiency=0.98 />]
+                [<connect from="inverter.acOut" to="motor.powerIn" via={HVDCCable {wireGauge: "2 AWG", maxVoltage: V(850), maxCurrent: A(400), length: m(0.5), connectorType: "RADSOK 150A"}} carrying={PowerDelivery {voltage: V(800), maxCurrent: A(350)}} />]
+                [<connect from="motor.shaftOut" to="gearbox.input" via={DriveShaft {diameter: mm(45), material: "4340 Steel", maxTorque: Nm(500)}} carrying={TorqueTransmission {torque: Nm(430), speed: rpm(16000)}} />]
+                [<expose inverter.dcIn as="hvPowerIn" />]
+                [<expose gearbox.output as="driveShaft" />]
+                [<expose motor.coolantIn as="coolantIn" />]
+                [<expose motor.coolantOut as="coolantOut" />]
+                [<expose inverter.coolantIn as="inverterCoolantIn" />]
+                [<expose inverter.coolantOut as="inverterCoolantOut" />]
+                [<expose inverter.canBus as="inverterCAN" />]
+                [<expose motor.canBus as="motorCAN" />]
+    [</subsystem>]
+
+        [<subsystem Thermal>]
+                [<CoolantPump as="pump" maxFlowRate={LPM(15)} power={W(200)} />]
+                [<HeatExchanger as="heatEx" maxHeatRejection={kW(8)} />]
+                [<CoolantReservoir as="reservoir" volume={L(8)} />]
+                [<connect from="pump.pumpOut" to="heatEx.hotIn" via={CoolantHose {innerDiameter: mm(19), maxPressure: kPa(200)}} carrying={CoolantCirculation {flowRate: LPM(12), temperature: degC(25)}} />]
+                [<connect from="heatEx.coldOut" to="reservoir.reservoirIn" via={CoolantHose {innerDiameter: mm(19), maxPressure: kPa(150)}} carrying={CoolantCirculation {flowRate: LPM(12), temperature: degC(20)}} />]
+                [<connect from="reservoir.reservoirOut" to="pump.pumpIn" via={CoolantHose {innerDiameter: mm(19), maxPressure: kPa(100)}} carrying={CoolantCirculation {flowRate: LPM(12), temperature: degC(20)}} />]
+                [<expose pump.pumpOut as="coolantSupply" />]
+                [<expose reservoir.reservoirIn as="coolantReturn" />]
+    [</subsystem>]
+
+        [<subsystem Drivetrain>]
+                [<Chassis as="frame" wheelbase={m(2.95)} trackWidth={m(1.65)} structuralMass={kg(380)} />]
+                [<Wheel as="frontLeft" diameter={m(0.72)} mass={kg(28)} />]
+                [<Wheel as="frontRight" diameter={m(0.72)} mass={kg(28)} />]
+                [<Wheel as="rearLeft" diameter={m(0.72)} mass={kg(28)} />]
+                [<Wheel as="rearRight" diameter={m(0.72)} mass={kg(28)} />]
+                [<expose rearLeft as="rearWheelL" />]
+                [<expose rearRight as="rearWheelR" />]
+    [</subsystem>]
+
+        [<CANBus as="vehicleCAN" baudRate=500000 maxNodes=32 />]
+
+        [<connect from="EnergyStorage.hvPowerOut" to="Propulsion.hvPowerIn" via={HVDCCable {wireGauge: "2/0 AWG", maxVoltage: V(850), maxCurrent: A(400), length: m(2.5), connectorType: "RADSOK 200A"}} carrying={PowerDelivery {voltage: V(800), maxCurrent: A(350)}} />]
+
+        [<connect from="Propulsion.driveShaft" to="Drivetrain.rearWheelL" />]
+
+        [<connect from="Propulsion.driveShaft" to="Drivetrain.rearWheelR" />]
+
+        [<connect from="Thermal.coolantSupply" to="EnergyStorage.coolantIn" via={CoolantHose {innerDiameter: mm(19), maxPressure: kPa(200)}} carrying={CoolantCirculation {flowRate: LPM(12), temperature: degC(20)}} />]
+
+        [<connect from="EnergyStorage.coolantOut" to="Propulsion.coolantIn" via={CoolantHose {innerDiameter: mm(19), maxPressure: kPa(180)}} carrying={CoolantCirculation {flowRate: LPM(12), temperature: degC(30)}} />]
+
+        [<connect from="Propulsion.coolantOut" to="Thermal.coolantReturn" via={CoolantHose {innerDiameter: mm(19), maxPressure: kPa(150)}} carrying={CoolantCirculation {flowRate: LPM(12), temperature: degC(40)}} />]
+
+        [<connect from="EnergyStorage.bmsCAN" to="vehicleCAN" via={CANHarness {connectorType: "Deutsch DTM-4"}} carrying={CANMessages {messageIds: ["0x100-0x1FF"]}} />]
+
+        [<connect from="Propulsion.inverterCAN" to="vehicleCAN" via={CANHarness {connectorType: "Deutsch DTM-4"}} carrying={CANMessages {messageIds: ["0x200-0x2FF"]}} />]
+
+        [<connect from="Propulsion.motorCAN" to="vehicleCAN" via={CANHarness {connectorType: "Deutsch DTM-4"}} carrying={CANMessages {messageIds: ["0x300-0x3FF"]}} />]
+[</system>]

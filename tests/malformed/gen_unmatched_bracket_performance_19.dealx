@@ -1,0 +1,34 @@
+@header {
+    path:       model/variants/performance.dealx
+    schema:     deal/0.1
+    created:    2026-05-16T14:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T19:30:00Z by "David Dunnock <david.dunnock@redacted.com>" via claude:claude-code
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package model.variants;
+
+import deal.std.units.{kg, km, kW, s, Nm, rpm, mm, V, A, m};
+import vehicle.*;
+import interfaces.connections.{HVDCCable, DriveShaft, PowerDelivery, TorqueTransmission};
+import reqs.system.{REQ_SYS_002, REQ_SYS_003};
+
+[<system PerformanceVariant>]
+
+        [<subsystem FrontDrive>]
+                [<TractionMotor as="frontMotor" peakPower={kW(250)} continuousPower={kW(180)} peakTorque={Nm(430)} maxSpeed={rpm(16000)} motorMass={kg(35)} />]
+                [<Inverter as="frontInverter" peakPower={kW(270)} efficiency=0.97 />]
+                [<connect from="frontInverter.acOut" to="frontMotor.powerIn" via={HVDCCable {wireGauge: "2 AWG", maxVoltage: V(850), maxCurrent: A(400), length: m(0.5), connectorType: "RADSOK 150A"}} carrying={PowerDelivery {voltage: V(800), maxCurrent: A(350)}} />]
+                [<expose frontInverter.dcIn as="hvPowerIn" />]
+                [<expose frontMotor.shaftOut as="frontDriveShaft" />]
+                [<expose frontMotor.coolantIn as="coolantIn" />]
+                [<expose frontMotor.coolantOut as="coolantOut" />]
+    [</subsystem>]
+
+        [<connect from="EnergyStorage.hvPowerOut" to="FrontDrive.hvPowerIn" via={HVDCCable {wireGauge: "2/0 AWG", maxVoltage: V(850), maxCurrent: A(400), length: m(3.0), connectorType: "RADSOK 200A"}} carrying={PowerDelivery {voltage: V(800), maxCurrent: A(350)}} />]
+
+        [<connect from="FrontDrive.frontDriveShaft" to="Drivetrain.frontLeft" via={DriveShaft {diameter: mm(40), material: "4340 Steel", maxTorque: Nm(500)}} carrying={TorqueTransmission {torque: Nm(430), speed: rpm(16000)}} />]
+
+        [<connect from="FrontDrive.frontDriveShaft" to="Drivetrain.frontRight" via={DriveShaft {diameter: mm(40), material: "4340 Steel", maxTorque: Nm(500)}} carrying={TorqueTransmission {torque: Nm(430), speed: rpm(16000)} />]
+[</system>]

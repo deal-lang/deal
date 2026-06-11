@@ -1,0 +1,22 @@
+// Regression fixture — Check #7 dimensional algebra (E2501)
+// Expects at least 1 diagnostic: e_mixed_unit_comparison.
+//
+// An expression compares a value in kilograms (kg) to a value in pounds (lb)
+// without an explicit unit conversion. Both are Mass dimension, but mixing
+// units in the same expression without conversion is a semantic error.
+//
+// This file MUST parse cleanly (parse exits 0).
+// The mixed-unit violation is a semantic error only — not a parse error.
+//
+// SEMA-EXPECTED: [{code: "E2501"}]
+
+package sema.fixtures.mixed_unit;
+
+part def WeightComparison {
+    public (
+        attribute vehicleMass : Mass [1] = kg(2000);
+        // Error: comparing kg and lb values without explicit conversion.
+        // E2501: mixed-unit same-dimension comparison requires explicit conversion.
+        attribute overLimit : Boolean [1] = kg(2000) > lb(4409);
+    )
+}

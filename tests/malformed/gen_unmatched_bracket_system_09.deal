@@ -1,0 +1,130 @@
+@header {
+    path:       packages/requirements/system.deal
+    schema:     deal/0.1
+    created:    2026-05-16T08:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T19:00:00Z by "David Dunnock <david.dunnock@redacted.com>" via claude:claude-code
+    reviewed:   2026-05-16T19:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     review
+    marking:    Unclassified
+}
+package requirements.system;
+
+import deal.std.units.{kg, km, hr, kWh, kW, min, degC, s};
+
+/** The vehicle shall achieve a minimum range on a single charge. */
+requirement def REQ_SYS_001 {
+    public (
+        attribute text : String [1] = "The vehicle shall achieve a minimum range of 300 miles on a single full charge under EPA combined cycle conditions.";
+        attribute minRange : Length [1] = km(483);
+        attribute testCondition : String [1] = "EPA combined cycle";
+    )
+    verification {
+        accepts: [simulation, test];
+        rejects: [analysis, inspection];
+        threshold: minRange;
+        operator: ">=";
+    }
+}
+
+/** The vehicle shall accelerate from 0 to 60 mph within the specified time. */
+requirement def REQ_SYS_002 {
+    public (
+        attribute text : String [1] = "The vehicle shall accelerate from 0 to 60 mph in 6.0 seconds or less.";
+        attribute maxTime : Duration [1] = s(6.0);
+    )
+    verification {
+        accepts: [simulation, test];
+        rejects: [analysis];
+        threshold: maxTime;
+        operator: "<=";
+    }
+}
+
+/** The vehicle shall not exceed the maximum gross weight. */
+requirement def REQ_SYS_003 {
+    public (
+        attribute text : String [1] = "The vehicle gross weight shall not exceed 2500 kg.";
+        attribute maxMass : Mass [1] = kg(2500);
+    )
+    verification {
+        accepts: [analysis, test];
+        threshold: maxMass;
+        operator: "<=";
+    }
+}
+
+/** The battery pack shall provide minimum usable energy capacity. */
+requirement def REQ_BAT_001 {
+    public (
+        attribute text : String [1] = "The battery pack shall provide a minimum usable energy capacity of 85 kWh.";
+        attribute minCapacity : Energy [1] = kWh(85);
+    )
+    verification {
+        accepts: [analysis, test];
+        threshold: minCapacity;
+        operator: ">=";
+    }
+}
+
+/** The battery shall support DC fast charging. */
+requirement def REQ_BAT_002 {
+    @concerns: "Thermal stress during fast charge degrades cell life"
+    public (
+        attribute text : String [1] = "The battery shall charge from 10% to 80% SOC in 30 minutes or less using a DC fast charger.";
+        attribute chargeTime : Duration [1] = min(30);
+        attribute socRange : String [1] = "10% to 80%";
+    )
+    verification {
+        accepts: [test];
+        rejects: [analysis, simulation];
+        threshold: chargeTime;
+        operator: "<=";
+        conditions: {
+            ambient: [degC(25), degC(-10), degC(-30)];
+        };
+    }
+}
+
+/** The battery shall operate across the specified temperature range. */
+requirement def REQ_BAT_003 {
+    public (
+        attribute text : String [1] = "The battery shall operate within the temperature range of -30°C to +55°C.";
+        attribute minTemp : Temperature [1] = degC(-30);
+        attribute maxTemp : Temperature [1] = degC(55);
+    )
+    verification {
+        accepts: [test];
+        rejects: [analysis, simulation];
+        threshold: [minTemp, maxTemp];
+        operator: [">=", "<="];
+    }
+}
+
+/** The drive motor shall deliver minimum peak power output. */
+requirement def REQ_MOT_001 {
+    public (
+        attribute text : String [1] = "The drive motor shall deliver a minimum peak power output of 250 kW.";
+        attribute minPeakPower : Power [1] = kW(250);
+    )
+    verification {
+        accepts: [simulation, test];
+        threshold: minPeakPower;
+        operator: ">=";
+    }
+}
+
+/** The thermal management system shall maintain battery temperature. */
+requirement def REQ_THM_001 {
+    @assumes: "Ambient temperature range per MIL-STD-810H Method 501.7"
+    public (
+        attribute text : String [1] = "The thermal management system shall maintain the battery pack temperature between 15°C and 45°C during all operating conditions.";
+        attribute minTemp : Temperature [1] = degC(15);
+        attribute maxTemp : Temperature [1] = degC(45);
+    )
+    verification {
+        accepts: [simulation, test];
+        threshold: [minTemp, maxTemp];
+        operator: [">=", "<="];
+    }
+

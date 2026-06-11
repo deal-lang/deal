@@ -1,0 +1,27 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "1d824392-b2d5-51b2-a150-29784039e392",
+      "@type": "Package",
+      "declaredName": "parts",
+      "elementId": "1d824392-b2d5-51b2-a150-29784039e392",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold01::parts"
+    },
+    {
+      "@id": "53ae2255-9d9b-5561-be2c-3515f7b66bfc",
+      "@type": "PartDefinition",
+      "declaredName": "Engine",
+      "elementId": "53ae2255-9d9b-5561-be2c-3515f7b66bfc",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold01::parts::Engine"
+    }
+  ],
+  "qualifiedName": "Workspace"
+}

@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+# Plan 03-03 extracts the FFI surface into `deal-ffi` (single `links = "deal"`
+# claimant; consumed by both `cli/` and `lsp/`). Task 1 landed cli + deal-ffi
+# + tests/ffi; Task 2 adds `lsp/` after lsp/Cargo.toml exists (listing it
+# earlier makes `cargo build --workspace` fail at the workspace-resolve step).
+members = ["cli", "deal-ffi", "lsp", "lsp-smoke", "tests/ffi"]
+
+[workspace.dependencies]
+# CLI argument parsing + subcommands + help generation
+clap = { version = "4.6", features = ["derive"] }
+# Serialization framework
+serde = { version = "1", features = ["derive"] }
+# JSON parse/emit — NO preserve_order feature (D-18 alphabetical-key invariant)
+serde_json = "1"
+# Offline JSON Schema draft-2020-12 validation (default-features = false for offline-only)
+jsonschema = { version = "0.46", default-features = false }
+# TTY-aware ANSI passthrough/strip
+anstream = "1"
+# Style strings (red/bold/etc.)
+owo-colors = "4"
+# Application-level error handling
+anyhow = "1"
+# Library-level error types
+thiserror = "2"
+# Golden-fixture management (test-only; not in runtime)
+insta = { version = "1.47", features = ["json"] }
+# UUID generation (v5 name-based for deterministic @id synthesis in SysML emitter)
+uuid = { version = "1", features = ["v5"] }
+
+# ---- Plan 03-03: deal-lsp stack ----
+# tower-lsp 0.20.0 (Issue 1 resolution): the actively-maintained line per
+# RESEARCH §1. Pin verified via `cargo search tower-lsp` at Task 1 start;
+# if upstream yanks 0.20.0, escalate via plan-revision rather than
+# silently bumping to 0.21.x.
+tower-lsp = { version = "0.20.0", features = ["runtime-tokio"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+dashmap = "6"
+ropey = "1.6"
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# ---- Plan 03-04: workspace walker + index ----
+# toml: parse deal.toml for [workspace.aliases] (PS-5). v0.8 series is the
+# current stable line (toml-rs/toml; multi-year publish history).
+toml = "0.8"
+# walkdir: bounded directory iteration for the eager workspace parse.
+# v2 series is the long-standing stable; BurntSushi maintainer.
+walkdir = "2"
+
+# ---- Phase 5 Plan 01: simulation integration ----
+# sha2: SHA-256 for content-hash staleness keys (D-83). Package legitimacy
+# audit: RustCrypto/hashes, ~8 years on crates.io, high downloads (approved).
+# v0.11 is the current stable line; matches the RustCrypto ecosystem version.
+sha2 = "0.11"

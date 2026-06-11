@@ -1,0 +1,11 @@
+// m26 — calc body missing return statement (E2601).
+// The parser detects the missing `return` in a calc body and emits E2601.
+// Sema also enforces this as the authoritative semantic check.
+//
+// First emitted diagnostic: E2601 (parser-emitted in parseCalcBody).
+//
+package test.malformed;
+
+calc def BadCalc(x : Real) : Real {
+    attribute local : Real = x;
+}

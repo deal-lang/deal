@@ -1,0 +1,8 @@
+// Golden fixture 01: part definition
+// Exercises: PartDefinition mapping (RESEARCH §Pattern 8)
+// Package: gold01.parts
+// Element: Engine (part_def)
+
+package gold01.parts;
+
+part def Engine { }

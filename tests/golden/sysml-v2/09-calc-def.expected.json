@@ -1,0 +1,99 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "5d0ddbc8-5fe4-58cb-82d5-96720092e606",
+      "@type": "Package",
+      "declaredName": "calcs",
+      "elementId": "5d0ddbc8-5fe4-58cb-82d5-96720092e606",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "analysis::calcs"
+    },
+    {
+      "@id": "f87225b1-dd04-521b-9918-51d8c8d5dfc5",
+      "@type": "Function",
+      "dealKind": "calc_def",
+      "declaredName": "Drag",
+      "elementId": "f87225b1-dd04-521b-9918-51d8c8d5dfc5",
+      "metadata": {
+        "precision": {
+          "kind": "tolerance_relative",
+          "value": "<expr>"
+        }
+      },
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "analysis::calcs::Drag",
+      "resultFeature": {
+        "@id": "4d734894-3b20-5471-a6f8-c472ddda8b76",
+        "@type": "Feature",
+        "direction": "out",
+        "elementId": "4d734894-3b20-5471-a6f8-c472ddda8b76",
+        "featureTyping": [
+          {
+            "@id": "ad2e7dca-e342-5be7-9c16-e98397b59dc2"
+          }
+        ],
+        "isEnd": false,
+        "isResult": true
+      }
+    },
+    {
+      "@id": "12474dc5-e3ba-513b-8fba-01165d12d66a",
+      "@type": "Function",
+      "dealKind": "calc_def",
+      "declaredName": "KineticEnergy",
+      "elementId": "12474dc5-e3ba-513b-8fba-01165d12d66a",
+      "metadata": {
+        "precision": {
+          "kind": "sig_figures",
+          "value": "4"
+        }
+      },
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "analysis::calcs::KineticEnergy",
+      "resultFeature": {
+        "@id": "dbac919f-694d-5d39-b4aa-232cce9e4c94",
+        "@type": "Feature",
+        "direction": "out",
+        "elementId": "dbac919f-694d-5d39-b4aa-232cce9e4c94",
+        "featureTyping": [
+          {
+            "@id": "c6ab1a4f-dd55-5b7a-b17f-0097f02f27f1"
+          }
+        ],
+        "isEnd": false,
+        "isResult": true
+      }
+    },
+    {
+      "@id": "fd58f9c5-b7a7-5e2e-a0ae-0ade00ca6105",
+      "@type": "Function",
+      "dealKind": "calc_def",
+      "declaredName": "MarginOfSafety",
+      "elementId": "fd58f9c5-b7a7-5e2e-a0ae-0ade00ca6105",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "analysis::calcs::MarginOfSafety",
+      "resultFeature": {
+        "@id": "ece0367f-286f-56a3-afbd-6200b64de7cc",
+        "@type": "Feature",
+        "direction": "out",
+        "elementId": "ece0367f-286f-56a3-afbd-6200b64de7cc",
+        "featureTyping": [
+          {
+            "@id": "6887537a-5fc2-56ed-8263-86f77e1738a1"
+          }
+        ],
+        "isEnd": false,
+        "isResult": true
+      }
+    }
+  ],
+  "qualifiedName": "Workspace"
+}
