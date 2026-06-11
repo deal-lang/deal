@@ -1,0 +1,83 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "e809892e-ebea-5231-933a-4e328f0aaa1c",
+      "@type": "Package",
+      "declaredName": "ports",
+      "elementId": "e809892e-ebea-5231-933a-4e328f0aaa1c",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold02::ports"
+    },
+    {
+      "@id": "abe5faa0-5380-592b-8bf1-7d15ec43d453",
+      "@type": "PartDefinition",
+      "declaredName": "Battery",
+      "elementId": "abe5faa0-5380-592b-8bf1-7d15ec43d453",
+      "ownedMembership": [
+        {
+          "@id": "edee1def-aaed-5a8f-ac67-a5c373b3e6fc"
+        },
+        {
+          "@id": "644076e4-fb0b-5966-b02f-2e29977cb9ed"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "68c1ae16-4ac6-5bb5-add8-9cb9b8ef7601",
+          "@type": "FeatureMembership",
+          "elementId": "68c1ae16-4ac6-5bb5-add8-9cb9b8ef7601",
+          "ownedRelatedElement": [
+            {
+              "@id": "edee1def-aaed-5a8f-ac67-a5c373b3e6fc"
+            }
+          ]
+        },
+        {
+          "@id": "3680ec5c-c5a7-51da-aab3-1b31fc5cd378",
+          "@type": "FeatureMembership",
+          "elementId": "3680ec5c-c5a7-51da-aab3-1b31fc5cd378",
+          "ownedRelatedElement": [
+            {
+              "@id": "644076e4-fb0b-5966-b02f-2e29977cb9ed"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold02::ports::Battery"
+    },
+    {
+      "@id": "edee1def-aaed-5a8f-ac67-a5c373b3e6fc",
+      "@type": "PortUsage",
+      "declaredName": "chargeIn",
+      "direction": "in",
+      "elementId": "edee1def-aaed-5a8f-ac67-a5c373b3e6fc",
+      "ownedRelationship": [],
+      "portDefinition": [
+        {
+          "@id": "760c0e0b-3367-5ef7-8088-313cc622c6f8"
+        }
+      ],
+      "qualifiedName": "gold02::ports::Battery::chargeIn"
+    },
+    {
+      "@id": "644076e4-fb0b-5966-b02f-2e29977cb9ed",
+      "@type": "PortUsage",
+      "declaredName": "hvOut",
+      "direction": "out",
+      "elementId": "644076e4-fb0b-5966-b02f-2e29977cb9ed",
+      "ownedRelationship": [],
+      "portDefinition": [
+        {
+          "@id": "760c0e0b-3367-5ef7-8088-313cc622c6f8"
+        }
+      ],
+      "qualifiedName": "gold02::ports::Battery::hvOut"
+    }
+  ],
+  "qualifiedName": "Workspace"
+}

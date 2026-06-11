@@ -1,0 +1,15 @@
+// Regression fixture — Check #5 @trace reference validation (E2350)
+// Expects exactly 1 diagnostic: e_trace_target_not_found.
+//
+// SEMA-EXPECTED: [{code: "E2350"}]
+
+package sema.fixtures.trace;
+
+// @trace:<<satisfies>> points at GhostRequirement which does not exist in scope.
+// Sema must emit E2350 pointing at the annotation span.
+part def DriveModule {
+    @trace:<<satisfies>> GhostRequirement
+    public (
+        attribute power : Real [1];
+    )
+}

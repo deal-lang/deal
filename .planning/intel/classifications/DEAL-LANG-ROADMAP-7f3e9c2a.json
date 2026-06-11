@@ -1,0 +1,37 @@
+{
+  "source_path": "/Users/dunnock/projects/deal-lang/DEAL-LANG-ROADMAP.html",
+  "type": "PRD",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "DEAL — Development Roadmap",
+  "summary": "Six-phase product roadmap for the DEAL language, defining per-phase goals, milestones, deliverables, and exit gates from compiler foundation through ecosystem, simulation, and application.",
+  "scope": [
+    "DEAL language",
+    "Phase 0 — Foundation (completed spec work)",
+    "Phase 1 — Foundation (compiler core)",
+    "Phase 2 — Prove the Pipeline",
+    "Phase 3 — Editor Intelligence",
+    "Phase 4 — Ecosystem",
+    "Phase 5 — Simulation",
+    "Phase 6 — Application",
+    "lexer / tokenizer",
+    "recursive descent parser",
+    "Pratt expression precedence",
+    ".deal definition grammar",
+    ".dealx composition grammar",
+    "error recovery and diagnostics",
+    "C ABI boundary (Zig + Rust split)",
+    "19-file EV platform showcase model",
+    "WASM packaging (deferred decision)"
+  ],
+  "cross_refs": [
+    "deal.ebnf",
+    "dealx.ebnf",
+    "lexical.ebnf",
+    "showcase/*.deal",
+    "showcase/*.dealx"
+  ],
+  "locked": false,
+  "precedence": 2,
+  "notes": ""
+}

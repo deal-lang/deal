@@ -1,0 +1,2 @@
+package foo;
+<<not_a_valid_modifier>> part def P {}

@@ -1,0 +1,74 @@
+@header {
+    path:       packages/interfaces/electrical.deal
+    schema:     deal/0.1
+    created:    2026-05-16T08:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T08:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+
+package interfaces.electrical;
+
+import deal.std.units.{V, A, W, kW, ohm};
+
+/**
+ * High-voltage DC power interface for electric vehicle drivetrains.
+ * Designed for 400V and 800V architectures per SAE J1772 / CCS.
+ */
+port def HVDCPort {
+    @assumes: "Voltage range 300-850V DC nominal"
+
+    public (
+        attribute voltage : Voltage [1];
+        attribute maxCurrent : Current [1];
+        derived attribute maxPower : Power = voltage * maxCurrent;
+    )
+}
+
+/**
+ * Standard 12V auxiliary power bus for vehicle accessories.
+ */
+port def AuxPowerPort {
+    public (
+        attribute voltage : Voltage [1] = V(12);
+        attribute maxCurrent : Current [1] = A(40);
+    )
+}
+
+/**
+ * Bidirectional power interface supporting regenerative braking.
+ * Power flows in during acceleration, out during regeneration.
+ */
+port def RegenPowerPort <<specializes>> HVDCPort {
+    @rationale: "Regen braking recovers 15-30% of kinetic energy per DOE study"
+
+    public (
+        attribute regenEfficiency : Real [1];
+        attribute maxRegenPower : Power [1];
+    )
+}
+
+/**
+ * Controller Area Network bus interface.
+ * Standard vehicle communication backbone.
+ */
+interface def CANBus {
+    @assumes: "CAN 2.0B with 500kbps data rate"
+
+    public (
+        attribute baudRate : Integer [1] = 500000;
+        attribute maxNodes : Integer [1] = 32;
+    )
+}
+
+/**
+ * Mechanical rotary shaft interface.
+ */
+port def ShaftPort {
+    public (
+        attribute torque : Torque [1];
+        attribute speed : AngularVelocity [1];
+        derived attribute power : Power = torque * speed;
+    )
+}

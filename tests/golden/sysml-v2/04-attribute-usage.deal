@@ -1,0 +1,12 @@
+// Golden fixture 04: attribute usage
+// Exercises: AttributeUsage mapping (RESEARCH §Pattern 8)
+// Package: gold04.attr
+// Element: Engine (part_def) with mass attribute
+
+package gold04.attr;
+
+part def Engine {
+    public (
+        attribute mass : Real;
+    )
+}

@@ -1,0 +1,26 @@
+@header {
+    path:      packages/analysis/constraints.deal
+    schema:    deal/0.1
+    created:   2026-06-08T00:00:00Z by "David Dunnock <dunnoda@gmail.com>"
+    status:    draft
+    marking:   Unclassified
+}
+package analysis.constraints;
+
+import deal.std.units.{Force, Temperature, N, degC};
+
+/** Parameterized predicate — reusable, callable from any boolean context. */
+constraint def PositiveForce(f : Force) {
+    require f >= N(0)
+}
+
+/** Contextual invariant — references attributes in the enclosing scope. */
+constraint def BatteryLimits {
+    require packTemp <= degC(60) AND soc <= 1.0;
+}
+
+/** Multiple require lines are an implicit conjunction (all must hold). */
+constraint def ThermalWindow(t : Temperature) {
+    require t >= degC(-40);
+    require t <= degC(85);
+}

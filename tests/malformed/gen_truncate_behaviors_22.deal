@@ -1,0 +1,68 @@
+@header {
+    path:       packages/vehicle/behaviors.deal
+    schema:     deal/0.1
+    created:    2026-05-16T10:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T12:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+
+package vehicle.behaviors;
+
+/**
+ * Acceleration action — full power delivery sequence.
+ */
+action def Accelerate {
+    @assumes: "Battery SOC > 20% for full power availability"
+
+    public (
+        in attribute throttlePosition : Real [1];
+        in attribute currentSpeed : Velocity [1];
+        out attribute resultingAcceleration : Acceleration [1];
+    )
+
+    action requestTorque;
+    action deliverPower;
+    action controlTraction;
+
+    @flow:<<flows to>> deliverPower { from: requestTorque; }
+    @flow:<<flows to>> controlTraction { from: deliverPower; }
+}
+
+/**
+ * Regenerative braking — energy recovery during deceleration.
+ */
+action def RegenerativeBrake {
+    public (
+        in attribute brakePosition : Real [1];
+        in attribute currentSpeed : Velocity [1];
+        out attribute recoveredEnergy : Energy [1];
+    )
+
+    action calculateRegenTorque;
+    action blendMechanicalBrake;
+}
+
+/**
+ * DC fast charge session — 10% to 80% SOC.
+ */
+action def FastCharge {
+    @concerns: "Charge curve tapering above 60% SOC limits throughput"
+
+    public (
+        in attribute chargerPower : Power [1];
+        out attribute chargeTime : Duration [1];
+        out attribute energyDelivered : Energy [1];
+    )
+
+    action negotiate;
+    action preCondition;
+    action constantCurrent;
+    action constantVoltage;
+    action terminate;
+
+    @flow:<<flows to>> preCondition { from: negotiate; }
+    @flow:<<flows to>> constantCurrent { from: preCondition; }
+    @flow:<<flows to>> constantVoltage { from: constantCurrent; }
+    @flow:<<flows to>> terminate { f

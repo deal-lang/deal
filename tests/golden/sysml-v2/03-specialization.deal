@@ -1,0 +1,10 @@
+// Golden fixture 03: specialization edge
+// Exercises: Specialization mapping (RESEARCH §Pattern 8 — <<specializes>> edge)
+// Package: gold03.spec
+// Elements: Base (part_def), Derived <<specializes>> Base (part_def)
+
+package gold03.spec;
+
+part def Base { }
+
+part def Derived <<specializes>> Base { }

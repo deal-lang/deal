@@ -1,0 +1,63 @@
+@header {
+    path:       packages/analysis/precision.deal
+    schema:     deal/0.1
+    created:    2026-06-10T00:00:00Z by "David Dunnock <dunnoda@gmail.com>"
+    status:     draft
+    marking:    Unclassified
+}
+
+package analysis.precision;
+
+import deal.std.units.{Mass, Pressure, Force, kg, Pa, N, percent};
+import analysis.constraints.{PositiveForce};
+
+// ─── D-03 / D-06 Generalized-Precision Oracle ─────────────────────────────
+//
+// This file exercises the three precision attach points introduced by SD-23
+// and the D-06 amendment (generalized precision):
+//
+//   1. Attribute-value precision — ReturnContract after the DefaultValue
+//      expression in AttributeUsage, before the terminating ";".
+//   2. Require-value precision — ReturnContract on a require threshold.
+//   3. Calc-return precision (SD-23 original) — shown for completeness.
+//
+// Grammar oracle for Phase 05.2 Wave 1–3 parser implementation.
+// Parser MUST FAIL on this file pre-Wave-1 (calc/precision not yet lexed).
+// ─────────────────────────────────────────────────────────────────────────
+
+// ── 1. Attribute-value precision (D-06) ──────────────────────────────────
+
+part def SampleBody {
+    /** Significant-figures precision on an attribute value (D-06). */
+    attribute mass : Mass = kg(5) => sig 4;
+
+    /** Relative-tolerance precision on a derived attribute result (D-06). */
+    derived attribute dynamicPressure : Pressure = Pa(101325) => ± percent(1);
+
+    /** Absolute-tolerance precision (D-06 + SD-23 ± form). */
+    attribute structuralMargin : Real = 1.25 => ± 0.01;
+}
+
+// ── 2. Require-value precision (D-06) ────────────────────────────────────
+
+constraint def MassWithniBudget {
+    /** Require with a precision contract on the threshold value (D-06). */
+    require mass <= kg(1500) => sig 4;
+}
+
+constraint def PressurePositive {
+    /** Require with relative-tolerance precision (D-06). */
+    require dynamicPressure >= Pa(0) => ± percent(1);
+}
+
+// ── 3. Calc-return precision (SD-23 original, for completeness) ──────────
+
+/** Calc return contract — sig-figures (SD-23 original). */
+calc def StructuralMargin(allowable : Pressure, actual : Pressure) : Real => sig 4, PositiveForce {
+    return allowable / actual - 1;
+}
+
+/** Calc return contract — relative tolerance (SD-23 original). */
+calc def DragCoefficient(drag : Force, q : Pressure, area : Mass) : Real => ± percent(1) {
+    return drag / (q * area);
+}

@@ -1,0 +1,30 @@
+# Semgrep ignore — deal-lang
+#
+# Entries here exempt specific files from rule scanning where the rule's
+# threat model does not apply. Add a comment with each entry explaining
+# WHY the exemption is correct, and pair the exemption with documented
+# in-code defensive measures (the rule disable is belt-and-suspenders,
+# not a license to skip the actual defense).
+#
+# ----------------------------------------------------------------------
+# LSP server: filesystem walks of the user's own workspace
+# ----------------------------------------------------------------------
+# The `Path Traversal with Actix` (CWE-22) heuristic flags any data flow
+# from a `&Path` argument into a `std::fs::*` sink. That rule's threat
+# model is HTTP request handlers receiving untrusted client input.
+#
+# deal-lsp is an LSP server: it runs as the user's own local process,
+# inside their editor, against workspace roots their editor chose. There
+# is no remote attacker; the user already has full filesystem access to
+# the directories the LSP reads. Reading `<workspace_root>/deal.toml`
+# and walking `<workspace_root>/**/*.deal` is the LSP's defined contract,
+# not a vulnerability.
+#
+# Defensive measures inside the exempted files (must remain in place):
+#   - canonicalize() the workspace root before joining
+#   - starts_with() containment check on each resolved path
+#   - bounded recursion depth on the workspace walker
+#
+# Add new LSP filesystem-walking files here explicitly; do NOT broaden
+# to lsp/src/** without a security review.
+lsp/src/workspace.rs

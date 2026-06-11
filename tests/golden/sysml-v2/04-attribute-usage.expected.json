@@ -1,0 +1,55 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "6ef6088e-86cb-514b-8e4b-77fbf1deb2ec",
+      "@type": "Package",
+      "declaredName": "attr",
+      "elementId": "6ef6088e-86cb-514b-8e4b-77fbf1deb2ec",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold04::attr"
+    },
+    {
+      "@id": "15c2a00b-b926-5187-977d-b197a8e8950f",
+      "@type": "PartDefinition",
+      "declaredName": "Engine",
+      "elementId": "15c2a00b-b926-5187-977d-b197a8e8950f",
+      "ownedMembership": [
+        {
+          "@id": "dde8b121-3bf0-5a72-b3a2-b47a7e7d3db6"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "4d159035-9914-52fc-b3ac-6320aab74461",
+          "@type": "FeatureMembership",
+          "elementId": "4d159035-9914-52fc-b3ac-6320aab74461",
+          "ownedRelatedElement": [
+            {
+              "@id": "dde8b121-3bf0-5a72-b3a2-b47a7e7d3db6"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold04::attr::Engine"
+    },
+    {
+      "@id": "dde8b121-3bf0-5a72-b3a2-b47a7e7d3db6",
+      "@type": "AttributeUsage",
+      "declaredName": "mass",
+      "definition": [
+        {
+          "@id": "6887537a-5fc2-56ed-8263-86f77e1738a1"
+        }
+      ],
+      "elementId": "dde8b121-3bf0-5a72-b3a2-b47a7e7d3db6",
+      "ownedRelationship": [],
+      "qualifiedName": "gold04::attr::Engine::mass"
+    }
+  ],
+  "qualifiedName": "Workspace"
+}

@@ -1,0 +1,40 @@
+@header {
+    path:       packages/interfaces/thermal.deal
+    schema:     deal/0.1
+    created:    2026-05-16T08:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T08:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package interfaces.thermal;
+
+import deal.std.units.{degC, W, kW, L, kg};
+
+/**
+ * Liquid cooling loop port for thermal management.
+ * Used by battery, motor, and power electronics subsystems.
+ */
+port def CoolantPort {
+    public (
+        attribute coolantTemp : Temperature [1]
+        attribute flowRate : VolumeFlowRate [1];
+        attribute heatRejection : Power [1];
+    )
+}
+
+/**
+ * Thermal management interface definition.
+ * Any component that generates heat and requires active cooling
+ * implements this interface.
+ */
+interface def ThermallyManaged {
+    @assumes: "Glycol-water coolant mix at 50/50 ratio"
+    public (
+        in port coolantIn : CoolantPort [1];
+        out port coolantOut : CoolantPort [1];
+        attribute maxOperatingTemp : Temperature [1];
+        attribute thermalMass : Mass [1];
+        derived attribute heatGenerated : Power;
+    )
+}

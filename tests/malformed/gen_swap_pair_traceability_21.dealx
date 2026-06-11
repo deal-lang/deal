@@ -1,0 +1,226 @@
+@header {
+   p ath:       model/traceability.dealx
+    schema:     deal/0.1
+    created:    2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T19:30:00Z by "David Dunnock <david.dunnock@redacted.com>" via claude:claude-code
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package model;
+
+import deal.std.math.{max};
+import requirements.*;
+import use_cases.*;
+
+[<traceability>]
+        [<allocate from="NEED_RANGE" to="REQ_SYS_001" relationship=<<derives>> />]
+        [<allocate from="NEED_FAST_CHARGE" to="REQ_BAT_002" relationship=<<derives>> />]
+        [<allocate from="NEED_PERFORMANCE" to="REQ_SYS_002" relationship=<<derives>> />]
+        [<allocate from="NEED_ALL_WEATHER" to="REQ_BAT_003" relationship=<<derives>> />]
+        [<allocate from="NEED_ALL_WEATHER" to="REQ_THM_001" relationship=<<derives>> />]
+        [<allocate from="NEED_WEIGHT" to="REQ_SYS_003" relationship=<<derives>> />]
+        [<satisfy requirement="REQ_SYS_001" by="EVPlatform" method="simulation">] => {
+            actualRange: Length;
+            margin: Length;
+            marginPercent: Real;
+        }
+        criteria {
+            actualRange >= REQ_SYS_001.minRange
+        }
+        evidence simulation {
+            source: "simulations/dynamics/range_model.py";
+            binding: "range_model";
+            maps {
+                totalRange -> actualRange
+            }
+        }
+        evidence test {
+            source: "test/data/dyno-results-2026-q2.csv";
+            column: "range_km";
+            row: "epa_combined";
+            maps {
+                value -> actualRange
+            }
+        }
+        compute {
+            margin = actualRange - REQ_SYS_001.minRange;
+            marginPercent = margin / REQ_SYS_001.minRange * 100;
+        }
+    [</satisfy>]
+        [<satisfy requirement="REQ_SYS_002" by="Propulsion" method="simulation">] => {
+            actual060: Duration;
+            margin: Duration;
+            marginPercent: Real;
+        }
+        criteria {
+            actual060 <= REQ_SYS_002.maxTime
+        }
+        evidence simulation {
+            source: "simulations/dynamics/vehicle_dynamics.m";
+            binding: "vehicle_dynamics";
+            maps {
+                zerotoSixty -> actual060
+            }
+        }
+        compute {
+            margin = REQ_SYS_002.maxTime - actual060;
+            marginPercent = margin / REQ_SYS_002.maxTime * 100;
+        }
+    [</satisfy>]
+        [<satisfy requirement="REQ_SYS_003" by="EVPlatform" method="analysis">] => {
+            actualMass: Mass;
+            remainingBudget: Mass;
+            marginPercent: Real;
+        }
+        criteria {
+            actualMass <= REQ_SYS_003.maxMass
+        }
+        evidence analysis {
+            description: "Mass rollup from component definitions";
+            maps {
+                EVPlatform.curbWeight -> actualMass
+            }
+        }
+        compute {
+            remainingBudget = REQ_SYS_003.maxMass - actualMass;
+            marginPercent = remainingBudget / REQ_SYS_003.maxMass * 100;
+        }
+    [</satisfy>]
+        [<satisfy requirement="REQ_BAT_001" by="EnergyStorage.battery" method="analysis">] => {
+            actualCapacity: Energy;
+            margin: Energy;
+            marginPercent: Real;
+        }
+        criteria {
+            actualCapacity >= REQ_BAT_001.minCapacity
+        }
+        evidence design {
+            maps {
+                EnergyStorage.battery.usableCapacity -> actualCapacity
+            }
+        }
+        compute {
+            margin = actualCapacity - REQ_BAT_001.minCapacity;
+            marginPercent = margin / REQ_BAT_001.minCapacity * 100;
+        }
+    [</satisfy>]
+        [<satisfy requirement="REQ_BAT_002" by="EnergyStorage.battery" method="test" status="partial">] => {
+            chargeTime_25C: Duration;
+            chargeTime_neg10C: Duration;
+            chargeTime_neg30C: Duration;
+            worstCase: Duration;
+            margin: Duration;
+        }
+        criteria {
+            worstCase <= REQ_BAT_002.chargeTime
+        }
+        evidence test {
+            source: "test/data/charge-cycle-data.csv";
+            conditions: "ambient = 25°C, SOC 10% to 80%";
+            timestamp: "2026-04-15T09:00:00Z";
+            maps {
+                value -> chargeTime_25C
+            }
+        }
+        compute {
+            worstCase = max(chargeTime_25C, chargeTime_neg10C, chargeTime_neg30C);
+            margin = REQ_BAT_002.chargeTime - worstCase;
+        }
+        gap {
+            description: "30-min target met at 25°C; untested below 0°C";
+            missing: {
+                chargeTime_neg10C: "Cold weather test scheduled 2026-Q3",
+                chargeTime_neg30C: "Cold weather test scheduled 2026-Q3"
+            };
+            risk: "high";
+            mitigation: "Test facility booked at ALEC, Kapuskasing ON";
+        }
+    [</satisfy>]
+        [<satisfy requirement="REQ_BAT_003" by="EnergyStorage.battery" method="test">] => {
+            actualMaxTemp: Temperature;
+            actualMinTemp: Temperature;
+            highMargin: Temperature;
+            lowMargin: Temperature;
+        }
+        criteria {
+            actualMaxTemp <= REQ_BAT_003.maxTemp
+            AND actualMinTemp >= REQ_BAT_003.minTemp
+        }
+        evidence test {
+            source: "test/data/thermal-cycle-report.pdf";
+            timestamp: "2026-03-22T00:00:00Z";
+            maps {
+                maxRecorded -> actualMaxTemp,
+                minRecorded -> actualMinTemp
+            }
+        }
+        compute {
+            highMargin = REQ_BAT_003.maxTemp - actualMaxTemp;
+            lowMargin = actualMinTemp - REQ_BAT_003.minTemp;
+        }
+    [</satisfy>]
+        [<satisfy requirement="REQ_MOT_001" by="Propulsion.motor" method="simulation">] => {
+            actualPeakPower: Power;
+            margin: Power;
+            marginPercent: Real;
+        }
+        criteria {
+            actualPeakPower >= REQ_MOT_001.minPeakPower
+        }
+        evidence simulation {
+            source: "simulations/dynamics/motor_efficiency.m";
+            binding: "motor_efficiency";
+            maps {
+                peakPower -> actualPeakPower
+            }
+        }
+        evidence design {
+            maps {
+                Propulsion.motor.peakPower -> actualPeakPower
+            }
+        }
+        compute {
+            margin = actualPeakPower - REQ_MOT_001.minPeakPower;
+            marginPercent = margin / REQ_MOT_001.minPeakPower * 100;
+        }
+    [</satisfy>]
+        [<satisfy requirement="REQ_THM_001" by="Thermal" method="simulation">] => {
+            batteryMaxTemp: Temperature;
+            batteryMinTemp: Temperature;
+            highMargin: Temperature;
+            lowMargin: Temperature;
+        }
+        criteria {
+            batteryMaxTemp <= REQ_THM_001.maxTemp
+            AND batteryMinTemp >= REQ_THM_001.minTemp
+        }
+        evidence simulation {
+            source: "simulations/thermal/battery_thermal.py";
+            binding: "battery_thermal";
+            maps {
+                coolantOutTemp -> batteryMaxTemp
+            }
+        }
+        evidence test {
+            source: "test/data/thermal-cycle-report.pdf";
+            timestamp: "2026-03-22T00:00:00Z";
+            maps {
+                maxBatteryTemp -> batteryMaxTemp,
+                minBatteryTemp -> batteryMinTemp
+            }
+        }
+        compute {
+            highMargin = REQ_THM_001.maxTemp - batteryMaxTemp;
+            lowMargin = batteryMinTemp - REQ_THM_001.minTemp;
+        }
+    [</satisfy>]
+        [<validate requirement="REQ_SYS_001" by="LongDistanceTrip" scenario="450km highway trip with one charge stop" status="passed" evidence="Use case analysis completed 2026-05-01">]
+    [</validate>]
+        [<validate requirement="REQ_BAT_002" by="DCFastCharge" scenario="10% to 80% SOC at 250kW, ambient 25°C" status="passed" evidence="Validated against charge test data">]
+    [</validate>]
+        [<validate requirement="REQ_BAT_002" by="ColdWeatherCharge" scenario="10% to 80% SOC at 250kW, ambient -10°C" status="not_tested" evidence="Awaiting cold-weather test facility — scheduled 2026-Q3">]
+    [</validate>]
+        [<validate requirement="REQ_SYS_001" by="DailyCommute" scenario="80km round trip from 30% SOC" status="passed" evidence="Analytical — 80km uses ~15kWh, 30% SOC = 25.5kWh available">]
+    [</validate>]
+[</traceability>]

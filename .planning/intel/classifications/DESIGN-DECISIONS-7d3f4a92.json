@@ -1,0 +1,28 @@
+{
+  "source_path": "/Users/dunnock/projects/deal-lang/spec/grammar/DESIGN-DECISIONS.md",
+  "type": "ADR",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "DEAL Design Decisions — Consolidated",
+  "summary": "Consolidated log of 65 LOCKED design decisions for the DEAL language across foundational architecture, naming, language model, file/project structure, syntax, and simulation integration.",
+  "scope": [
+    "DEAL language",
+    "DEAL IR / compiler infrastructure",
+    "foundational architecture (FA-1..FA-5)",
+    "naming conventions (NC-1)",
+    "language model alignment (LM-1..LM-3)",
+    "file structure and @header CM fields (FS-1..FS-4)",
+    "project structure and deal.toml manifest (PS-1..PS-10)",
+    "syntax for definitions (SD-1..SD-20)",
+    "syntax for compositions (CS-1..CS-16)",
+    "simulation integration (SIM-1..SIM-5)",
+    ".deal and .dealx file formats",
+    "deal CLI",
+    "standard library and package system",
+    "SysML v2 / ReqIF / FMI export targets"
+  ],
+  "cross_refs": [],
+  "locked": true,
+  "precedence": 0,
+  "notes": "Manifest declared ADR with precedence 0. Document is a consolidated decision log where every decision header is marked [LOCKED]; treated as a single ADR-equivalent locked decisions corpus per run notes. No external markdown cross-references found — only internal TOC anchors and code-sample file paths (.deal/.dealx)."
+}

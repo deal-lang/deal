@@ -1,0 +1,21 @@
+// Regression fixture — Check #6 import resolution (E2400)
+// Expects exactly 1 diagnostic: e_unresolved_import.
+//
+// A single-segment import whose name matches a locally-declared symbol
+// is structurally invalid (can only refer to the local declaration, not
+// an external package).  Sema emits E2400 for this case in Phase 2.
+//
+// SEMA-EXPECTED: [{code: "E2400"}]
+
+package sema.fixtures.import_resolution;
+
+// Gadget is declared locally as a part_def below.
+// Importing "Gadget" as a bare single-segment path is invalid —
+// it shadows the local declaration and refers to no real package.
+import Gadget;
+
+part def Gadget {
+    public (
+        attribute value : Real [1];
+    )
+}

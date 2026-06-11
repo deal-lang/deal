@@ -1,0 +1,44 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "a369c101-9025-52c6-8113-5afad5d15412",
+      "@type": "Package",
+      "declaredName": "req",
+      "elementId": "a369c101-9025-52c6-8113-5afad5d15412",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold05::req"
+    },
+    {
+      "@id": "1c8cfa7c-5012-5baf-8026-15d9f63e9e16",
+      "@type": "RequirementDefinition",
+      "declaredName": "REQ_X",
+      "elementId": "1c8cfa7c-5012-5baf-8026-15d9f63e9e16",
+      "ownedMembership": [
+        {
+          "@id": "b27751d9-0de9-5aa6-981e-2738210ed371"
+        }
+      ],
+      "ownedRelationship": [],
+      "qualifiedName": "gold05::req::REQ_X"
+    },
+    {
+      "@id": "b27751d9-0de9-5aa6-981e-2738210ed371",
+      "@type": "AttributeUsage",
+      "declaredName": "text",
+      "definition": [
+        {
+          "@id": "ede38242-662d-56b4-ae67-944c3b1c0df4"
+        }
+      ],
+      "elementId": "b27751d9-0de9-5aa6-981e-2738210ed371",
+      "ownedRelationship": [],
+      "qualifiedName": "gold05::req::REQ_X::text"
+    }
+  ],
+  "qualifiedName": "Workspace"
+}

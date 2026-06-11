@@ -1,0 +1,21 @@
+// Regression fixture — Check #7 dimensional algebra (E2502)
+// Expects at least 1 diagnostic: e_unknown_unit.
+//
+// An attribute uses a unit constructor (furlongs()) that has no declared
+// dimension in scope. The unit literal is unresolvable — it is neither a
+// built-in deal.std.units entry nor imported from any package.
+//
+// This file MUST parse cleanly (parse exits 0).
+// The unknown-unit violation is a semantic error only — not a parse error.
+//
+// SEMA-EXPECTED: [{code: "E2502"}]
+
+package sema.fixtures.unknown_unit;
+
+part def OldVehicle {
+    public (
+        // Error: furlongs() is not a declared unit in any imported dimension.
+        // E2502: unit literal not resolvable to any declared dimension.
+        attribute legacyRange : Real [1] = furlongs(400);
+    )
+}

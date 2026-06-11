@@ -1,0 +1,456 @@
+# release.yml — Plan 03-06 deal-lsp + vscode-deal release pipeline.
+#
+# Trigger: `git push v0.3.0` (or any `v*.*.*` tag) triggers the 4-job
+# pipeline. workflow_dispatch is also available for manual runs from the
+# Actions UI without tagging.
+#
+# Architecture (RESEARCH section 12, locked by D-50..D-53):
+#   Job 1 build-libdeal      - cross-compile libdeal.a via Zig (5 targets)
+#   Job 2 build-deal-lsp     - link deal-lsp natively per-OS runner (5 rows)
+#   Job 3 package-vsix       - patch bootstrap.ts SHA-256 manifest, package
+#                              main .vsix + 4 offline .vsix variants
+#   Job 4 publish-release    - upload all artifacts + SHA256SUMS to GitHub
+#                              Releases via softprops/action-gh-release
+#
+# === MANUAL-PUBLISH VARIANT (current state, 2026-05-27) ===
+#
+# The VS Code Marketplace publish step (originally Job 5 in PLAN.md) is
+# OMITTED from the active workflow. Reason: GitHub Environments with
+# required-reviewer deployment protection are unavailable on the FREE plan
+# for PRIVATE repos (Pro/Team/Enterprise required, OR public visibility).
+# Without that gate, an automated `vsce publish` step would have NO manual
+# approval barrier - leaving the Marketplace PAT (`VSCE_PAT`) as the only
+# defense against a compromised CI runner shipping a hostile .vsix to all
+# users (T-3-02 threat-model disposition: mitigate - degrades to "accept"
+# without the gate, which is unacceptable for a tool that runs binaries
+# on user machines).
+#
+# Until the repo can be upgraded to a plan supporting required-reviewer
+# Environments (or made public), the v0.3.0 Marketplace publish is done
+# MANUALLY from the user's local machine after Job 4 has uploaded the
+# .vsix to GitHub Releases. The future automated job stub lives in a
+# commented block at the bottom of this file for easy re-activation once
+# the gate is available.
+#
+# === MANUAL PUBLISH RUNBOOK ===
+#
+# After this workflow's Job 4 (publish-release) completes for tag vX.Y.Z:
+#
+#   # 1. Download the main .vsix from the GH Release.
+#   gh release download vX.Y.Z --pattern 'vscode-deal.vsix' --dir ./dist
+#
+#   # 2. Verify SHA-256 against the published SHA256SUMS file.
+#   gh release download vX.Y.Z --pattern 'SHA256SUMS' --dir ./dist
+#   (cd ./dist && shasum -a 256 -c <(grep 'vscode-deal\.vsix' SHA256SUMS))
+#
+#   # 3. Publish to the Marketplace using the local VSCE_PAT (kept in the
+#   #    user's password manager - NOT consumed by CI in this variant).
+#   export VSCE_PAT='<paste from password manager>'
+#   npx vsce publish --packagePath ./dist/vscode-deal.vsix --pat "$VSCE_PAT"
+#
+#   # 4. Repeat step 3 for each offline .vsix variant (per-target publish):
+#   for triple in darwin-arm64 darwin-x64 linux-x64 win32-x64; do
+#     gh release download vX.Y.Z --pattern "vscode-deal-${triple}-offline.vsix" --dir ./dist
+#     npx vsce publish --packagePath "./dist/vscode-deal-${triple}-offline.vsix" --pat "$VSCE_PAT"
+#   done
+#
+# === Local dry-run ===
+#
+# To smoke-test this workflow before pushing a real tag, install the
+# `act` CLI (https://github.com/nektos/act) and run:
+#
+#   act push -e <(echo '{"ref":"refs/tags/v0.3.0"}') --job build-libdeal
+#
+# === Action SHA pinning (T-3-07 supply-chain) ===
+#
+# GitHub-owned actions (actions/*) are pinned to the @v4 major-version tag,
+# which auto-updates within v4.x.y. Plan 06 notes this is acceptable for
+# GitHub-owned actions; SHA-pinning is preferred but the marginal security
+# improvement is small given that the actions/* repositories themselves
+# would have to be compromised. Third-party actions (mlugg/setup-zig,
+# dtolnay/rust-toolchain, softprops/action-gh-release) carry an inline
+# TODO indicating that SHA-pinning is REQUIRED before this workflow is
+# enabled for production releases. Until SHA-pinning is done, the workflow
+# is suitable for CI smoke (artifact generation) but NOT for a release
+# that ships to end-users without a manual review step (the current
+# manual-publish variant satisfies this constraint).
+
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  # ----------------------------------------------------------------
+  # Job 1 - build-libdeal
+  #
+  # Cross-compile libdeal.a for 5 targets via Zig (D-53). All targets
+  # are built on a single Linux runner - Zig's C cross-compiler is the
+  # one tool capable of producing artifacts for all 4 deal-lsp triples
+  # (plus the musl variant) without per-runner cross-link toolchains.
+  # ----------------------------------------------------------------
+  build-libdeal:
+    name: build-libdeal-${{ matrix.target }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-macos
+          - x86_64-macos
+          - x86_64-linux-gnu
+          - x86_64-linux-musl
+          - x86_64-windows
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4 # T-3-07: SHA-pin before production enable
+        with:
+          submodules: recursive
+
+      - name: Setup Zig 0.16.0
+        uses: mlugg/setup-zig@v2 # TODO T-3-07: replace with commit SHA
+        with:
+          version: 0.16.0
+
+      - name: Build libdeal.a (target=${{ matrix.target }})
+        run: |
+          zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+
+      - name: Emit libdeal.a SHA-256
+        run: |
+          sha256sum zig-out/lib/libdeal.a > zig-out/lib/libdeal-${{ matrix.target }}.sha256
+
+      - name: Upload libdeal.a artifact
+        uses: actions/upload-artifact@v4 # T-3-07: SHA-pin before production enable
+        with:
+          name: libdeal-${{ matrix.target }}
+          path: |
+            zig-out/lib/libdeal.a
+            zig-out/lib/libdeal-${{ matrix.target }}.sha256
+          retention-days: 90
+          if-no-files-found: error
+
+  # ----------------------------------------------------------------
+  # Job 2 - build-deal-lsp
+  #
+  # 5-row matrix that links each cross-built libdeal.a into a native
+  # deal-lsp binary on the corresponding target's OS runner. The musl
+  # row runs on the linux-x64-gnu runner with a separate Rust target
+  # (x86_64-unknown-linux-musl) and consumes the musl libdeal.a.
+  # ----------------------------------------------------------------
+  build-deal-lsp:
+    name: build-deal-lsp-${{ matrix.triple }}
+    needs: build-libdeal
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            triple: darwin-arm64
+            libdeal-target: aarch64-macos
+            rust-target: ''
+          - os: macos-13
+            triple: darwin-x64
+            libdeal-target: x86_64-macos
+            rust-target: ''
+          - os: ubuntu-22.04
+            triple: linux-x64-gnu
+            libdeal-target: x86_64-linux-gnu
+            rust-target: ''
+          - os: ubuntu-22.04
+            triple: linux-x64-musl
+            libdeal-target: x86_64-linux-musl
+            rust-target: x86_64-unknown-linux-musl
+          - os: windows-2022
+            triple: win-x64
+            libdeal-target: x86_64-windows
+            rust-target: ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download libdeal.a artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: libdeal-${{ matrix.libdeal-target }}
+          path: zig-out/lib
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable # TODO T-3-07: pin SHA + use commit-pinned action
+
+      - name: Add musl Rust target
+        if: matrix.rust-target == 'x86_64-unknown-linux-musl'
+        run: rustup target add x86_64-unknown-linux-musl
+
+      - name: Install musl-gcc (musl row only)
+        if: matrix.rust-target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Cargo build deal-lsp (release)
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.rust-target }}" ]; then
+            cargo build --release -p deal-lsp --target ${{ matrix.rust-target }}
+          else
+            cargo build --release -p deal-lsp
+          fi
+
+      - name: Cargo test workspace
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.rust-target }}" ]; then
+            cargo test --workspace --target ${{ matrix.rust-target }}
+          else
+            cargo test --workspace
+          fi
+
+      # phase-3-gate-fresh required as of Plan 07 (continue-on-error removed).
+      # The gate now exists (build.zig phase-3-gate + phase-3-gate-fresh
+      # blocks) and exits 0 against a clean worktree, so CI must enforce it.
+      - name: Setup Zig for phase-3-gate-fresh (linux-x64-gnu only)
+        if: matrix.triple == 'linux-x64-gnu'
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Run phase-3-gate-fresh
+        if: matrix.triple == 'linux-x64-gnu'
+        run: zig build phase-3-gate-fresh
+
+      - name: Locate deal-lsp binary (Unix)
+        if: matrix.triple != 'win-x64'
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ -n "${{ matrix.rust-target }}" ]; then
+            cp target/${{ matrix.rust-target }}/release/deal-lsp staging/deal-lsp
+          else
+            cp target/release/deal-lsp staging/deal-lsp
+          fi
+
+      - name: Locate deal-lsp binary (Windows)
+        if: matrix.triple == 'win-x64'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item target\release\deal-lsp.exe staging\deal-lsp.exe
+
+      - name: Upload deal-lsp artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deal-lsp-${{ matrix.triple }}
+          path: staging/
+          retention-days: 90
+          if-no-files-found: error
+
+  # ----------------------------------------------------------------
+  # Job 3 - package-vsix
+  #
+  # Runs after all 5 deal-lsp builds are uploaded. Patches the SHA-256
+  # manifest baked into vscode-deal/src/bootstrap.ts with the real
+  # hashes of the freshly-built binaries (D-52 lockstep), then packages:
+  #   * vscode-deal.vsix       (main, no bundled binary - auto-download)
+  #   * vscode-deal-<triple>-offline.vsix x4 (with bundled binary per D-51)
+  #
+  # The 4 offline variants use vsce-target mapping:
+  #   darwin-arm64    -> darwin-arm64
+  #   darwin-x64      -> darwin-x64
+  #   linux-x64-gnu   -> linux-x64
+  #   win-x64         -> win32-x64
+  # The linux-x64-musl binary ships in the GH Release for auto-download
+  # but is NOT a Marketplace per-platform target (vsce has no musl row).
+  # ----------------------------------------------------------------
+  package-vsix:
+    name: package-vsix
+    needs: build-deal-lsp
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout deal/
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Checkout vscode-deal/ (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: deal-lang/vscode-deal
+          path: vscode-deal
+          submodules: recursive
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download all deal-lsp artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: deal-lsp-*
+          path: artifacts/
+
+      - name: Install vscode-deal npm deps
+        working-directory: vscode-deal
+        run: npm ci --no-audit --no-fund
+
+      - name: Compile TypeScript
+        working-directory: vscode-deal
+        run: npm run compile
+
+      - name: Patch bootstrap.ts SHA-256 manifest
+        run: node vscode-deal/scripts/patch-bootstrap-sha.js artifacts/
+
+      - name: Package main .vsix (Marketplace auto-download path)
+        working-directory: vscode-deal
+        run: npx vsce package -o vscode-deal.vsix
+
+      - name: Package offline .vsix - darwin-arm64
+        working-directory: vscode-deal
+        run: |
+          mkdir -p server
+          cp ../artifacts/deal-lsp-darwin-arm64/deal-lsp server/deal-lsp
+          chmod +x server/deal-lsp
+          npx vsce package --target darwin-arm64 -o vscode-deal-darwin-arm64-offline.vsix
+          rm -rf server
+
+      - name: Package offline .vsix - darwin-x64
+        working-directory: vscode-deal
+        run: |
+          mkdir -p server
+          cp ../artifacts/deal-lsp-darwin-x64/deal-lsp server/deal-lsp
+          chmod +x server/deal-lsp
+          npx vsce package --target darwin-x64 -o vscode-deal-darwin-x64-offline.vsix
+          rm -rf server
+
+      - name: Package offline .vsix - linux-x64-gnu
+        working-directory: vscode-deal
+        run: |
+          mkdir -p server
+          cp ../artifacts/deal-lsp-linux-x64-gnu/deal-lsp server/deal-lsp
+          chmod +x server/deal-lsp
+          npx vsce package --target linux-x64 -o vscode-deal-linux-x64-gnu-offline.vsix
+          rm -rf server
+
+      - name: Package offline .vsix - win-x64
+        working-directory: vscode-deal
+        run: |
+          mkdir -p server
+          cp ../artifacts/deal-lsp-win-x64/deal-lsp.exe server/deal-lsp.exe
+          npx vsce package --target win32-x64 -o vscode-deal-win-x64-offline.vsix
+          rm -rf server
+
+      - name: Upload .vsix artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: vscode-deal/*.vsix
+          retention-days: 90
+          if-no-files-found: error
+
+  # ----------------------------------------------------------------
+  # Job 4 - publish-release
+  #
+  # Downloads all artifacts, generates SHA256SUMS over the deal-lsp
+  # binaries + .vsix files, then uploads the lot to a GitHub Release
+  # for the triggering tag. The vscode-deal extension's bootstrap.ts
+  # pulls deal-lsp from this Release URL at runtime (D-50).
+  # ----------------------------------------------------------------
+  publish-release:
+    name: publish-release
+    needs: package-vsix
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # required by softprops/action-gh-release
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release/
+
+      - name: Flatten artifacts + generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # Copy deal-lsp binaries with triple-suffixed filenames so the
+          # bootstrap.ts URL convention matches (deal-lsp-<triple>[.exe]).
+          for triple in darwin-arm64 darwin-x64 linux-x64-gnu linux-x64-musl; do
+            cp "release/deal-lsp-${triple}/deal-lsp" "out/deal-lsp-${triple}"
+            # Also create a .tar.gz wrapper for the auto-download path.
+            tar -czf "out/deal-lsp-${triple}.tar.gz" -C "release/deal-lsp-${triple}" "deal-lsp"
+          done
+          cp release/deal-lsp-win-x64/deal-lsp.exe out/deal-lsp-win-x64.exe
+          tar -czf out/deal-lsp-win-x64.tar.gz -C release/deal-lsp-win-x64 deal-lsp.exe
+
+          # Copy all .vsix files.
+          cp release/vsix/*.vsix out/
+
+          # Generate SHA256SUMS over everything, sorted alphabetically.
+          cd out
+          ( sha256sum deal-lsp-* vscode-deal*.vsix | LC_ALL=C sort -k2 ) > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub Release + upload artifacts
+        uses: softprops/action-gh-release@v2 # TODO T-3-07: pin SHA before production enable
+        with:
+          files: |
+            out/deal-lsp-*
+            out/vscode-deal*.vsix
+            out/SHA256SUMS
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+# ----------------------------------------------------------------
+# === FUTURE: publish-marketplace job (currently OMITTED) ===
+#
+# Activate this stub once the repo can be upgraded to a plan supporting
+# required-reviewer Environments (GitHub Pro/Team/Enterprise OR public
+# visibility). Until then, the v0.3.0 Marketplace publish is done
+# manually per the runbook at the top of this file.
+#
+# To re-enable:
+#   1. Create a `marketplace` Environment under repo Settings -> Environments.
+#   2. Add yourself as a required reviewer + (optionally) a wait timer.
+#   3. Move the VSCE_PAT secret from Org Settings -> Secrets -> Actions
+#      down into the `marketplace` Environment's Secrets list (scoped).
+#   4. Un-comment the YAML block below.
+#   5. Remove the runbook sections at the top of this file.
+#
+#  publish-marketplace:
+#    name: publish-marketplace
+#    needs: publish-release
+#    runs-on: ubuntu-22.04
+#    environment:
+#      name: marketplace          # manual-approval gate (required reviewer)
+#      url: https://marketplace.visualstudio.com/items?itemName=deal-lang.vscode-deal
+#    steps:
+#      - name: Download vsix artifact
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: vsix
+#          path: vsix/
+#      - name: Publish main .vsix to Marketplace
+#        env:
+#          VSCE_PAT_ENV: ${{ secrets.VSCE_PAT }}
+#        run: npx vsce publish --packagePath vsix/vscode-deal.vsix --pat "$VSCE_PAT_ENV"
+#      - name: Publish darwin-arm64 offline .vsix
+#        env:
+#          VSCE_PAT_ENV: ${{ secrets.VSCE_PAT }}
+#        run: npx vsce publish --packagePath vsix/vscode-deal-darwin-arm64-offline.vsix --pat "$VSCE_PAT_ENV"
+#      - name: Publish darwin-x64 offline .vsix
+#        env:
+#          VSCE_PAT_ENV: ${{ secrets.VSCE_PAT }}
+#        run: npx vsce publish --packagePath vsix/vscode-deal-darwin-x64-offline.vsix --pat "$VSCE_PAT_ENV"
+#      - name: Publish linux-x64-gnu offline .vsix
+#        env:
+#          VSCE_PAT_ENV: ${{ secrets.VSCE_PAT }}
+#        run: npx vsce publish --packagePath vsix/vscode-deal-linux-x64-gnu-offline.vsix --pat "$VSCE_PAT_ENV"
+#      - name: Publish win-x64 offline .vsix
+#        env:
+#          VSCE_PAT_ENV: ${{ secrets.VSCE_PAT }}
+#        run: npx vsce publish --packagePath vsix/vscode-deal-win-x64-offline.vsix --pat "$VSCE_PAT_ENV"

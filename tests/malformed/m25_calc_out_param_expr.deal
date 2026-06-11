@@ -1,0 +1,21 @@
+// m25 — purity violation: out-param calc used in expression position (E2600).
+// Semantic check: a calc with an `out` parameter is statement-valued and cannot
+// appear in expression position (D7 purity rule, SD-21).
+//
+// Empirical-truth divergence (Plan 05.2-04 Task 2):
+//   Intended sema code:    E2600 (purity violation — sema-only, not parser-visible)
+//   First parser code:     E2601 (calc body missing return — the body below has no `return`)
+//   Sema also emits:       E2600 (purity violation), verified in sema_calc.zig test E2600_purity_violation
+//
+// The recovery_corpus pin uses the OBSERVED first-parser code (E2601).
+// The purity violation itself is pinned at the sema level in tests/unit/sema_calc.zig.
+//
+package test.malformed;
+
+calc def GetResult(out result : Real) : Real {
+    attribute local : Real = 42.0;
+}
+
+part def Foo {
+    attribute x : Real = GetResult(0.0) + 1.0;
+}

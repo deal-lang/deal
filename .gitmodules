@@ -1,0 +1,4 @@
+[submodule "spec"]
+	path = spec
+	url = git@github.com:deal-lang/spec.git
+	branch = main

@@ -1,0 +1,105 @@
+@header {
+    path:       packages/vehicle/components.deal
+    schema:     deal/0.1
+    created:    2026-05-16T09:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T12:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+
+package vehicle.components;
+
+import deal.std.units.{kg, kW, W, m, L, mm, kPa};
+import interfaces.{HVDCPort, CoolantPort, CANBus, ShaftPort};
+
+/**
+ * Power electronics inverter.
+ * Converts DC from battery to 3-phase AC for motor drive.
+ */
+part def Inverter {
+    public (
+        in port dcIn : HVDCPort [1];
+        out port acOut : HVDCPort [1];
+        inout port canBus : CANBus [1];
+        in port coolantIn : CoolantPort [1];
+        out port coolantOut : CoolantPort [1];
+
+        attribute peakPower : Power [1] = kW(270);
+        attribute efficiency : Real [1] = 0.97;
+        attribute mass : Mass [1] = kg(12);
+    )
+}
+
+/**
+ * Reduction gearbox — single-speed for EV drivetrain.
+ */
+part def ReductionGear {
+    public (
+        in port input : ShaftPort [1];
+        out port output : ShaftPort [1];
+
+        attribute ratio : Real [1] = 9.0
+        attribute efficiency : Real [1] = 0.98;
+        attribute mass : Mass [1] = kg(25);
+    )
+}
+
+/**
+ * Coolant pump for active thermal management loop.
+ */
+part def CoolantPump {
+    public (
+        in port pumpIn : CoolantPort [1];
+        out port pumpOut : CoolantPort [1];
+
+        attribute maxFlowRate : VolumeFlowRate [1];
+        attribute power : Power [1];
+    )
+}
+
+/**
+ * Heat exchanger — rejects heat from coolant to ambient air.
+ */
+part def HeatExchanger {
+    public (
+        in port hotIn : CoolantPort [1];
+        out port coldOut : CoolantPort [1];
+
+        attribute maxHeatRejection : Power [1];
+    )
+}
+
+/**
+ * Coolant reservoir — expansion tank and air separation.
+ */
+part def CoolantReservoir {
+    public (
+        in port reservoirIn : CoolantPort [1];
+        out port reservoirOut : CoolantPort [1];
+
+        attribute volume : Volume [1];
+    )
+}
+
+/**
+ * Chassis structure — monocoque skateboard platform.
+ */
+part def Chassis {
+    public (
+        attribute wheelbase : Length [1] = m(2.95);
+        attribute trackWidth : Length [1] = m(1.65);
+        attribute structuralMass : Mass [1] = kg(380);
+    )
+}
+
+/**
+ * Wheel assembly — tire, rim, brake, and hub bearing.
+ */
+part def Wheel {
+    public (
+        attribute diameter : Length [1] = m(0.72);
+        attribute mass : Mass [1] = kg(28);
+        attribute rollingResistance : Real [1] = 0.008;
+    )
+}

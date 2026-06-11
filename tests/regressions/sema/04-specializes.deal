@@ -1,0 +1,17 @@
+// Regression fixture — Check #4 specializes cycle detection (E2300)
+// Expects exactly 1 diagnostic: e_specialization_cycle.
+//
+// A specializes itself directly — trivial cycle: A -> A.
+// Sema must emit E2300 for the direct self-specialization.
+//
+// SEMA-EXPECTED: [{code: "E2300"}]
+
+package sema.fixtures.specializes;
+
+// Direct self-specialization — Alpha refers to itself.
+// Sema detects this via the current_name == target_name check (T-02-08).
+part def Alpha <<specializes>> Alpha {
+    public (
+        attribute weight : Real [1];
+    )
+}

@@ -1,0 +1,2 @@
+package model;
+[<connect from="bms" to="ecu" via={f(,)} />]

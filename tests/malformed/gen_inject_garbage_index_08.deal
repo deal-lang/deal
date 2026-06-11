@@ -1,0 +1,13 @@
+@header {
+    path:       packages/requirements/index.deal
+    schema:     deal/0.1
+    created:    2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+@@@&&&!!!    modified:   2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package requirements;
+
+export needs.{NEED_RANGE, NEED_FAST_CHARGE, NEED_PERFORMANCE, NEED_ALL_WEATHER, NEED_WEIGHT};
+export system.{REQ_SYS_001, REQ_SYS_002, REQ_SYS_003, REQ_BAT_001, REQ_BAT_002, REQ_BAT_003, REQ_MOT_001, REQ_THM_001};

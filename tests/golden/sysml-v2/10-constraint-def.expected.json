@@ -1,0 +1,45 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "fb18af93-a7a3-5910-845b-822cc562da63",
+      "@type": "Package",
+      "declaredName": "constraints",
+      "elementId": "fb18af93-a7a3-5910-845b-822cc562da63",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "analysis::constraints"
+    },
+    {
+      "@id": "c8a8c556-d1a5-5ae7-9df1-02d563d0d7bb",
+      "@type": "Predicate",
+      "dealKind": "constraint_def",
+      "declaredName": "BatteryLimits",
+      "elementId": "c8a8c556-d1a5-5ae7-9df1-02d563d0d7bb",
+      "ownedRelationship": [],
+      "qualifiedName": "analysis::constraints::BatteryLimits"
+    },
+    {
+      "@id": "ade76dd6-585d-54d6-b546-7c52705230fc",
+      "@type": "Predicate",
+      "dealKind": "constraint_def",
+      "declaredName": "PositiveForce",
+      "elementId": "ade76dd6-585d-54d6-b546-7c52705230fc",
+      "ownedRelationship": [],
+      "qualifiedName": "analysis::constraints::PositiveForce"
+    },
+    {
+      "@id": "9d775859-88df-5508-adc2-dd9f0fe73e7b",
+      "@type": "Predicate",
+      "dealKind": "constraint_def",
+      "declaredName": "ThermalWindow",
+      "elementId": "9d775859-88df-5508-adc2-dd9f0fe73e7b",
+      "ownedRelationship": [],
+      "qualifiedName": "analysis::constraints::ThermalWindow"
+    }
+  ],
+  "qualifiedName": "Workspace"
+}

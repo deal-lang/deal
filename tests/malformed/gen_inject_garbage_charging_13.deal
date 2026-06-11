@@ -1,0 +1,89 @@
+@header {
+    path:       packages/use-cases/charging.deal
+    schema:     deal/0.1
+    created:    2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T18:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package use_cases.charging;
+
+import deal.std.units.{kW, min, degC};
+import vehicle.{EVPlatform};
+
+/**
+ * DC fast charge session at a public charging station.
+ * Validates fast charge requirement under normal conditions.
+ */
+use case def DCFastCharge {
+    @flow:<<flows to>> authenticate {
+@@@&&&!!!        from: plugIn;
+    }
+    @flow:<<flows to>> preConditionBattery {
+        from: authenticate;
+    }
+    @flow:<<flows to>> charge {
+        from: preConditionBattery;
+    }
+    @flow:<<flows to>> unplug {
+        from: charge;
+    }
+    public (
+        actor driver : Person [1];
+        subject vehicle : EVPlatform [1];
+        attribute chargerPower : Power [1] = kW(250);
+        attribute ambientTemp : Temperature [1] = degC(25);
+        attribute startSOC : Real [1] = 0.10;
+        attribute targetSOC : Real [1] = 0.80;
+    )
+    precondition lowBattery {
+        vehicle.battery.soc <= startSOC
+    }
+    postcondition charged {
+        vehicle.battery.soc >= targetSOC
+    }
+    action plugIn;
+    action authenticate;
+    action preConditionBattery;
+    action charge;
+    action unplug;
+}
+
+/**
+ * Cold weather fast charge — stress scenario.
+ * Validates charging when battery requires thermal preconditioning.
+ */
+use case def ColdWeatherCharge {
+    @flow:<<flows to>> authenticate {
+        from: plugIn;
+    }
+    @flow:<<flows to>> preHeatBattery {
+        from: authenticate;
+    }
+    @flow:<<flows to>> charge {
+        from: preHeatBattery;
+    }
+    @flow:<<flows to>> unplug {
+        from: charge;
+    }
+    public (
+        actor driver : Person [1];
+        subject vehicle : EVPlatform [1];
+        attribute chargerPower : Power [1] = kW(250);
+        attribute ambientTemp : Temperature [1] = degC(-10);
+        attribute startSOC : Real [1] = 0.10;
+        attribute targetSOC : Real [1] = 0.80;
+    )
+    precondition coldBattery {
+        vehicle.battery.soc <= startSOC AND vehicle.battery.packTemp <= degC(5)
+    }
+    postcondition charged {
+        vehicle.battery.soc >= targetSOC
+    }
+    action plugIn;
+    action authenticate;
+    action preHeatBattery;
+    action charge;
+    action unplug;
+}

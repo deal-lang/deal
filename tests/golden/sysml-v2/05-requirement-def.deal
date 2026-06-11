@@ -1,0 +1,12 @@
+// Golden fixture 05: requirement definition
+// Exercises: RequirementDefinition mapping (RESEARCH §Pattern 8)
+// Package: gold05.req
+// Element: REQ_X (requirement_def)
+
+package gold05.req;
+
+requirement def REQ_X {
+    public (
+        attribute text : String [1] = "Battery must charge in under 60 minutes.";
+    )
+}

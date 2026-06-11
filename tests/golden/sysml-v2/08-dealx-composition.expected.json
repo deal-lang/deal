@@ -1,0 +1,27 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "3c58e743-5379-5f5e-946c-e048132c3dad",
+      "@type": "Package",
+      "declaredName": "system",
+      "elementId": "3c58e743-5379-5f5e-946c-e048132c3dad",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold08::system"
+    },
+    {
+      "@id": "d01f3537-5d7c-5fad-9b32-65df97c99fb3",
+      "@type": "Namespace",
+      "dealKind": "system",
+      "declaredName": "EV",
+      "elementId": "d01f3537-5d7c-5fad-9b32-65df97c99fb3",
+      "ownedRelationship": [],
+      "qualifiedName": "gold08::system::EV"
+    }
+  ],
+  "qualifiedName": "Workspace"
+}

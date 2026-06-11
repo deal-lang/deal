@@ -1,0 +1,42 @@
+[package]
+name = "deal-lsp"
+version = "0.3.0"
+edition = "2021"
+publish = false
+# DO NOT add `links = "deal"` here — deal-ffi/ owns the single workspace claim
+# for the native library `deal` (Cargo enforces this).
+
+[[bin]]
+name = "deal-lsp"
+path = "src/main.rs"
+
+[lib]
+name = "deal_lsp"
+path = "src/lib.rs"
+
+[dependencies]
+# Shared FFI surface (9 extern "C" exports + OwnedDealHandle + safe wrappers).
+deal-ffi = { path = "../deal-ffi" }
+tower-lsp = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+dashmap = { workspace = true }
+ropey = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+toml = { workspace = true }
+walkdir = { workspace = true }
+
+[[bin]]
+name = "deal-lsp-gen-golden"
+path = "src/bin/gen_golden.rs"
+
+[dev-dependencies]
+insta = { workspace = true }
+# Integration tests drain ClientSocket as a futures::Stream.
+futures = "0.3"

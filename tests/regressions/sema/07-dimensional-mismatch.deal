@@ -1,0 +1,21 @@
+// Regression fixture — Check #7 dimensional algebra (E2500)
+// Expects at least 1 diagnostic: e_dimension_mismatch.
+//
+// A Mass-typed attribute is assigned a value using the Voltage constructor V().
+// Sema must emit E2500 because the declared dimension (Mass) does not match
+// the actual dimension of the initializer expression (Voltage).
+//
+// This file MUST parse cleanly (parse exits 0).
+// The dimensional violation is a semantic error only — not a parse error.
+//
+// SEMA-EXPECTED: [{code: "E2500"}]
+
+package sema.fixtures.dimensional_mismatch;
+
+part def BatteryPack {
+    public (
+        // Error: Mass attribute assigned a Voltage value.
+        // E2500: expected dimension Mass, got Voltage.
+        attribute mass : Mass [1] = V(800);
+    )
+}

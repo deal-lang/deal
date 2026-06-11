@@ -1,0 +1,19 @@
+@header {
+    path:      packages/analysis/calcs.deal
+    schema:    deal/0.1
+    created:   2026-06-08T00:00:00Z by "David Dunnock <dunnoda@gmail.com>"
+    status:    draft
+    marking:   Unclassified
+}
+package analysis.calcs;
+
+import deal.std.units.{Force, Pressure, Density, Speed, Area, Mass, Energy, percent, N};
+import analysis.constraints.{PositiveForce};
+
+/** Pure function — composable inside any expression. */
+calc def MarginOfSafety(allowable : Pressure, actual : Pressure) : Real {
+    return allowable / actual - 1;
+}
+
+/** Calc with a return contract (SD-23): precision + a named predicate, list form. */
+calc def Drag(rho : Density, v : Speed, area : Area, cd : Real) : Force => ± percent(1), 

@@ -1,0 +1,26 @@
+# Workspace member; links inherited from deal/cli (which owns the native-lib
+# claim). Per PATTERNS Lane 8 option (c): cli/ claims `links = "deal"`;
+# this crate drops the field so exactly ONE crate in the workspace claims
+# the native library (Cargo enforces the single-claim rule).
+[package]
+name = "deal-ffi-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+# Make the FFI declarations addressable as a library so future Rust crates
+# (Phase 2 CLI / Phase 3 LSP) can depend on this harness as their FFI binding.
+path = "src/lib.rs"
+
+[build-dependencies]
+
+[dependencies]
+
+[dev-dependencies]
+# serde_json is used by ffi_diagnostics_on_malformed, ffi_invalid_utf8, and
+# gate_all_19 to parse and validate the JSON returned by deal_diagnostics_json
+# and deal_ast_json. Legitimacy note: serde_json is in the Rust ecosystem's
+# top-10 most-downloaded crates (1B+ downloads/year per crates.io); maintained
+# by dtolnay. T-06-SC / RESEARCH §Package Legitimacy Audit.
+serde_json = "1"

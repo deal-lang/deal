@@ -1,0 +1,70 @@
+@header {
+    path:       packages/interfaces/connections.deal
+    schema:     deal/0.1
+    created:    2026-05-16T08:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T08:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     draft
+    marking:    Unclassified
+}
+package interfaces.connections;
+
+import deal.std.units.{V, A, kW, m, mm, kPa, L};
+
+/**
+ * High-voltage DC power cable assembly.
+ * Defines wire gauge, ratings, and connector type.
+ */
+connection def HVDCCable {
+    public (
+        attribute wireGauge : String [1];
+        attribute maxVoltage : Voltage [1];
+        attribute maxCurrent : Current [1];
+        attribute length : Length [1];
+        attribute connectorType : String [1];
+        attribute shielded : Boolean [1] = true;
+    )
+}
+
+/**
+ * CAN bus wiring harness.
+ * Twisted pair with termination resistors.
+ */
+connection def CANHarness {
+    public (
+        attribute wireCount : Integer [1] = 2;
+        attribute connectorType : String [1];
+        attribute terminated : Boolean [1] = true;
+    )
+}
+
+/**
+ * Coolant hose for liquid thermal management loop.
+ */
+connection def CoolantHose {
+    public (
+        attribute innerDiameter : Length [1];
+        attribute maxPressure : Pressure [1];
+        attribute material : String [1] = "EPDM";
+    )
+}
+
+/**
+ * Mechanical driveshaft coupling.
+ */
+connection def DriveShaft {
+    public (
+        attribute diameter : Length [1];
+        attribute material : String [1];
+        attribute maxTorque : Torque [1];
+    )
+}
+
+/**
+ * DC electrical power delivery.
+ * Defines voltage, current, and derived power capacity.
+ */
+flow def PowerDelivery {
+    public (
+        attribute voltage : Voltage [1];
+      

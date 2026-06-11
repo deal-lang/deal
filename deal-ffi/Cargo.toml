@@ -1,0 +1,23 @@
+[package]
+name = "deal-ffi"
+version = "0.3.0"
+edition = "2021"
+publish = false
+# `links` declares that this crate links against the native library `deal`
+# (libdeal.a). Per RESEARCH §10 + PATTERNS Plan 03 / deal-ffi crate: the
+# native-library single-claim moves from cli/ to deal-ffi/ now that BOTH
+# cli/ and lsp/ depend on it. Cargo enforces exactly ONE crate per
+# workspace claims any given native library name.
+links = "deal"
+
+[lib]
+name = "deal_ffi"
+crate-type = ["rlib"]
+
+[dependencies]
+# No external deps — safe wrappers only need std.
+
+[build-dependencies]
+# NO bindgen per RESEARCH §10 A7 — the hand-written 109-line extern block
+# is the source of truth; bindgen would add tree-sitter-style toolchain
+# weight for no benefit on a 9-export ABI.

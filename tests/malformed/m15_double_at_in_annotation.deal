@@ -1,0 +1,3 @@
+package foo;
+@@trace:satisfies REQ_01
+part def P {}

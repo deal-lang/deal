@@ -1,0 +1,27 @@
+// m27 — require condition not Boolean (E2610).
+// A `require` statement whose condition is a non-Boolean unit call.
+// Semantic check: require conditions must be Boolean (D-10).
+//
+// Empirical-truth divergence (Plan 05.2-04 Task 2):
+//   Intended sema code:    E2610 (require not Boolean — sema-only)
+//   First parser code:     E2601 (calc body missing return — layered error in same file)
+//
+// This file doubles as a purity-violation witness: the constraint body's require
+// uses a non-boolean expression, AND the calc that appears here is missing its
+// return statement (triggering the parser's E2601 check).
+// E2610 is verified at the sema level in tests/unit/sema_calc.zig.
+//
+// The recovery_corpus pin uses the OBSERVED first-parser code (E2601).
+//
+package test.malformed;
+
+import deal.std.units.{Mass, kg};
+
+// Intentionally missing return to trigger E2601 at parse level
+calc def UnitCalc(x : Real) : Real {
+    attribute local : Real = x;
+}
+
+constraint def BadConstraint {
+    require kg(5);
+}

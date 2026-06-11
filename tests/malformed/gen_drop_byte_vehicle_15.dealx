@@ -1,0 +1,333 @@
+@header {
+    path:       model/vehicle.dealx
+    schema:     deal/0.1
+    created:    2026-05-16T08:30:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    modified:   2026-05-16T16:00:00Z by "David Dunnock <david.dunnock@redacted.com>" via claude:claude-code
+    reviewed:   2026-05-16T17:00:00Z by "David Dunnock <david.dunnock@redacted.com>"
+    hash:       sha256:pending
+    status:     review
+    baseline:   v0.1.0
+    marking:    Unclassified
+}
+
+package model;
+
+import deal.std.units.{V, A, kW, kWh, kg, m, mm, s, degC, kPa, L, W, Nm, rpm, LPM};
+import vehicle.*;
+import interfaces.*;
+import interfaces.connections.*;
+import reqs.system.*;
+
+/**
+ * Electric Vehicle Platform — top-level system composition.
+ *
+ * Skateboard architecture with 800V drivetrain, active thermal
+ * management, and single-motor RWD base configuration.
+ *
+ * This is the "App.tsx" — it assembles components into the
+ * complete vehicle system with all physical and logical connections.
+ *
+ * @see CN-2026-001 — customer needs document
+ * @see ADR-001 — skateboard platform architecture decision
+ */
+[<system EVPlatform>]
+
+    @confidence: 0.75
+    @assumes: "Single-motor RWD base; dual-motor AWD via variant specialization"
+    @concerns: "Mass budget leaves only 50kg margin against REQ_SYS_003"
+
+    // ═════════════════════════════════════════════════════════════
+    // Subsystem: Energy Storage
+    // Battery pack, BMS, and associated wiring
+    // ═════════════════════════════════════════════════════════════
+
+    [<subsystem EnergyStorage>]
+
+        [<BatteryPack as="battery"
+            totalCapacity={kWh(89)}
+            usableCapacity={kWh(85)}
+            packMass={kg(550)}
+            nominalVoltage={V(800)}
+        />]
+
+        [<BMS as="bms"
+            cellCount={960}
+            balancingMethod={"active"}
+        />]
+
+        // Internal: BMS monitors cells over CAN
+        [<connect from="bms.cellMonitor" to="battery.canBus"
+            via={CANHarness {
+                connectorType: "Molex MX150"
+            }}
+            carrying={CANMessages {
+                messageIds: ["0x100", "0x101", "0x102", "0x103"]
+            }}
+        />]
+
+        [<expose battery.hvOut as="hvPowerOut" />]
+        [<expose battery.chargeIn as="chargeIn" />]
+        [<expose battery.coolantIn as="coolantIn" />]
+        [<expose battery.coolantOut as="coolantOut" />]
+        [<expose bms.canBus as="bmsCAN" />]
+
+        @trace:<<satisfies>> REQ_BAT_001
+        @trace:<<satisfies>> REQ_BAT_003
+        @trace:<<partially satisfies>> REQ_BAT_002 {
+            coverage: 0.8;
+            gap: "30-min charge target met at 25°C; untested below 0°C";
+        }
+        @trace:<<verified by>> ChargeCycleTest {
+            method: "test";
+            evidence: "test/data/charge-cycle-data.csv";
+        }
+
+    [</subsystem>]
+
+    // ═════════════════════════════════════════════════════════════
+    // Subsystem: Propulsion
+    // Motor, inverter, and reduction gearbox
+    // ═════════════════════════════════════════════════════════════
+
+    [<subsystem Propulsion>]
+
+        [<TractionMotor as="motor"
+            peakPower={kW(250)}
+            continuousPower={kW(180)}
+            peakTorque={Nm(430)}
+            maxSpeed={rpm(16000)}
+            motorMass={kg(35)}
+        />]
+
+        [<Inverter as="inverter"
+            peakPower={kW(270)}
+            efficiency={0.97}
+        />]
+
+        [<ReductionGear as="gearbox"
+            ratio={9.0}
+            efficiency={0.98}
+        />]
+
+        // Internal: Inverter → Motor (3-phase AC power)
+        [<connect from="inverter.acOut" to="motor.powerIn"
+            via={HVDCCable {
+                wireGauge: "2 AWG",
+                maxVoltage: V(850),
+                maxCurrent: A(400),
+                length: m(0.5),
+                connectorType: "RADSOK 150A"
+            }}
+            carrying={PowerDelivery {
+                voltage: V(800),
+                maxCurrent: A(350)
+            }
+        />]
+
+        // Internal: Motor → Gearbox (mechanical)
+        [<connect from="motor.shaftOut" to="gearbox.input"
+            via={DriveShaft {
+                diameter: mm(45),
+                material: "4340 Steel",
+                maxTorque: Nm(500)
+            }}
+            carrying={TorqueTransmission {
+                torque: Nm(430),
+                speed: rpm(16000)
+            }}
+        />]
+
+        [<expose inverter.dcIn as="hvPowerIn" />]
+        [<expose gearbox.output as="driveShaft" />]
+        [<expose motor.coolantIn as="coolantIn" />]
+        [<expose motor.coolantOut as="coolantOut" />]
+        [<expose inverter.coolantIn as="inverterCoolantIn" />]
+        [<expose inverter.coolantOut as="inverterCoolantOut" />]
+        [<expose inverter.canBus as="inverterCAN" />]
+        [<expose motor.canBus as="motorCAN" />]
+
+        @trace:<<satisfies>> REQ_MOT_001
+        @trace:<<allocated to>> REQ_SYS_002 {
+            contribution: "Motor provides 250kW peak for acceleration target";
+        }
+
+        @behavioral:<<performs>> Accelerate
+        @behavioral:<<performs>> RegenerativeBrake
+
+    [</subsystem>]
+
+    // ═════════════════════════════════════════════════════════════
+    // Subsystem: Thermal Management
+    // Coolant loop, pump, heat exchanger, reservoir
+    // ═════════════════════════════════════════════════════════════
+
+    [<subsystem Thermal>]
+
+        @confidence: 0.70
+        @concerns: "Heat exchanger sizing not finalized — affects front-end packaging"
+
+        [<CoolantPump as="pump"
+            maxFlowRate={LPM(15)}
+            power={W(200)}
+        />]
+
+        [<HeatExchanger as="heatEx"
+            maxHeatRejection={kW(8)}
+        />]
+
+        [<CoolantReservoir as="reservoir"
+            volume={L(8)}
+        />]
+
+        // Internal coolant loop: pump → heatEx → reservoir → pump
+        [<connect from="pump.pumpOut" to="heatEx.hotIn"
+            via={CoolantHose { innerDiameter: mm(19), maxPressure: kPa(200) }}
+            carrying={CoolantCirculation { flowRate: LPM(12), temperature: degC(25) }}
+        />]
+
+        [<connect from="heatEx.coldOut" to="reservoir.reservoirIn"
+            via={CoolantHose { innerDiameter: mm(19), maxPressure: kPa(150) }}
+            carrying={CoolantCirculation { flowRate: LPM(12), temperature: degC(20) }}
+        />]
+
+        [<connect from="reservoir.reservoirOut" to="pump.pumpIn"
+            via={CoolantHose { innerDiameter: mm(19), maxPressure: kPa(100) }}
+            carrying={CoolantCirculation { flowRate: LPM(12), temperature: degC(20) }}
+        />]
+
+        [<expose pump.pumpOut as="coolantSupply" />]
+        [<expose reservoir.reservoirIn as="coolantReturn" />]
+
+        @trace:<<satisfies>> REQ_THM_001
+        @behavioral:<<performs>> ThermalRegulate
+
+    [</subsystem>]
+
+    // ═════════════════════════════════════════════════════════════
+    // Subsystem: Chassis & Drivetrain
+    // ═════════════════════════════════════════════════════════════
+
+    [<subsystem Drivetrain>]
+
+        [<Chassis as="frame"
+            wheelbase={m(2.95)}
+            trackWidth={m(1.65)}
+            structuralMass={kg(380)}
+        />]
+
+        [<Wheel as="frontLeft" diameter={m(0.72)} mass={kg(28)} />]
+        [<Wheel as="frontRight" diameter={m(0.72)} mass={kg(28)} />]
+        [<Wheel as="rearLeft" diameter={m(0.72)} mass={kg(28)} />]
+        [<Wheel as="rearRight" diameter={m(0.72)} mass={kg(28)} />]
+
+        [<expose rearLeft as="rearWheelL" />]
+        [<expose rearRight as="rearWheelR" />]
+
+    [</subsystem>]
+
+    // ═════════════════════════════════════════════════════════════
+    // System-Level CAN Bus
+    // ═════════════════════════════════════════════════════════════
+
+    [<CANBus as="vehicleCAN"
+        baudRate={500000}
+        maxNodes={32}
+    />]
+
+    // ═════════════════════════════════════════════════════════════
+    // System-Level Wiring
+    // Connects subsystems to each other
+    // ═════════════════════════════════════════════════════════════
+
+    // ─── Power Path: Battery → Inverter ─────────────────────────
+
+    [<connect from="EnergyStorage.hvPowerOut" to="Propulsion.hvPowerIn"
+        via={HVDCCable {
+            wireGauge: "2/0 AWG",
+            maxVoltage: V(850),
+            maxCurrent: A(400),
+            length: m(2.5),
+            connectorType: "RADSOK 200A"
+        }}
+        carrying={PowerDelivery {
+            voltage: V(800),
+            maxCurrent: A(350)
+        }}
+    />]
+
+    // ─── Drive Path: Gearbox → Rear Wheels ──────────────────────
+
+    [<connect from="Propulsion.driveShaft" to="Drivetrain.rearWheelL" />]
+    [<connect from="Propulsion.driveShaft" to="Drivetrain.rearWheelR" />]
+
+    // ─── Thermal Loop: across three subsystems ──────────────────
+
+    [<connect from="Thermal.coolantSupply" to="EnergyStorage.coolantIn"
+        via={CoolantHose { innerDiameter: mm(19), maxPressure: kPa(200) }}
+        carrying={CoolantCirculation { flowRate: LPM(12), temperature: degC(20) }}
+    />]
+
+    [<connect from="EnergyStorage.coolantOut" to="Propulsion.coolantIn"
+        via={CoolantHose { innerDiameter: mm(19), maxPressure: kPa(180) }}
+        carrying={CoolantCirculation { flowRate: LPM(12), temperature: degC(30) }}
+    />]
+
+    [<connect from="Propulsion.coolantOut" to="Thermal.coolantReturn"
+        via={CoolantHose { innerDiameter: mm(19), maxPressure: kPa(150) }}
+        carrying={CoolantCirculation { flowRate: LPM(12), temperature: degC(40) }}
+    />]
+
+    // ─── CAN Bus Network ────────────────────────────────────────
+
+    [<connect from="EnergyStorage.bmsCAN" to="vehicleCAN"
+        via={CANHarness { connectorType: "Deutsch DTM-4" }}
+        carrying={CANMessages { messageIds: ["0x100-0x1FF"] }}
+    />]
+
+    [<connect from="Propulsion.inverterCAN" to="vehicleCAN"
+        via={CANHarness { connectorType: "Deutsch DTM-4" }}
+        carrying={CANMessages { messageIds: ["0x200-0x2FF"] }}
+    />]
+
+    [<connect from="Propulsion.motorCAN" to="vehicleCAN"
+        via={CANHarness { connectorType: "Deutsch DTM-4" }}
+        carrying={CANMessages { messageIds: ["0x300-0x3FF"] }}
+    />]
+
+    // ═════════════════════════════════════════════════════════════
+    // System-Level Metadata
+    // ═════════════════════════════════════════════════════════════
+
+    @trace:<<satisfies>> REQ_SYS_001 {
+        evidence: "Range simulation shows 490km EPA combined cycle";
+    }
+    @trace:<<satisfies>> REQ_SYS_002 {
+        evidence: "0-60 simulation: 5.8s with 250kW motor + 2100kg curb";
+    }
+    @trace:<<satisfies>> REQ_SYS_003
+    @trace:<<derives from>> CustomerNeed_CN001 {
+        source: "CN-2026-001 Section 3.1";
+    }
+
+    @behavioral:<<performs>> FastCharge
+
+    @simulation:<<computes>> vehicleDynamics {
+        equation: "Longitudinal dynamics: F_net = F_motor - F_drag - F_roll - F_grade";
+        tool: "matlab";
+        entry: "simulations/dynamics/vehicle_dynamics.m";
+        fidelity: "6DOF";
+    }
+
+    @simulation:<<computes>> rangeEstimate {
+        equation: "EPA combined cycle energy consumption model";
+        tool: "python";
+        entry: "simulations/dynamics/range_model.py";
+        fidelity: "analytical";
+    }
+
+    @simulation:<<validates against>> DynoTest_2026Q2 {
+        source: "test/data/dyno-results-2026-q2.csv";
+        tolerance: 0.03;
+    }
+
+[</system>]

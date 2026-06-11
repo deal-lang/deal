@@ -1,0 +1,14 @@
+// Golden fixture 08: .dealx composition with connection
+// Exercises: ConnectionUsage + connectorEnd (RESEARCH §Pattern 8 — connect)
+// System: EV with battery and motor connected via HVDC cable
+
+package gold08.system;
+
+[<system EV>]
+    [<BatteryPack as="battery" />]
+    [<ElectricMotor as="motor" />]
+    [<connect from="battery.hvOut" to="motor.power"
+        via={HVDCCable {}}
+        carrying={PowerDelivery {}}
+    />]
+[</system>]

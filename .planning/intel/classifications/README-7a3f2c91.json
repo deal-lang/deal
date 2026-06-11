@@ -1,0 +1,31 @@
+{
+  "source_path": "/Users/dunnock/projects/deal-lang/spec/grammar/README.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "DEAL Grammar — Specification",
+  "summary": "Navigational overview/index for the DEAL grammar directory, describing file layout, architecture, W3C EBNF notation, and verification status.",
+  "scope": [
+    "DEAL grammar",
+    "lexical.ebnf",
+    "deal.ebnf",
+    "dealx.ebnf",
+    "grammar architecture",
+    "W3C EBNF notation",
+    "parser implementation",
+    "showcase verification"
+  ],
+  "cross_refs": [
+    "lexical.ebnf",
+    "deal.ebnf",
+    "dealx.ebnf",
+    "DESIGN-DECISIONS.md",
+    "maal-layer1-notation-reference.md",
+    "deal-grammar-verification-report.html",
+    "deal-parser-implementation-guide.html",
+    "examples/showcase/"
+  ],
+  "locked": false,
+  "precedence": 3,
+  "notes": ""
+}

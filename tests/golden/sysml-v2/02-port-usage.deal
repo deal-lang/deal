@@ -1,0 +1,13 @@
+// Golden fixture 02: port usage with direction
+// Exercises: PortUsage mapping with in/out direction (RESEARCH §Pattern 8)
+// Package: gold02.ports
+// Element: Battery (part_def) with chargeIn (in port) and hvOut (out port)
+
+package gold02.ports;
+
+part def Battery {
+    public (
+        in port chargeIn : Power;
+        out port hvOut : Power;
+    )
+}

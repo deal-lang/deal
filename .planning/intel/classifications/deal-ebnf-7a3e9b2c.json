@@ -1,0 +1,29 @@
+{
+  "source_path": "/Users/dunnock/projects/deal-lang/spec/grammar/deal.ebnf",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "DEAL Definition Grammar — deal.ebnf",
+  "summary": "W3C EBNF grammar specification defining the syntactic structure of .deal definition files including headers, packages, imports, element definitions, bodies, operators, annotations, expressions, and type annotations.",
+  "scope": [
+    "DEAL language",
+    ".deal definition files",
+    "grammar",
+    "file structure",
+    "package declaration",
+    "import/export",
+    "element definitions (part, port, action, state, requirement, need, use case, interface, connection, flow, allocation, attribute, item, constraint)",
+    "element bodies",
+    "structural operators",
+    "annotations",
+    "expressions",
+    "type annotations"
+  ],
+  "cross_refs": [
+    "lexical.ebnf",
+    "DESIGN-DECISIONS.md"
+  ],
+  "locked": false,
+  "precedence": 1,
+  "notes": ""
+}
