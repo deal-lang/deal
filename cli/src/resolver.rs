@@ -64,6 +64,11 @@ pub struct ProjectSection {
 pub struct WorkspaceSection {
     #[serde(default)]
     pub packages: Vec<String>,
+    /// Paths (relative to the project root) excluded from `deal check` directory
+    /// expansion — e.g. frontier/draft packages that intentionally do not parse
+    /// on the current grammar.
+    #[serde(default)]
+    pub exclude: Vec<String>,
 }
 
 /// A single dependency entry in `[dependencies]`.

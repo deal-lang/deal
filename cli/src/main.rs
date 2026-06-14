@@ -250,6 +250,32 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
 
     // Expand any directory arguments to the .deal / .dealx files they contain.
     let mut resolved_paths = expand_path_args(paths)?;
+
+    // Honor `[workspace].exclude` — drop files under excluded paths (frontier /
+    // draft packages that intentionally don't parse on the current grammar).
+    {
+        let root = find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
+        if let Ok(bytes) = std::fs::read(root.join("deal.toml")) {
+            if let Ok(s) = std::str::from_utf8(&bytes) {
+                if let Ok(manifest) = toml::from_str::<resolver::DealToml>(s) {
+                    let excluded: Vec<std::path::PathBuf> = manifest
+                        .workspace
+                        .exclude
+                        .iter()
+                        .map(|e| root.join(e))
+                        .filter_map(|p| std::fs::canonicalize(&p).ok())
+                        .collect();
+                    if !excluded.is_empty() {
+                        resolved_paths.retain(|p| match std::fs::canonicalize(p) {
+                            Ok(cp) => !excluded.iter().any(|ex| cp.starts_with(ex)),
+                            Err(_) => true,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     if resolved_paths.is_empty() {
         return Err(CliError::User(format!(
             "no .deal or .dealx files found under {paths:?}"
