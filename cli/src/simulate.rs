@@ -17,10 +17,12 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use crate::reporter::{ColorPref, Ink, Reporter};
 use crate::CliError;
 
 // ─── model_path validation (T-05-06) ─────────────────────────────────────────
@@ -618,21 +620,36 @@ pub fn run_simulate(
     names: &[String],
     all: bool,
     stale: bool,
+    color: ColorPref,
 ) -> Result<(), CliError> {
     let cwd = std::env::current_dir().map_err(|e| {
         CliError::Internal(anyhow::anyhow!("cannot get current dir: {}", e))
     })?;
-    run_simulate_in(&cwd, names, all, stale)
+    let rep = Reporter::new(color);
+    run_simulate_in_reported(&cwd, names, all, stale, &rep)
 }
 
-/// Internal: run simulations from `project_root`.
+/// Internal: run simulations from `project_root` with default (auto) styling.
 ///
-/// Separated for testability — tests can supply a temp directory as `project_root`.
+/// Separated for testability — tests and the `--run-sims` refresh path call
+/// this with no color context; styling resolves from the stderr TTY / `CI`.
 pub fn run_simulate_in(
     project_root: &Path,
     names: &[String],
     all: bool,
     stale: bool,
+) -> Result<(), CliError> {
+    let rep = Reporter::new(ColorPref::Auto);
+    run_simulate_in_reported(project_root, names, all, stale, &rep)
+}
+
+/// Internal worker: run simulations, routing per-sim status through `rep`.
+fn run_simulate_in_reported(
+    project_root: &Path,
+    names: &[String],
+    all: bool,
+    stale: bool,
+    rep: &Reporter,
 ) -> Result<(), CliError> {
     let registry_path = project_root.join("simulations").join("deal.sims.toml");
     if !registry_path.exists() {
@@ -747,6 +764,12 @@ pub fn run_simulate_in(
         // Compute workdir: the simulations/ directory of the project
         let workdir = project_root.join("simulations");
 
+        // Phase 6 CLI richness: show a live spinner while the sim subprocess
+        // runs (TTY only), and time the dispatch for the result line.
+        let detail = entry.entry.as_deref().unwrap_or(sim_name.as_str()).to_string();
+        let pb = rep.spinner(&format!("{:<7} {}", entry.tool, detail));
+        let start = Instant::now();
+
         // Dispatch the simulation
         let result = dispatch_sim(
             sim_name,
@@ -758,6 +781,11 @@ pub fn run_simulate_in(
             &ev_dir,
             stderr,
         )?;
+
+        let elapsed = start.elapsed();
+        if let Some(pb) = pb {
+            pb.finish_and_clear();
+        }
 
         match result {
             SimResult::Success => {
@@ -796,19 +824,16 @@ pub fn run_simulate_in(
                         }
                     }
 
-                    let _ = writeln!(
-                        stderr,
-                        "deal simulate: '{}' completed successfully",
-                        sim_name
-                    );
                 }
+                // Styled timed result line: `python  thermal/motor.py ✓ 0.8s`.
+                let mark = rep.paint("✓", Ink::Green);
+                let timing = rep.paint(&format!("{:.1}s", elapsed.as_secs_f64()), Ink::Green);
+                let _ = writeln!(stderr, "  {:<7} {} {} {}", entry.tool, detail, mark, timing);
             }
             SimResult::Skipped(reason) => {
-                let _ = writeln!(
-                    stderr,
-                    "deal simulate: '{}' skipped — {}",
-                    sim_name, reason
-                );
+                let mark = rep.paint("⊘", Ink::Yellow);
+                let note = rep.paint(&format!("skipped — {}", reason), Ink::Yellow);
+                let _ = writeln!(stderr, "  {:<7} {} {} {}", entry.tool, detail, mark, note);
             }
         }
     }

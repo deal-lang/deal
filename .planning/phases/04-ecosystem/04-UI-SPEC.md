@@ -160,7 +160,7 @@ Dark mode: Starlight handles dark mode automatically via `prefers-color-scheme` 
 |----------|---------|--------|
 | `deal init` success | `deal init: project '{name}' created in ./{name}/` then `Next: cd {name} && deal install` | Two lines; second line is a plain hint |
 | `deal install` — missing dep | `error[E2402]: dependency '{name}' not resolved — run 'deal install'` | Error format; emitted by `deal check` when `.deal/deps/{name}/` is absent |
-| `deal install` downloading | `Downloading {name} v{tag} from {url}...` | Plain info; no spinner in Phase 4 |
+| `deal install` downloading | `Downloading {name} v{tag} from {url}...` | Plain info; no spinner in Phase 4 (spinners land in Phase 6 — see §CLI Richness) |
 | `deal install` success | `deal install: {N} dependencies resolved, deal.lock updated` | Success format |
 | `deal install` lockfile changed | `deal install: deal.lock updated — commit deal.lock to reproduce this build` | Success format with note |
 | `deal check` dimension error | `error[E2500]: dimension mismatch — expected {expected_dim}, found {actual_dim}` with source span | Standard rustc-style diagnostic |
@@ -174,6 +174,45 @@ Dark mode: Starlight handles dark mode automatically via `prefers-color-scheme` 
 error: directory './{name}' already exists and is not empty
   = note: remove it manually or choose a different project name
 ```
+
+---
+
+## CLI Richness (Phase 6)
+
+Phase 6 upgrades the bare exit-code-only output of `deal check`, `deal simulate`,
+and `deal check --verify` to a staged, colored presentation. All chrome is owned
+by a single presentation layer (`cli/src/reporter.rs`) so the machine contract is
+never compromised.
+
+### Gating invariants (non-negotiable)
+
+| Condition | Behavior |
+|-----------|----------|
+| `--json` | No chrome at all — only the D-32 envelope on stdout; reporter is bypassed. |
+| `--color=never` | Zero ANSI bytes; all `paint()` calls are passthrough; `anstream` strips as a second gate. |
+| stderr not a TTY (pipe / redirect / CI) | Auto-resolves to plain: color off, **no** spinners. Static lines only, so logs stay greppable and deterministic. |
+| `CI` env var present | Spinners disabled even on a TTY. |
+| Human chrome stream | Always **stderr** (or the verify report stream); never stdout payload. |
+
+### Surfaces
+
+| Command | Output |
+|---------|--------|
+| `deal check` (clean) | Banner `deal {ver} · checking {N} files`, then aligned phase rows `▸ parse / resolve / units` each ending in green `ok`. Replaces the previous silent exit 0. |
+| `deal simulate` | Per-sim live spinner (TTY only) collapsing to a timed result line `python  path/to.py ✓ 0.8s` (green) or `⊘ skipped — {reason}` (yellow). |
+| `deal check --verify` | Banner, an aligned `VERDICT  REQ_ID  criterion` table (PASS green / FAIL red / PARTIAL yellow, `[STALE]` dim), dim `compute` margins, and a summary footer `✗ 1 requirement failed · 13 passed` (✓ green when none fail). |
+
+### Color rubric
+
+Reuses the existing CLI Color Contract: green = PASS / success / `✓`, red =
+FAIL / `✗`, yellow = PARTIAL / STALE / skipped, cyan = phase markers (`▸`) and
+emphasis, dim = banner + secondary detail.
+
+### Stack
+
+`anstream` (TTY gate, kept) + `owo-colors` (styling, kept) + `indicatif` (spinners,
+TTY-only) + `unicode-width` (display-width-correct column alignment). No TUI
+framework — `deal` stays a batch, pipe-friendly, exit-code-driven tool.
 
 ---
 
@@ -321,6 +360,7 @@ No shadcn registry. No third-party component registries. npm packages are vetted
 | 2026-06-05 | Eliminated 600 (semibold) from weight palette; consolidated to 400 + 700 only | Checker D4: 3 weight values exceeded max of 2 |
 | 2026-06-05 | Updated "Active page" nav state label from "semibold" to "bold" to match 700 weight palette | Consistency with revised weight palette |
 | 2026-06-05 | Added focal-point declaration in Typography section | Checker D2 recommendation: explicit focal point |
+| 2026-06-14 | Added §CLI Richness (Phase 6): staged `check` header, `simulate` spinners + timings, aligned `--verify` table; documented gating invariants | Phase 6 CLI output overhaul (reporter.rs); supersedes the Phase 4 "no spinner" deferral |
 
 *Phase: 4-ecosystem*
 *UI-SPEC created: 2026-06-05*

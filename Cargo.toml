@@ -19,6 +19,13 @@ jsonschema = { version = "0.46", default-features = false }
 anstream = "1"
 # Style strings (red/bold/etc.)
 owo-colors = "4"
+# Progress bars + spinners for staged CLI output (Phase 6 CLI richness).
+# Only ever drawn on an interactive TTY (gated in reporter.rs) so CI / piped
+# output and the --json envelope stay byte-clean.
+indicatif = "0.17"
+# Display-width-correct column padding for the phased header + verify table.
+# Counts wide chars (CJK = 2 cells) so alignment survives non-ASCII identifiers.
+unicode-width = "0.2"
 # Application-level error handling
 anyhow = "1"
 # Library-level error types

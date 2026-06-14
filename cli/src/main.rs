@@ -23,6 +23,7 @@ use deal_ffi as ffi;
 pub mod evidence;
 pub mod model_values;
 pub mod render;
+pub mod reporter;
 pub mod reqif;
 pub mod reqif_schema;
 pub mod resolver;
@@ -191,6 +192,16 @@ fn color_choice(mode: ColorMode) -> anstream::ColorChoice {
         ColorMode::Auto => anstream::ColorChoice::Auto,
         ColorMode::Always => anstream::ColorChoice::Always,
         ColorMode::Never => anstream::ColorChoice::Never,
+    }
+}
+
+/// Map the CLI `--color` flag to the reporter's color preference (the reporter
+/// lives in the library crate and has its own preference enum).
+fn color_pref(mode: ColorMode) -> reporter::ColorPref {
+    match mode {
+        ColorMode::Auto => reporter::ColorPref::Auto,
+        ColorMode::Always => reporter::ColorPref::Always,
+        ColorMode::Never => reporter::ColorPref::Never,
     }
 }
 
@@ -573,6 +584,38 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
         std::fs::write(&index_path, &serialized).map_err(|e| {
             CliError::Internal(anyhow::anyhow!("write {:?}: {}", index_path, e))
         })?;
+    }
+
+    // Phase 6 CLI richness: on a clean human-mode run, emit the staged summary
+    // header instead of a silent exit 0. Skipped in --json mode (the envelope
+    // was already written to stdout) and whenever blocking diagnostics were
+    // rendered to stderr above.
+    if !json_mode && !any_errors {
+        let rep = reporter::Reporter::new(color_pref(color));
+        let project_file_count = resolved_paths.len().saturating_sub(dep_file_set.len());
+        // Count resolved symbols across per-file indexes (display only).
+        let mut symbol_count = 0usize;
+        for bytes in &per_file_indexes {
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) {
+                if let Some(elems) = v.get("elements").and_then(|x| x.as_object()) {
+                    symbol_count += elems.len();
+                }
+            }
+        }
+        let _ = rep.banner(
+            &mut stderr,
+            &format!(
+                "checking {} file{}",
+                project_file_count,
+                if project_file_count == 1 { "" } else { "s" }
+            ),
+        );
+        let rows = vec![
+            ("parse", format!("{} files", project_file_count), Some("ok")),
+            ("resolve", format!("{} symbols", symbol_count), Some("ok")),
+            ("units", "dimensional algebra".to_string(), Some("ok")),
+        ];
+        let _ = rep.phases(&mut stderr, &rows);
     }
 
     if any_errors {
@@ -1762,7 +1805,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             // --verify and --simulations are Phase 5 flags; run_check ignores them
             // in Wave 0 (stub dispatch). Plan 05 wires --verify; Plan 03 wires --simulations.
             if verify {
-                return verify::run_verify(&paths, run_sims, cli.json);
+                return verify::run_verify(&paths, run_sims, cli.json, color_pref(cli.color));
             }
             if simulations {
                 return simulate::validate_bindings();
@@ -1780,7 +1823,9 @@ fn run(cli: Cli) -> Result<(), CliError> {
         }
         Command::Init { name } => run_init(name, cli.json, cli.color),
         Command::Install => run_install(cli.json, cli.color),
-        Command::Simulate { names, all, stale } => simulate::run_simulate(&names, all, stale),
+        Command::Simulate { names, all, stale } => {
+            simulate::run_simulate(&names, all, stale, color_pref(cli.color))
+        }
         Command::Evidence { subcommand } => evidence::run_evidence(subcommand),
     }
 }

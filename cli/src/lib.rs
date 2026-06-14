@@ -6,6 +6,7 @@
 
 pub mod evidence;
 pub mod model_values;
+pub mod reporter;
 pub mod reqif;
 pub mod reqif_schema;
 pub mod resolver;
