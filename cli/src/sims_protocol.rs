@@ -44,56 +44,6 @@ static METADATA_VALIDATOR: OnceLock<Validator> = OnceLock::new();
 
 // ─── Schema location ──────────────────────────────────────────────────────────
 
-/// Locate the `spec/sims/v0/` directory relative to the deal repo root.
-///
-/// Priority:
-///   1. `DEAL_SIMS_SCHEMA_DIR` env var override
-///   2. Walk up from `CARGO_MANIFEST_DIR` to repo root → `spec/sims/v0/`
-///   3. Walk up from current exe
-fn locate_sims_schema_dir() -> anyhow::Result<std::path::PathBuf> {
-    if let Ok(dir) = std::env::var("DEAL_SIMS_SCHEMA_DIR") {
-        let p = std::path::PathBuf::from(dir);
-        if p.exists() {
-            return Ok(p);
-        }
-    }
-
-    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-        // cli/Cargo.toml → parent is repo root
-        let candidate = std::path::PathBuf::from(&manifest)
-            .parent()
-            .map(|p| p.join("spec").join("sims").join("v0"))
-            .unwrap_or_default();
-        if candidate.exists() {
-            return Ok(candidate);
-        }
-        // Try one more level up
-        let candidate2 = std::path::PathBuf::from(&manifest)
-            .join("..").join("spec").join("sims").join("v0");
-        if candidate2.exists() {
-            return Ok(candidate2.canonicalize()?);
-        }
-    }
-
-    if let Ok(exe) = std::env::current_exe() {
-        let mut dir = exe.as_path();
-        for _ in 0..10 {
-            let candidate = dir.join("spec").join("sims").join("v0");
-            if candidate.exists() {
-                return Ok(candidate);
-            }
-            match dir.parent() {
-                Some(p) => dir = p,
-                None => break,
-            }
-        }
-    }
-
-    Err(anyhow!(
-        "cannot locate spec/sims/v0/ directory — set DEAL_SIMS_SCHEMA_DIR env var"
-    ))
-}
-
 // ─── SHA-256 verification ─────────────────────────────────────────────────────
 
 fn verify_sha256(bytes: &[u8], expected_hex: &str, label: &str) -> anyhow::Result<()> {
@@ -110,13 +60,18 @@ fn verify_sha256(bytes: &[u8], expected_hex: &str, label: &str) -> anyhow::Resul
 
 // ─── Validator builders ───────────────────────────────────────────────────────
 
+// The v0 schemas are embedded at compile time (include_str!) so the binary is
+// self-contained — it validates sim artifacts regardless of where it is run
+// from or installed/symlinked to, with no `spec/sims/v0/` filesystem lookup.
+// The SHA-256 pins still guard against accidental schema drift at build time.
+const OUTPUT_SCHEMA_JSON: &str = include_str!("../../spec/sims/v0/output.schema.json");
+const INPUT_SCHEMA_JSON: &str = include_str!("../../spec/sims/v0/input.schema.json");
+const METADATA_SCHEMA_JSON: &str = include_str!("../../spec/sims/v0/metadata.schema.json");
+
 fn build_output_validator() -> anyhow::Result<Validator> {
-    let schema_dir = locate_sims_schema_dir()?;
-    let path = schema_dir.join("output.schema.json");
-    let bytes = std::fs::read(&path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
-    verify_sha256(&bytes, EXPECTED_OUTPUT_SHA256, "output.schema.json")?;
-    let schema: Value = serde_json::from_slice(&bytes)
+    let bytes = OUTPUT_SCHEMA_JSON.as_bytes();
+    verify_sha256(bytes, EXPECTED_OUTPUT_SHA256, "output.schema.json")?;
+    let schema: Value = serde_json::from_slice(bytes)
         .with_context(|| "cannot parse output.schema.json")?;
     jsonschema::options()
         .build(&schema)
@@ -124,12 +79,9 @@ fn build_output_validator() -> anyhow::Result<Validator> {
 }
 
 fn build_input_validator() -> anyhow::Result<Validator> {
-    let schema_dir = locate_sims_schema_dir()?;
-    let path = schema_dir.join("input.schema.json");
-    let bytes = std::fs::read(&path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
-    verify_sha256(&bytes, EXPECTED_INPUT_SHA256, "input.schema.json")?;
-    let schema: Value = serde_json::from_slice(&bytes)
+    let bytes = INPUT_SCHEMA_JSON.as_bytes();
+    verify_sha256(bytes, EXPECTED_INPUT_SHA256, "input.schema.json")?;
+    let schema: Value = serde_json::from_slice(bytes)
         .with_context(|| "cannot parse input.schema.json")?;
     jsonschema::options()
         .build(&schema)
@@ -137,12 +89,9 @@ fn build_input_validator() -> anyhow::Result<Validator> {
 }
 
 fn build_metadata_validator() -> anyhow::Result<Validator> {
-    let schema_dir = locate_sims_schema_dir()?;
-    let path = schema_dir.join("metadata.schema.json");
-    let bytes = std::fs::read(&path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
-    verify_sha256(&bytes, EXPECTED_METADATA_SHA256, "metadata.schema.json")?;
-    let schema: Value = serde_json::from_slice(&bytes)
+    let bytes = METADATA_SCHEMA_JSON.as_bytes();
+    verify_sha256(bytes, EXPECTED_METADATA_SHA256, "metadata.schema.json")?;
+    let schema: Value = serde_json::from_slice(bytes)
         .with_context(|| "cannot parse metadata.schema.json")?;
     jsonschema::options()
         .build(&schema)
