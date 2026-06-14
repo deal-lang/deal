@@ -27,6 +27,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anstream = { workspace = true }
 owo-colors = { workspace = true }
+indicatif = { workspace = true }
+unicode-width = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 jsonschema = { workspace = true }

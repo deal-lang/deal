@@ -1254,31 +1254,108 @@ pub fn evaluate_from_bytes(
 
 // ─── Human-readable report renderer (D-87) ───────────────────────────────────
 
+/// Map a `Verdict` to its display label and ink (D-86 color rubric).
+fn verdict_style(v: &Verdict) -> (&'static str, crate::reporter::Ink) {
+    use crate::reporter::Ink;
+    match v {
+        Verdict::Pass => ("PASS", Ink::Green),
+        Verdict::Fail => ("FAIL", Ink::Red),
+        Verdict::Partial => ("PARTIAL", Ink::Yellow),
+    }
+}
+
 /// Render the VerifyReport as human-readable text (D-87).
-pub fn render_human(report: &VerifyReport, out: &mut impl std::io::Write) -> std::io::Result<()> {
-    writeln!(out, "deal check --verify")?;
-    writeln!(out, "========================")?;
+///
+/// Produces the Phase 6 staged layout: a banner, an aligned
+/// `VERDICT  REQ_ID  criterion` table, optional dim `compute` margins, and a
+/// colored summary footer. Styling and column alignment are owned by the
+/// `Reporter` so `--color=never` and non-TTY output stay plain.
+pub fn render_human(
+    report: &VerifyReport,
+    out: &mut impl std::io::Write,
+    rep: &crate::reporter::Reporter,
+) -> std::io::Result<()> {
+    use crate::reporter::{Cell, Ink, Reporter};
+
+    let criteria_total: usize = report
+        .requirements
+        .values()
+        .map(|rv| rv.criteria.len().max(1))
+        .sum();
+    rep.banner(
+        out,
+        &format!(
+            "verify · evaluating {} {}",
+            criteria_total,
+            if criteria_total == 1 { "criterion" } else { "criteria" }
+        ),
+    )?;
+    writeln!(out)?;
+
+    // Build the aligned results table. One row per criterion; requirements
+    // with no criteria fall back to a single requirement-level verdict row.
+    let mut table: Vec<Vec<Cell>> = Vec::new();
     for (req_id, rv) in &report.requirements {
-        let stale_tag = if rv.stale { " [STALE]" } else { "" };
-        writeln!(out, "{}: {:?}{}", req_id, rv.verdict, stale_tag)?;
-        for c in &rv.criteria {
-            let stale_c = if c.stale { " [STALE]" } else { "" };
-            writeln!(out, "  criteria: {:?}{} — {}", c.verdict, stale_c, c.description)?;
-        }
-        for (k, v) in &rv.compute_results {
-            writeln!(out, "  compute:  {} = {:.4}", k, v)?;
+        if rv.criteria.is_empty() {
+            let (label, ink) = verdict_style(&rv.verdict);
+            let stale = if rv.stale { " [STALE]" } else { "" };
+            table.push(vec![
+                Cell::new(label, ink),
+                Cell::new(req_id.clone(), Ink::Bold),
+                Cell::new(format!("{}{}", "—", stale), Ink::Dim),
+            ]);
+        } else {
+            for c in &rv.criteria {
+                let (label, ink) = verdict_style(&c.verdict);
+                let stale = if c.stale { " [STALE]" } else { "" };
+                table.push(vec![
+                    Cell::new(label, ink),
+                    Cell::new(req_id.clone(), Ink::Bold),
+                    Cell::new(format!("{}{}", c.description, stale), Ink::Plain),
+                ]);
+            }
         }
     }
-    writeln!(out, "─────────────────────────")?;
-    writeln!(
-        out,
-        "Summary: {} PASS, {} FAIL, {} PARTIAL, {} STALE / {} total",
-        report.summary.pass,
-        report.summary.fail,
-        report.summary.partial,
-        report.summary.stale,
-        report.summary.total
-    )?;
+
+    let widths = Reporter::col_widths(&table);
+    for row in &table {
+        rep.row(out, &widths, 2, row)?;
+    }
+
+    // Compute margins (dim), grouped under their requirement.
+    for (req_id, rv) in &report.requirements {
+        for (k, v) in &rv.compute_results {
+            writeln!(
+                out,
+                "  {}",
+                rep.paint(&format!("compute {}.{} = {:.4}", req_id, k, v), Ink::Dim),
+            )?;
+        }
+    }
+
+    // ── Summary footer ──
+    let s = &report.summary;
+    writeln!(out)?;
+    let symbol = if s.fail > 0 {
+        rep.paint("✗", Ink::Red)
+    } else {
+        rep.paint("✓", Ink::Green)
+    };
+    let mut parts: Vec<String> = Vec::new();
+    if s.fail > 0 {
+        parts.push(rep.paint(
+            &format!("{} requirement{} failed", s.fail, if s.fail == 1 { "" } else { "s" }),
+            Ink::Red,
+        ));
+    }
+    parts.push(rep.paint(&format!("{} passed", s.pass), Ink::Green));
+    if s.partial > 0 {
+        parts.push(rep.paint(&format!("{} partial", s.partial), Ink::Yellow));
+    }
+    if s.stale > 0 {
+        parts.push(rep.paint(&format!("{} stale", s.stale), Ink::Yellow));
+    }
+    writeln!(out, "{} {}", symbol, parts.join(" · "))?;
     Ok(())
 }
 
@@ -1296,6 +1373,7 @@ pub fn run_verify(
     paths: &[PathBuf],
     run_sims: bool,
     json: bool,
+    color: crate::reporter::ColorPref,
 ) -> Result<(), CliError> {
     use std::io::Write as _;
 
@@ -1411,11 +1489,11 @@ pub fn run_verify(
     // D-84: if stale and not running sims → exit non-zero
     if any_stale && !run_sims {
         // emit report then fail
-        emit_report(&merged, json)?;
+        emit_report(&merged, json, color)?;
         return Err(CliError::User("stale evidence detected (D-84); use --run-sims to re-run".into()));
     }
 
-    emit_report(&merged, json)?;
+    emit_report(&merged, json, color)?;
     Ok(())
 }
 
@@ -1509,11 +1587,15 @@ fn merge_reports(reports: Vec<VerifyReport>) -> VerifyReport {
 }
 
 /// Emit the report as D-32 JSON envelope or human-readable text.
-fn emit_report(report: &VerifyReport, json_mode: bool) -> Result<(), CliError> {
+fn emit_report(
+    report: &VerifyReport,
+    json_mode: bool,
+    color: crate::reporter::ColorPref,
+) -> Result<(), CliError> {
     use std::io::Write as _;
-    let mut stdout = std::io::stdout();
     if json_mode {
-        // D-32 JSON envelope (D-87)
+        // D-32 JSON envelope (D-87) — machine contract, never decorated.
+        let mut stdout = std::io::stdout();
         let deal_version = env!("CARGO_PKG_VERSION");
         let requirements_json = serde_json::to_string(&report.requirements)
             .map_err(|e| CliError::Internal(anyhow!("serialize requirements: {}", e)))?;
@@ -1526,7 +1608,16 @@ fn emit_report(report: &VerifyReport, json_mode: bool) -> Result<(), CliError> {
         )
         .map_err(|e| CliError::Internal(anyhow!("stdout write error: {}", e)))?;
     } else {
-        render_human(report, &mut stdout)
+        // Human report: write through anstream so --color is the final gate,
+        // then style via the Reporter.
+        let choice = match color {
+            crate::reporter::ColorPref::Auto => anstream::ColorChoice::Auto,
+            crate::reporter::ColorPref::Always => anstream::ColorChoice::Always,
+            crate::reporter::ColorPref::Never => anstream::ColorChoice::Never,
+        };
+        let mut stdout = anstream::AutoStream::new(std::io::stdout(), choice);
+        let rep = crate::reporter::Reporter::new(color);
+        render_human(report, &mut stdout, &rep)
             .map_err(|e| CliError::Internal(anyhow!("stdout write error: {}", e)))?;
     }
     Ok(())
