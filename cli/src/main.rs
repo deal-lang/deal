@@ -248,33 +248,8 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
         }
     }
 
-    // Expand any directory arguments to the .deal / .dealx files they contain.
-    let mut resolved_paths = expand_path_args(paths)?;
-
-    // Honor `[workspace].exclude` — drop files under excluded paths (frontier /
-    // draft packages that intentionally don't parse on the current grammar).
-    {
-        let root = find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
-        if let Ok(bytes) = std::fs::read(root.join("deal.toml")) {
-            if let Ok(s) = std::str::from_utf8(&bytes) {
-                if let Ok(manifest) = toml::from_str::<resolver::DealToml>(s) {
-                    let excluded: Vec<std::path::PathBuf> = manifest
-                        .workspace
-                        .exclude
-                        .iter()
-                        .map(|e| root.join(e))
-                        .filter_map(|p| std::fs::canonicalize(&p).ok())
-                        .collect();
-                    if !excluded.is_empty() {
-                        resolved_paths.retain(|p| match std::fs::canonicalize(p) {
-                            Ok(cp) => !excluded.iter().any(|ex| cp.starts_with(ex)),
-                            Err(_) => true,
-                        });
-                    }
-                }
-            }
-        }
-    }
+    // Expand directory arguments, then drop files under [workspace].exclude.
+    let mut resolved_paths = apply_workspace_excludes(paths, expand_path_args(paths)?);
 
     if resolved_paths.is_empty() {
         return Err(CliError::User(format!(
@@ -1131,6 +1106,36 @@ fn expand_path_args(
     Ok(out)
 }
 
+/// Drop files under `[workspace].exclude` paths (relative to the project root)
+/// from an expanded path list. Frontier/draft packages that intentionally don't
+/// parse on the current grammar are kept on disk but skipped by check/build.
+fn apply_workspace_excludes(
+    paths: &[std::path::PathBuf],
+    mut resolved: Vec<std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    let root = find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
+    if let Ok(bytes) = std::fs::read(root.join("deal.toml")) {
+        if let Ok(s) = std::str::from_utf8(&bytes) {
+            if let Ok(manifest) = toml::from_str::<resolver::DealToml>(s) {
+                let excluded: Vec<std::path::PathBuf> = manifest
+                    .workspace
+                    .exclude
+                    .iter()
+                    .map(|e| root.join(e))
+                    .filter_map(|p| std::fs::canonicalize(&p).ok())
+                    .collect();
+                if !excluded.is_empty() {
+                    resolved.retain(|p| match std::fs::canonicalize(p) {
+                        Ok(cp) => !excluded.iter().any(|ex| cp.starts_with(ex)),
+                        Err(_) => true,
+                    });
+                }
+            }
+        }
+    }
+    resolved
+}
+
 fn run_build(
     paths: &[std::path::PathBuf],
     validate: bool,
@@ -1141,8 +1146,8 @@ fn run_build(
     let stderr_choice = color_choice(color);
     let mut stderr = anstream::AutoStream::new(std::io::stderr(), stderr_choice);
 
-    // Expand any directory arguments to the .deal / .dealx files they contain.
-    let resolved_paths = expand_path_args(paths)?;
+    // Expand directory arguments, then drop files under [workspace].exclude.
+    let resolved_paths = apply_workspace_excludes(paths, expand_path_args(paths)?);
     if resolved_paths.is_empty() {
         return Err(CliError::User(format!(
             "no .deal or .dealx files found under {paths:?}"
@@ -1318,8 +1323,8 @@ fn run_build_reqif(
     let stderr_choice = color_choice(color);
     let mut stderr = anstream::AutoStream::new(std::io::stderr(), stderr_choice);
 
-    // Expand directory arguments to individual .deal / .dealx files.
-    let resolved_paths = expand_path_args(paths)?;
+    // Expand directory arguments, then drop files under [workspace].exclude.
+    let resolved_paths = apply_workspace_excludes(paths, expand_path_args(paths)?);
     if resolved_paths.is_empty() {
         return Err(CliError::User(format!(
             "no .deal or .dealx files found under {paths:?}"
