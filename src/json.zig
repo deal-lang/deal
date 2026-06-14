@@ -267,7 +267,7 @@ fn writePayload(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), payload: 
         .part_def, .port_def, .action_def, .state_def, .attribute_def,
         .item_def, .interface_def, .connection_def, .flow_def,
         .allocation_def, .requirement_def, .need_def,
-        .use_case_def => {
+        .use_case_def, .actor_def => {
             const elem = getElementDef(payload);
             try writeElementDefFields(allocator, buf, elem);
         },
@@ -720,6 +720,7 @@ fn writePayload(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), payload: 
 fn getElementDef(payload: *const ast.Payload) *const ast.ElementDef {
     return switch (payload.*) {
         .part_def => |*p| p,
+        .actor_def => |*p| p,
         .port_def => |*p| p,
         .action_def => |*p| p,
         .state_def => |*p| p,
@@ -840,6 +841,7 @@ fn nodekindName(k: ast.NodeKind) []const u8 {
         .import_decl => "import_decl",
         .export_decl => "export_decl",
         .part_def => "part_def",
+        .actor_def => "actor_def",
         .port_def => "port_def",
         .action_def => "action_def",
         .state_def => "state_def",
@@ -1456,6 +1458,7 @@ fn symbolKindName(kind: sema.SymbolKind) []const u8 {
     return switch (kind) {
         .package => "package",
         .part_def => "part_def",
+        .actor_def => "actor_def",
         .port_def => "port_def",
         .action_def => "action_def",
         .state_def => "state_def",
@@ -1871,6 +1874,7 @@ fn edgeKindName(kind: ir.EdgeKind) []const u8 {
 fn irNodeKindName(kind: ir.NodeKind) []const u8 {
     return switch (kind) {
         .action_def => "action_def",
+        .actor_def => "actor_def",
         .allocation_def => "allocation_def",
         .allocate => "allocate",
         .annotation => "annotation",

@@ -173,7 +173,11 @@ fn emit_node<'a>(
 ) -> anyhow::Result<Value> {
     match node.kind {
         "package" => emit_package(node, outgoing, node_map, all_edges),
-        "part_def" => emit_part_def(node, outgoing, node_map, all_edges),
+        // actor_def → SysML PartDefinition. KerML has no ActorDefinition; an
+        // actor is a part carrying an «actor» MetadataFeature. The «actor»
+        // marker is part of the (currently deferred) metadata layer, so the
+        // structural mapping is PartDefinition — same emitter as part_def.
+        "part_def" | "actor_def" => emit_part_def(node, outgoing, node_map, all_edges),
         "port_def" => emit_port_def(node, outgoing, node_map, all_edges),
         "port_usage" => emit_port_usage(node),
         "part_usage" => emit_part_usage(node),

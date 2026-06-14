@@ -939,6 +939,10 @@ fn parseDefinition(p: *Parser) !*ast.Node {
         .kw_calc => parseCalcDef(p, doc_node, mods_slice, direction, attach.leading, attach.doc),
         .kw_need => parseNeedDef(p, doc_node, mods_slice, direction, attach.leading, attach.doc),
         .kw_use => parseUseCaseDef(p, doc_node, mods_slice, direction, attach.leading, attach.doc),
+        // `actor def Name { ... }` — definition (top-level). Inside a use-case
+        // body, `actor x : T` is a usage handled by parseDefinitionBody; here
+        // the keyword is followed by `def`, selecting the definition form.
+        .kw_actor => parseElementDef(p, .actor_def, .kw_actor, doc_node, mods_slice, direction, attach.leading, attach.doc),
         // Import declarations can appear here too.
         .kw_import => parseImportDecl(p),
         else => {
@@ -1568,6 +1572,7 @@ fn parseRequireStatement(p: *Parser) !*ast.Node {
 fn makeElementDefPayload(kind: ast.NodeKind, def: ast.ElementDef) ast.Payload {
     return switch (kind) {
         .part_def => .{ .part_def = def },
+        .actor_def => .{ .actor_def = def },
         .port_def => .{ .port_def = def },
         .action_def => .{ .action_def = def },
         .state_def => .{ .state_def = def },
@@ -2641,7 +2646,7 @@ fn canStartDefinition(tag: lexer.Tag) bool {
         .kw_part, .kw_port, .kw_action, .kw_state, .kw_attribute,
         .kw_item, .kw_interface, .kw_connection, .kw_flow,
         .kw_allocation, .kw_requirement, .kw_constraint, .kw_calc, .kw_need,
-        .kw_use, .kw_import,
+        .kw_use, .kw_actor, .kw_import,
         .kw_abstract, .kw_derived, .kw_readonly, .kw_ordered,
         .kw_nonunique, .kw_individual, .kw_variation, .kw_portion,
         .kw_end, .kw_ref,

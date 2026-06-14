@@ -178,6 +178,7 @@ pub const SymbolKind = enum {
     calc_def,     // Phase 05.2 Wave 2 (SD-21)
     need_def,
     use_case_def,
+    actor_def,
     imported, // from an explicit import statement
     imported_wildcard_pkg, // from a wildcard import (import pkg.*)
 };
@@ -1883,6 +1884,7 @@ fn defNodeToSymbolKind(kind: ast.NodeKind) ?SymbolKind {
         .calc_def => .calc_def,  // Phase 05.2
         .need_def => .need_def,
         .use_case_def => .use_case_def,
+        .actor_def => .actor_def,
         else => null,
     };
 }
@@ -1892,6 +1894,7 @@ fn defNodeToSymbolKind(kind: ast.NodeKind) ?SymbolKind {
 fn elemDefOf(node: *ast.Node) ?ast.ElementDef {
     return switch (node.payload) {
         .part_def => |e| e,
+        .actor_def => |e| e,
         .port_def => |e| e,
         .action_def => |e| e,
         .state_def => |e| e,

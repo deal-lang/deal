@@ -39,6 +39,7 @@ pub const NodeKind = enum {
     expose,
     flow_def,
     interface_def,
+    actor_def,
     item_def,
     need_def,
     package,

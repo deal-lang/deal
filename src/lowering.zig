@@ -814,6 +814,7 @@ fn stripQuotes(s: []const u8) []const u8 {
 fn elemDefOf(node: *ast.Node) ?ast.ElementDef {
     return switch (node.payload) {
         .part_def => |e| e,
+        .actor_def => |e| e,
         .port_def => |e| e,
         .action_def => |e| e,
         .state_def => |e| e,
@@ -866,6 +867,7 @@ fn elemUsageOf(node: *ast.Node) ?ast.ElementUsage {
 fn astKindToIrKind(kind: ast.NodeKind) ?ir.NodeKind {
     return switch (kind) {
         .part_def => .part_def,
+        .actor_def => .actor_def,
         .port_def => .port_def,
         .action_def => .action_def,
         .state_def => .state_def,

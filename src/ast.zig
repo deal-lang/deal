@@ -80,6 +80,7 @@ pub const NodeKind = enum {
     constraint_def,
     need_def,
     use_case_def,
+    actor_def,          // ActorDefinition (SD-18b — external participant; «actor» on a part/item)
 
     // ── Calc/constraint definitions (SD-21/22/23 — Phase 05.2 Wave 2) ──
     calc_def,           // CalcDefinition (new top-level + _MemberContent)
@@ -316,6 +317,7 @@ pub const RequirementDef = ElementDef;
 // NOTE: ConstraintDef alias removed — replaced by ConstraintDefinition struct below (Phase 05.2)
 pub const NeedDef = ElementDef;
 pub const UseCaseDef = ElementDef;
+pub const ActorDef = ElementDef;
 
 /// Real ConstraintDefinition struct (replaces the former ConstraintDef = ElementDef alias).
 /// Dispatch sites updated atomically in Phase 05.2 Wave 2 (Plan 03).
@@ -691,6 +693,7 @@ pub const Payload = union(NodeKind) {
     constraint_def: ConstraintDefinition,  // CHANGED from ConstraintDef alias (Phase 05.2)
     need_def: NeedDef,
     use_case_def: UseCaseDef,
+    actor_def: ActorDef,
 
     // Calc/constraint definitions (Phase 05.2 Wave 2)
     calc_def: CalcDefinition,

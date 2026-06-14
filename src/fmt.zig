@@ -89,6 +89,7 @@ const FormatContext = struct {
 
             // Element definitions — dispatch by kind
             .part_def => |*p| try ctx.writeElementDef(p, "part def", indent),
+            .actor_def => |*p| try ctx.writeElementDef(p, "actor def", indent),
             .port_def => |*p| try ctx.writeElementDef(p, "port def", indent),
             .action_def => |*p| try ctx.writeElementDef(p, "action def", indent),
             .state_def => |*p| try ctx.writeElementDef(p, "state def", indent),
@@ -1243,6 +1244,7 @@ const NodeComments = struct {
 fn getNodeComments(node: *ast.Node) ?NodeComments {
     return switch (node.payload) {
         .part_def => |*p| .{ .leading = p.leading_comments, .trailing = p.trailing_comments, .doc = p.doc_comment, .doc_node = p.doc },
+        .actor_def => |*p| .{ .leading = p.leading_comments, .trailing = p.trailing_comments, .doc = p.doc_comment, .doc_node = p.doc },
         .port_def => |*p| .{ .leading = p.leading_comments, .trailing = p.trailing_comments, .doc = p.doc_comment, .doc_node = p.doc },
         .action_def => |*p| .{ .leading = p.leading_comments, .trailing = p.trailing_comments, .doc = p.doc_comment, .doc_node = p.doc },
         .state_def => |*p| .{ .leading = p.leading_comments, .trailing = p.trailing_comments, .doc = p.doc_comment, .doc_node = p.doc },

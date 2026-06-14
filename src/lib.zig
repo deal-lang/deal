@@ -951,6 +951,42 @@ test "deal_check_with_stdlib: NUL-delimited multi-file stdlib seeds every file" 
     try std.testing.expectEqual(false, deal_has_errors(h));
 }
 
+test "actor def: top-level definition registers a type usable by an actor usage" {
+    // `actor def Operator { ... }` is a new top-level definition. A use case's
+    // `actor op : Operator` usage must resolve against it (no E2100). Before the
+    // ActorDefinition construct, `Operator` was only resolvable if hardcoded in
+    // isBuiltinType; now it is a user-defined type.
+    const src =
+        "package t;\n" ++
+        "actor def Operator { public ( attribute name : String [1]; ) }\n" ++
+        "use case def Mission { public ( actor op : Operator [1]; ) action go; }\n";
+    const filename = "t.deal";
+
+    var diag_ptr: [*]const u8 = undefined;
+    var diag_len: usize = 0;
+    const empty: []const u8 = "";
+    const h = deal_check_with_stdlib(
+        src.ptr,
+        src.len,
+        filename.ptr,
+        filename.len,
+        empty.ptr,
+        empty.len,
+        &diag_ptr,
+        &diag_len,
+    );
+    try std.testing.expect(h != null);
+    defer deal_free(h);
+
+    var json_ptr: [*]const u8 = undefined;
+    var json_len: usize = 0;
+    try std.testing.expect(deal_diagnostics_json(h, &json_ptr, &json_len));
+    const diag_json = json_ptr[0..json_len];
+    // Operator resolves → no "type not defined" diagnostic mentioning it.
+    try std.testing.expect(std.mem.indexOf(u8, diag_json, "Operator") == null);
+    try std.testing.expectEqual(false, deal_has_errors(h));
+}
+
 test "stub: .dealx filename selects dealx mode" {
     const source = "";
     const filename = "model/x.dealx";
