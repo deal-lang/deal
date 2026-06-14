@@ -456,7 +456,17 @@ pub fn dispatch_sim(
             ev_dir,
             stderr,
         ),
-        "matlab" | "generic" => dispatch_runner(
+        "matlab" => dispatch_matlab(
+            sim_name,
+            entry,
+            input_json_path,
+            output_json_path,
+            metadata_json_path,
+            workdir,
+            ev_dir,
+            stderr,
+        ),
+        "generic" => dispatch_runner(
             sim_name,
             entry,
             input_json_path,
@@ -544,6 +554,129 @@ fn dispatch_python(
             "spawn python for '{}': {}", sim_name, e
         ))),
     }
+}
+
+/// Dispatch a MATLAB simulation via `matlab -batch`.
+///
+/// MATLAB `-batch` cannot consume the generic `--input/--output` CLI args, and
+/// the `.m` harness reads `input.json` / writes `output.json` relative to its
+/// working directory. So we run with cwd = the evidence dir (where input.json
+/// was written) and add the script's own directory to the MATLAB path so
+/// `-batch "<script>"` resolves it from any subdirectory. The harness does not
+/// emit metadata.json, so we write a conforming one here for staleness
+/// enrichment. Absent or unlicensed MATLAB → graceful skip (D-72).
+fn dispatch_matlab(
+    sim_name: &str,
+    entry: &SimEntry,
+    _input_json_path: &Path,
+    _output_json_path: &Path,
+    metadata_json_path: &Path,
+    workdir: &Path,
+    ev_dir: &Path,
+    stderr: &mut dyn std::io::Write,
+) -> Result<SimResult, CliError> {
+    // MATLAB executable: first whitespace token of `runner` (default "matlab").
+    let exe = entry
+        .runner
+        .as_deref()
+        .and_then(|r| r.split_whitespace().next())
+        .unwrap_or("matlab")
+        .to_string();
+
+    // Locate the .m script: simulations/ (workdir) joined with the entry path.
+    let entry_rel = entry.entry.as_deref().ok_or_else(|| {
+        CliError::User(format!("sim '{}': matlab tool requires 'entry' field", sim_name))
+    })?;
+    let script_path = workdir.join(entry_rel);
+    let script_dir = script_path.parent().unwrap_or(workdir);
+    let script_stem = script_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| {
+            CliError::User(format!("sim '{}': invalid matlab entry {:?}", sim_name, entry_rel))
+        })?;
+
+    // Absolute script dir so addpath works regardless of cwd.
+    let script_dir_abs =
+        std::fs::canonicalize(script_dir).unwrap_or_else(|_| script_dir.to_path_buf());
+    // MATLAB escapes a single quote inside a quoted string by doubling it.
+    let dir_escaped = script_dir_abs.to_string_lossy().replace('\'', "''");
+    let statement = format!("addpath('{}'); {}", dir_escaped, script_stem);
+
+    let started = std::time::Instant::now();
+    let result = std::process::Command::new(&exe)
+        .arg("-batch")
+        .arg(&statement)
+        .current_dir(ev_dir)
+        .output();
+
+    match result {
+        Ok(output) if output.status.success() => {
+            let duration_s = started.elapsed().as_secs_f64();
+            write_matlab_metadata(metadata_json_path, sim_name, entry, duration_s)?;
+            Ok(SimResult::Success)
+        }
+        Ok(output) => {
+            // License/availability failures → graceful skip (D-72), like absent tool.
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stderr),
+                String::from_utf8_lossy(&output.stdout)
+            )
+            .to_lowercase();
+            if combined.contains("license")
+                || combined.contains("cannot connect")
+                || combined.contains("no matlab")
+            {
+                let reason = format!(
+                    "matlab license/availability error: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+                let _ = writeln!(stderr, "warning: sim '{}' skipped — {}", sim_name, reason);
+                write_skip_record(ev_dir, sim_name, &reason)?;
+                return Ok(SimResult::Skipped(reason));
+            }
+            Err(CliError::User(format!(
+                "simulation '{}' failed (exit {}): {}",
+                sim_name,
+                output.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&output.stderr).trim()
+            )))
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            let reason = format!("matlab not found: {}", e);
+            let _ = writeln!(stderr, "warning: sim '{}' skipped — {}", sim_name, reason);
+            write_skip_record(ev_dir, sim_name, &reason)?;
+            Ok(SimResult::Skipped(reason))
+        }
+        Err(e) => Err(CliError::Internal(anyhow::anyhow!(
+            "spawn matlab for '{}': {}",
+            sim_name,
+            e
+        ))),
+    }
+}
+
+/// Write a metadata.json conforming to spec/sims/v0/metadata.schema.json for a
+/// MATLAB run (the `.m` harness does not emit one). The staleness key is added
+/// by the caller's enrichment step.
+fn write_matlab_metadata(
+    metadata_path: &Path,
+    sim_name: &str,
+    entry: &SimEntry,
+    duration_s: f64,
+) -> Result<(), CliError> {
+    let tier = entry.reproducibility.as_deref().unwrap_or("tolerant");
+    let meta = serde_json::json!({
+        "deal_sim_protocol": "v0",
+        "v": 1,
+        "tool": "matlab",
+        "sim_name": sim_name,
+        "timestamp": chrono_like_timestamp(),
+        "duration_s": duration_s,
+        "reproducibility_tier": tier,
+    });
+    write_json_atomic(metadata_path, &meta)
 }
 
 fn dispatch_runner(
