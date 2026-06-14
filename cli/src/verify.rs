@@ -984,9 +984,13 @@ fn load_evidence_values(
         Err(_) => return HashMap::new(),
     };
     // output.json may have values as plain numbers OR {value, unit} objects
-    // per spec/sims/v0/output.schema.json (Plan 01 decision)
+    // per spec/sims/v0/output.schema.json (Plan 01 decision). Evidence `maps`
+    // reference the sim's declared output names (e.g. `depthOfDischarge`), which
+    // live under the top-level "outputs" object — so key by the BARE field name,
+    // not the full "outputs.<field>" path, or the simulation src never matches.
     let mut map = HashMap::new();
-    extract_numeric_values(&v, "", &mut map);
+    let outputs = v.get("outputs").unwrap_or(&v);
+    extract_numeric_values(outputs, "", &mut map);
     map
 }
 
