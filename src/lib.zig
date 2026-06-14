@@ -322,6 +322,47 @@ pub const StdlibSource = struct {
     filename: []const u8,
 };
 
+/// Parse ONE stdlib source file, run sema Pass A/B, and merge its
+/// dimension_def / unit_def entries into `merged` (first declaration wins).
+///
+/// Shared by `deal_parse_internal_with_stdlib` (slice of sources) and the
+/// C ABI `deal_check_with_stdlib` (NUL-delimited buffer split into sources).
+/// A single `parseFile` over multiple concatenated @header/package files
+/// fails at the second file boundary, so each stdlib file MUST be parsed
+/// independently — this helper is that per-file unit.
+///
+/// Unparseable or non-UTF-8 sources are skipped silently (stdlib seeding is
+/// best-effort; a bad stdlib file must never abort the user's check).
+/// `alloc` must own `merged` and outlive `analyzeWithExternalTable`.
+fn mergeStdlibSourceInto(
+    merged: *sema.SymbolTable,
+    alloc: std.mem.Allocator,
+    source: []const u8,
+    filename: []const u8,
+) void {
+    if (source.len == 0) return;
+    if (!std.unicode.utf8ValidateSlice(source)) return;
+
+    var parse_diags: std.ArrayList(diagnostics.Diagnostic) = .empty;
+    const mode: ast.Mode = if (std.mem.endsWith(u8, filename, ".dealx")) .dealx else .deal;
+    const root = parser.parseFile(alloc, source, mode, &parse_diags) catch null;
+    if (root == null) return;
+
+    var sub_diags: std.ArrayList(diagnostics.Diagnostic) = .empty;
+    const sub_table = sema.analyze(alloc, root, &sub_diags, filename) catch return;
+
+    var it = sub_table.entries.iterator();
+    while (it.next()) |kv| {
+        const entry = kv.value_ptr.*;
+        if (entry.kind == .dimension_def or entry.kind == .unit_def) {
+            if (!merged.entries.contains(kv.key_ptr.*)) {
+                const key_copy = alloc.dupe(u8, kv.key_ptr.*) catch continue;
+                merged.entries.put(key_copy, entry) catch continue;
+            }
+        }
+    }
+}
+
 /// Test-only variant of `deal_parse_internal` that seeds the sema with
 /// dimension/unit metadata from stdlib sources BEFORE analyzing the target file.
 ///
@@ -362,37 +403,7 @@ pub fn deal_parse_internal_with_stdlib(
     };
 
     for (stdlib_sources) |src| {
-        // Skip empty source (shouldn't happen, but guard gracefully).
-        if (src.source.len == 0) continue;
-
-        // Parse the stdlib file.
-        var parse_diags: std.ArrayList(diagnostics.Diagnostic) = .empty;
-        const mode: ast.Mode = if (std.mem.endsWith(u8, src.filename, ".dealx")) .dealx else .deal;
-        const stdlib_root = parser.parseFile(stdlib_alloc, src.source, mode, &parse_diags) catch null;
-        if (stdlib_root == null) continue; // skip unparseable stdlib file
-
-        // Run full sema analysis (Pass A + B) on the stdlib file.
-        // We only care about the symbol table it produces (for dim/unit metadata).
-        var sub_diags: std.ArrayList(diagnostics.Diagnostic) = .empty;
-        const sub_table = sema.analyze(
-            stdlib_alloc,
-            stdlib_root,
-            &sub_diags,
-            src.filename,
-        ) catch continue;
-
-        // Merge dimension_def / unit_def entries into the merged table.
-        var it = sub_table.entries.iterator();
-        while (it.next()) |kv| {
-            const entry = kv.value_ptr.*;
-            if (entry.kind == .dimension_def or entry.kind == .unit_def) {
-                // Only add if not already present (first declaration wins).
-                if (!merged.entries.contains(kv.key_ptr.*)) {
-                    const key_copy = try stdlib_alloc.dupe(u8, kv.key_ptr.*);
-                    try merged.entries.put(key_copy, entry);
-                }
-            }
-        }
+        mergeStdlibSourceInto(merged, stdlib_alloc, src.source, src.filename);
     }
 
     // ── Phase 2: Analyze the target file with stdlib seeding ──────────────
@@ -590,38 +601,27 @@ pub export fn deal_check_with_stdlib(
         };
 
         // Parse + analyze the stdlib source bytes to collect dimension/unit entries.
-        if (stdlib_ir_len > 0 and std.unicode.utf8ValidateSlice(stdlib_ir_ptr[0..stdlib_ir_len])) {
-            const stdlib_source = stdlib_ir_ptr[0..stdlib_ir_len];
-            const stdlib_filename = "stdlib.deal";
-            var parse_diags: std.ArrayList(diagnostics.Diagnostic) = .empty;
-            const stdlib_root = parser.parseFile(
-                stdlib_alloc,
-                stdlib_source,
-                .deal,
-                &parse_diags,
-            ) catch null;
-
-            if (stdlib_root != null) {
-                var sub_diags: std.ArrayList(diagnostics.Diagnostic) = .empty;
-                const sub_table = sema.analyze(
+        //
+        // The CLI passes one or more stdlib files concatenated with a NUL (0x00)
+        // separator. NUL never occurs in valid UTF-8 DEAL source, so it is a safe
+        // record delimiter. Each file is parsed INDEPENDENTLY — a single parseFile
+        // over multiple @header/package files would fail at the second file's
+        // @header boundary, silently yielding an empty stdlib table (the bug this
+        // replaces). A buffer with no NUL is treated as a single file, preserving
+        // the prior single-file behavior.
+        if (stdlib_ir_len > 0) {
+            const stdlib_blob = stdlib_ir_ptr[0..stdlib_ir_len];
+            var file_it = std.mem.splitScalar(u8, stdlib_blob, 0);
+            var file_idx: usize = 0;
+            while (file_it.next()) |chunk| {
+                if (chunk.len == 0) continue;
+                const fname = std.fmt.allocPrint(
                     stdlib_alloc,
-                    stdlib_root,
-                    &sub_diags,
-                    stdlib_filename,
-                ) catch null;
-
-                if (sub_table) |tbl| {
-                    var it = tbl.entries.iterator();
-                    while (it.next()) |kv| {
-                        const entry = kv.value_ptr.*;
-                        if (entry.kind == .dimension_def or entry.kind == .unit_def) {
-                            if (!merged.entries.contains(kv.key_ptr.*)) {
-                                const key_copy = stdlib_alloc.dupe(u8, kv.key_ptr.*) catch continue;
-                                merged.entries.put(key_copy, entry) catch continue;
-                            }
-                        }
-                    }
-                }
+                    "stdlib_{d}.deal",
+                    .{file_idx},
+                ) catch "stdlib.deal";
+                mergeStdlibSourceInto(merged, stdlib_alloc, chunk, fname);
+                file_idx += 1;
             }
         }
     }
@@ -912,6 +912,43 @@ test "stub: parse empty source + free does not leak" {
     try std.testing.expect(std.mem.indexOf(u8, ast_json, "\"root\":{") != null);
 
     deal_free(h);
+}
+
+test "deal_check_with_stdlib: NUL-delimited multi-file stdlib seeds every file" {
+    // Two stdlib files joined by a NUL (0x00) separator. The dimension `Foo`
+    // lives in the SECOND file, so it resolves only if BOTH files are parsed.
+    // The previous single-parseFile path treated the concatenation as one file,
+    // failed at the second @header/package boundary, and lost all entries.
+    const file_a = "package t.a;\nattribute def Alpha { attribute si_M : Integer = 0; attribute si_L : Integer = 0; attribute si_T : Integer = 0; attribute si_I : Integer = 0; attribute si_TH : Integer = 0; attribute si_N : Integer = 0; attribute si_J : Integer = 0; }\n";
+    const file_b = "package t.b;\nattribute def Foo { attribute si_M : Integer = 0; attribute si_L : Integer = 2; attribute si_T : Integer = 0; attribute si_I : Integer = 0; attribute si_TH : Integer = 0; attribute si_N : Integer = 0; attribute si_J : Integer = 0; }\n";
+    const stdlib_blob = file_a ++ "\x00" ++ file_b;
+
+    // Target uses `Foo` (from the second stdlib file) as an attribute type.
+    const target = "package t.user;\npart def Widget { public ( attribute area : Foo [1]; ) }\n";
+    const filename = "user.deal";
+
+    var diag_ptr: [*]const u8 = undefined;
+    var diag_len: usize = 0;
+    const h = deal_check_with_stdlib(
+        target.ptr,
+        target.len,
+        filename.ptr,
+        filename.len,
+        stdlib_blob.ptr,
+        stdlib_blob.len,
+        &diag_ptr,
+        &diag_len,
+    );
+    try std.testing.expect(h != null);
+    defer deal_free(h);
+
+    // Foo must resolve — no "type not defined" error mentioning it.
+    var json_ptr: [*]const u8 = undefined;
+    var json_len: usize = 0;
+    try std.testing.expect(deal_diagnostics_json(h, &json_ptr, &json_len));
+    const diag_json = json_ptr[0..json_len];
+    try std.testing.expect(std.mem.indexOf(u8, diag_json, "Foo") == null);
+    try std.testing.expectEqual(false, deal_has_errors(h));
 }
 
 test "stub: .dealx filename selects dealx mode" {

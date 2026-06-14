@@ -303,16 +303,53 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
                             );
                         } else {
                             // Collect dep source bytes for stdlib seeding (D-88).
+                            // NUL (0x00) separates files: the FFI splits on NUL and
+                            // parses each independently. A newline join would let the
+                            // single parser run past the first file into the second
+                            // file's @header and fail (empty stdlib table).
                             for dep_path in &dep_sources {
                                 if let Ok(src) = std::fs::read(dep_path) {
                                     if !stdlib_bytes.is_empty() {
-                                        stdlib_bytes.push(b'\n');
+                                        stdlib_bytes.push(0u8);
                                     }
                                     stdlib_bytes.extend_from_slice(&src);
                                 }
                                 dep_file_set.insert(dep_path.clone());
                             }
                             resolved_paths.extend(dep_sources);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // D-66: path dependencies are referenced in-place (no clone), so the
+    // `.deal/deps/<name>/` glob above never sees them. Resolve `path` deps
+    // declared in deal.toml (relative to the project root) and seed their
+    // unit/dimension sources into stdlib_bytes as well, so in-repo examples can
+    // depend on a sibling deal-stdlib without `deal install`. NUL-separated for
+    // the same per-file-parse reason as the git-dep path.
+    {
+        let project_root =
+            find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
+        let toml_path = project_root.join("deal.toml");
+        if let Ok(toml_bytes) = std::fs::read(&toml_path) {
+            if let Ok(toml_str) = std::str::from_utf8(&toml_bytes) {
+                if let Ok(manifest) = toml::from_str::<resolver::DealToml>(toml_str) {
+                    for dep in manifest.dependencies.values() {
+                        if let resolver::Dependency::Path { path } = dep {
+                            let packages_dir = project_root.join(path).join("packages");
+                            if packages_dir.is_dir() {
+                                for dep_path in collect_deal_files_recursive(&packages_dir) {
+                                    if let Ok(src) = std::fs::read(&dep_path) {
+                                        if !stdlib_bytes.is_empty() {
+                                            stdlib_bytes.push(0u8);
+                                        }
+                                        stdlib_bytes.extend_from_slice(&src);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
