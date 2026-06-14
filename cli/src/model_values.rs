@@ -290,6 +290,14 @@ fn value_to_f64(node: &Value) -> Option<f64> {
             }
             value_to_f64(&args[0])
         }
+        "unary" => {
+            // Signed literal, e.g. `degC(-30)` → call arg is unary neg over 30.
+            let v = value_to_f64(node.get("operand")?)?;
+            match node.get("op").and_then(|o| o.as_str()) {
+                Some("neg") => Some(-v),
+                _ => Some(v),
+            }
+        }
         // Some encodings inline the literal as a bare JSON number under `value`.
         _ => node.get("value").and_then(|v| v.as_f64()),
     }
