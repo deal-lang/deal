@@ -103,7 +103,7 @@ fn extract_identifier(attributes: quick_xml::events::attributes::Attributes<'_>)
     for attr_result in attributes.flatten() {
         let key = std::str::from_utf8(attr_result.key.as_ref()).unwrap_or("");
         if key == "IDENTIFIER" {
-            let val = attr_result.unescape_value().unwrap_or_default();
+            let val = attr_result.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap_or_default();
             if !val.is_empty() {
                 return Some(val.into_owned());
             }
@@ -135,7 +135,7 @@ fn process_start_element<'a>(
             for attr_result in attributes {
                 if let Ok(attr) = attr_result {
                     let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
-                    let val = attr.unescape_value().unwrap_or_default();
+                    let val = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap_or_default();
                     if key == "xmlns" && val == REQIF_NAMESPACE {
                         ns_ok = true;
                     }
@@ -160,7 +160,7 @@ fn process_start_element<'a>(
                 if let Ok(attr) = attr_result {
                     let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
                     if key == "IDENTIFIER" {
-                        let val = attr.unescape_value().unwrap_or_default();
+                        let val = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap_or_default();
                         if !val.is_empty() {
                             has_identifier = true;
                         }
