@@ -1295,12 +1295,36 @@ pub fn run_verify(
 ) -> Result<(), CliError> {
     use std::io::Write as _;
 
-    // Determine project root from paths
-    let project_root: PathBuf = paths
-        .iter()
-        .find(|p| p.is_dir())
-        .cloned()
-        .unwrap_or_else(|| PathBuf::from("."));
+    // Determine project root from paths, canonicalized to an ABSOLUTE path so
+    // sim input/output paths survive the cwd change into simulations/ during
+    // --run-sims (a relative "." root produced ./.deal/... paths that broke
+    // once the runner cd'd elsewhere).
+    let project_root: PathBuf = {
+        let pr = paths
+            .iter()
+            .find(|p| p.is_dir())
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from("."));
+        std::fs::canonicalize(&pr).unwrap_or(pr)
+    };
+
+    // Expand inputs to concrete .deal/.dealx files: a directory arg is walked,
+    // and an empty path list defaults to the whole project — so `deal check
+    // --verify` (or with a directory) from a project dir finds the traceability
+    // satisfy blocks instead of parsing nothing (0 total).
+    let files: Vec<PathBuf> = if paths.is_empty() {
+        crate::simulate::collect_deal_files(&project_root)
+    } else {
+        let mut fs = Vec::new();
+        for p in paths {
+            if p.is_dir() {
+                fs.extend(crate::simulate::collect_deal_files(p));
+            } else {
+                fs.push(p.clone());
+            }
+        }
+        fs
+    };
 
     let evidence_dir = project_root.join(".deal").join("evidence");
 
@@ -1314,7 +1338,7 @@ pub fn run_verify(
     // ── Pass 1: parse each path once, caching AST bytes + evidence bindings ──
     let mut parsed: Vec<Vec<u8>> = Vec::new();
     let mut bindings: Vec<String> = Vec::new();
-    for path in paths {
+    for path in &files {
         let source_bytes = std::fs::read(path)
             .map_err(|e| CliError::Internal(anyhow!("cannot read {:?}: {}", path, e)))?;
         let filename = path.to_string_lossy().to_string();

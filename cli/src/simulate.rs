@@ -1005,7 +1005,7 @@ fn load_project_ir(project_root: &Path) -> serde_json::Map<String, serde_json::V
 }
 
 /// Collect all `.deal` and `.dealx` files under a project directory.
-fn collect_deal_files(root: &Path) -> Vec<PathBuf> {
+pub fn collect_deal_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     collect_deal_files_recursive(root, &mut files);
     files
