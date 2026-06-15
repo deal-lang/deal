@@ -1,0 +1,34 @@
+name: spec-submodule-freshness
+
+# Guardrail (Phase 1, Option B): fail CI if the pinned `spec` submodule has
+# fallen behind its origin/main. This is what makes the "single source of truth"
+# enforceable instead of aspirational — the drift Phase 1 just fixed cannot
+# silently return. To bump: scripts/spec-bump.sh, review goldens, commit gitlink.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: spec submodule must equal its origin/main
+        run: |
+          set -euo pipefail
+          cd spec
+          git fetch --depth=1 origin main
+          PINNED=$(git rev-parse HEAD)
+          REMOTE=$(git rev-parse FETCH_HEAD)
+          echo "pinned     = $PINNED"
+          echo "origin/main = $REMOTE"
+          if [ "$PINNED" != "$REMOTE" ]; then
+            echo "::error::spec submodule ($PINNED) is behind origin/main ($REMOTE)."
+            echo "::error::Run scripts/spec-bump.sh, review goldens, then commit the gitlink."
+            exit 1
+          fi
+          echo "spec submodule is fresh."
