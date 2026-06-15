@@ -23,9 +23,10 @@
 const std = @import("std");
 const lexer = @import("lexer");
 
-/// 88 reserved/contextual keyword spellings from `lexical.ebnf` §5.
+/// 108 reserved/contextual keyword spellings from `lexical.ebnf` §5.
 /// Order mirrors the production for readability — the per-category sums
-/// total exactly 88 (17+10+3+3+4+10+8+7+11+4+9+2). Each entry is
+/// total exactly 108 (17+10+3+3+4+10+8+7+11+4+9+2 = 88, plus 20 behavioral
+/// BH-1..BH-7). Each entry is
 /// byte-equality matched (RESEARCH §T-locale): the lexer scans an IDENT
 /// slice, then `global_keywords.get(slice)` returns the keyword tag if
 /// present, else the slice stays an `.ident`.
@@ -146,6 +147,30 @@ pub const global_keywords = std.StaticStringMap(lexer.Tag).initComptime(.{
     // NOTE: `sig` is intentionally absent — D-07 forbids global reservation.
     .{ "return", .kw_return },   // NEW — calc result statement
     .{ "require", .kw_require }, // NEW — constraint invariant
+
+    // Behavioral surface keywords (20) — BH-1..BH-7. Globally reserved
+    // (flat-reserved), admissible inside ActionBody/StateBody. Operator ":="
+    // is .colon_eq and "~>" is .item_flow (lexer, not keywords).
+    .{ "decide", .kw_decide },
+    .{ "par", .kw_par },
+    .{ "loop", .kw_loop },
+    .{ "while", .kw_while },
+    .{ "until", .kw_until },
+    .{ "for", .kw_for },
+    .{ "send", .kw_send },
+    .{ "accept", .kw_accept },
+    .{ "assign", .kw_assign },
+    .{ "bind", .kw_bind },
+    .{ "node", .kw_node },
+    .{ "succession", .kw_succession },
+    .{ "on", .kw_on },
+    .{ "entry", .kw_entry },
+    .{ "do", .kw_do },
+    .{ "exit", .kw_exit },
+    .{ "else", .kw_else },
+    .{ "start", .kw_start },
+    .{ "done", .kw_done },
+    .{ "terminate", .kw_terminate },
 });
 
 /// Composition tag-name semantic classifier (Plan 04 consumer).

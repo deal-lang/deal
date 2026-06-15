@@ -1,4 +1,4 @@
-//! lexer.keywords — proves every entry in the 88-spelling keyword table
+//! lexer.keywords — proves every entry in the 108-spelling keyword table
 //! resolves to its declared kw_* tag, and that arbitrary identifiers
 //! NOT in the table stay as `.ident`.
 //!
@@ -7,6 +7,7 @@
 //! so any future addition/removal automatically updates the test.
 //!
 //! Phase 05.2 additions: calc/return/require (3 new entries, 85→88).
+//! Stage-2 S2.1 additions: 20 behavioral keywords (BH-1..BH-7, 88→108).
 //! D-07 guard: `sig` must NOT appear in global_keywords (stays .ident).
 
 const std = @import("std");
@@ -22,8 +23,8 @@ test "lexer.keywords" {
     // arrays as runtime slices. We iterate and lex each spelling alone.
     const kvs = keywords.global_keywords.keys();
     const vals = keywords.global_keywords.values();
-    try std.testing.expectEqual(@as(usize, 88), kvs.len);
-    try std.testing.expectEqual(@as(usize, 88), vals.len);
+    try std.testing.expectEqual(@as(usize, 108), kvs.len);
+    try std.testing.expectEqual(@as(usize, 108), vals.len);
 
     var i: usize = 0;
     while (i < kvs.len) : (i += 1) {

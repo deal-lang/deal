@@ -14,6 +14,7 @@ comptime {
     _ = @import("lexer_mode_flip.zig");
     _ = @import("lexer_keywords.zig");
     _ = @import("lexer_calc.zig");
+    _ = @import("lexer_behavioral.zig");
     _ = @import("lexer_comments.zig");
     _ = @import("lexer_templates.zig");
     _ = @import("lexer_snapshot.zig");

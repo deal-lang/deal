@@ -97,6 +97,30 @@ pub const Tag = enum {
     kw_return,   // NEW — calc result statement
     kw_require,  // NEW — constraint invariant
 
+    // Behavioral surface keywords (BH-1..BH-7) — 20 new entries.
+    // Admissible only inside ActionBody/StateBody, but globally reserved
+    // (flat-reserved lexer, consistent with the rest of this table).
+    kw_decide,
+    kw_par,
+    kw_loop,
+    kw_while,
+    kw_until,
+    kw_for,
+    kw_send,
+    kw_accept,     // accept-action (distinct from kw_accepts, the verification method list)
+    kw_assign,     // assign-action keyword (operator ":=" is .colon_eq)
+    kw_bind,
+    kw_node,
+    kw_succession,
+    kw_on,
+    kw_entry,
+    kw_do,
+    kw_exit,
+    kw_else,       // guard default in `[else]`
+    kw_start,
+    kw_done,
+    kw_terminate,
+
     // Modifier (10)
     kw_abstract,
     kw_derived,
@@ -207,6 +231,7 @@ pub const Tag = enum {
     sysml_redefines, // ":>>"
     sysml_references, // "::>"
     sysml_conjugates, // "~"
+    item_flow, // "~>" — BH-6 object/item flow operator (longest-match over "~")
 
     // §7 Delimiters & Punctuation
     l_brace,
@@ -221,6 +246,7 @@ pub const Tag = enum {
     dotdot,
     coloncolon,
     colon,
+    colon_eq, // ":=" — BH assign-action operator (longest-match over ":")
     eq,
     arrow, // "=>"
     thin_arrow, // "->"
@@ -755,6 +781,12 @@ pub const Lexer = struct {
                     self.pos = start + 2;
                     return tokenAt(.sysml_specializes, start, self.pos);
                 }
+                if (c1 == '=') {
+                    // ":=" assign-action operator (BH). Distinct from "=" (eq),
+                    // ":" (colon), ":>" (specializes), "::"/"::>"/":>>" above.
+                    self.pos = start + 2;
+                    return tokenAt(.colon_eq, start, self.pos);
+                }
                 self.pos = start + 1;
                 return tokenAt(.colon, start, self.pos);
             },
@@ -868,6 +900,12 @@ pub const Lexer = struct {
                 return tokenAt(.slash, start, self.pos);
             },
             '~' => {
+                if (c1 == '>') {
+                    // "~>" item/object flow operator (BH-6). Longest-match over
+                    // "~" (sysml_conjugates).
+                    self.pos = start + 2;
+                    return tokenAt(.item_flow, start, self.pos);
+                }
                 self.pos = start + 1;
                 return tokenAt(.sysml_conjugates, start, self.pos);
             },

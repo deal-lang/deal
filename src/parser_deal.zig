@@ -2680,6 +2680,14 @@ fn isKeyword(tag: lexer.Tag) bool {
         .kw_WHERE, .kw_path, .kw_schema, .kw_created, .kw_modified,
         .kw_reviewed, .kw_hash, .kw_baseline, .kw_marking, .kw_by,
         .kw_return, .kw_require,  // Phase 05.2 Wave 2
+        // Behavioral surface (BH-1..BH-7, Stage-2 S2.1) — keep these in
+        // isKeyword so they remain valid annotation-field keys / contextual
+        // names (e.g. `entry:` in a @simulation body) now that they are
+        // reserved spellings.
+        .kw_decide, .kw_par, .kw_loop, .kw_while, .kw_until, .kw_for,
+        .kw_send, .kw_accept, .kw_assign, .kw_bind, .kw_node, .kw_succession,
+        .kw_on, .kw_entry, .kw_do, .kw_exit, .kw_else,
+        .kw_start, .kw_done, .kw_terminate,
         => true,
         else => false,
     };
