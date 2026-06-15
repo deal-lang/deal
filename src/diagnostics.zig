@@ -187,6 +187,13 @@ pub const Codes = struct {
     pub const e_require_not_boolean = "E2610";
     /// Check #8e — ConstraintRef in return contract not resolved to a constraint_def, or cycle
     pub const e_constraint_ref_not_found = "E2611";
+
+    // E2700..E2799 — Stage-2 behavioral surface resolution (BH-1..BH-7, S2.4)
+    /// A succession / decide / par / transition target references a step that is
+    /// not declared in the enclosing action/state body.
+    pub const e_behavioral_step_not_found = "E2700";
+    /// An item-flow `: FlowType` does not resolve to a known type.
+    pub const e_behavioral_flow_type_not_found = "E2701";
 };
 
 /// Ergonomic helper that wraps the parser's diagnostic ArrayList + arena

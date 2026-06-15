@@ -238,6 +238,11 @@ const Analyzer = struct {
     /// it contains (for ConstraintRef cycle detection analog to checkSpecializationCycle).
     /// Populated during Pass A when a calc's return_contract contains ConstraintRefs.
     constraint_chain_map: std.StringHashMap([]const u8),
+    /// Stage-2 S2.4: the set of step names declared in the action/state body
+    /// currently being checked (action usages, pins, escape nodes, nested
+    /// states). Non-null only while inside an action_def / state_def body;
+    /// succession / transition / control-block targets resolve against it.
+    current_steps: ?*const std.StringHashMap(void) = null,
 };
 
 /// Run all 7 blocking semantic checks against the AST.
@@ -938,10 +943,23 @@ fn checkDefinition(a: *Analyzer, node: *ast.Node) !void {
         }
     }
 
+    // S2.4: action_def / state_def bodies carry behavioral members. Collect the
+    // locally-declared step names first (forward references are legal), then
+    // make them visible to checkFlowRef while checking the members.
+    var step_set = std.StringHashMap(void).init(a.arena);
+    const is_behavioral = (node.kind == .action_def or node.kind == .state_def);
+    const saved_steps = a.current_steps;
+    if (is_behavioral) {
+        try collectStepNames(a, elem.members, &step_set);
+        a.current_steps = &step_set;
+    }
+
     // Check members.
     for (elem.members) |member| {
         try checkMemberNode(a, member);
     }
+
+    if (is_behavioral) a.current_steps = saved_steps;
 
     // Check annotations for @trace / @trace:<<satisfies>> (Check #5).
     for (elem.annotations) |ann_node| {
@@ -1349,8 +1367,179 @@ fn checkMemberNode(a: *Analyzer, node: *ast.Node) !void {
             }
         },
         .verification_block, .precondition_block, .postcondition_block => {},
+
+        // ── Behavioral surface (BH-1..BH-7, S2.4) ────────────────────────────
+        .pin_decl => |p| {
+            // A pin is a directed Feature with a type — same checks as an
+            // attribute usage (type resolution, multiplicity, dimensional value).
+            try checkTypeAnnotation(a, p.type_node);
+            if (p.multiplicity) |m| try checkMultiplicity(a, m);
+            if (p.default_value) |dv| {
+                try checkDimensionalExpr(a, p.type_node, dv, dv.span);
+                try checkExprForPurity(a, dv);
+            }
+        },
+        .action_body => |ab| {
+            for (ab.members) |m| try checkMemberNode(a, m);
+        },
+        .succession_chain => |sc| {
+            for (sc.steps) |st| {
+                if (st.guard) |g| if (g.expr) |e| try checkExprForPurity(a, e);
+                try checkFlowRef(a, st.ref);
+            }
+        },
+        .decide_block, .par_block => try checkFlowRef(a, node),
+        .loop_statement => |ls| {
+            if (ls.guard) |g| try checkExprForPurity(a, g);
+            if (ls.iterable) |it| try checkExprForPurity(a, it);
+            try checkMemberNode(a, ls.body); // action_body
+        },
+        .accept_action => |aa| {
+            if (aa.guard) |g| try checkExprForPurity(a, g);
+        },
+        .assign_action => |asg| try checkExprForPurity(a, asg.value),
+        .perform_statement => |ps| try checkExprForPurity(a, ps.call),
+        .item_flow_statement => |ifs| {
+            if (ifs.flow_type_segments) |seg| {
+                const tn = try std.mem.join(a.arena, ".", seg);
+                if (!isKnownType(a, tn, seg)) {
+                    try a.collector.emitFmt(
+                        Codes.e_behavioral_flow_type_not_found,
+                        .err,
+                        node.span,
+                        "flow type `{s}` is not defined; use a declared or imported type",
+                        .{tn},
+                    );
+                }
+            }
+            try checkExprForPurity(a, ifs.source);
+            try checkExprForPurity(a, ifs.target);
+        },
+        .binding_statement => |bs| {
+            try checkExprForPurity(a, bs.lhs);
+            try checkExprForPurity(a, bs.rhs);
+        },
+        .escape_node => |en| {
+            const tn = try std.mem.join(a.arena, ".", en.type_segments);
+            if (!isKnownType(a, tn, en.type_segments)) {
+                try a.collector.emitFmt(
+                    Codes.e_type_mismatch,
+                    .err,
+                    node.span,
+                    "type `{s}` is not defined; use a declared or imported type",
+                    .{tn},
+                );
+            }
+            if (en.body) |b| try checkMemberNode(a, b);
+        },
+        .escape_succession => |es| {
+            if (es.guard) |g| if (g.expr) |e| try checkExprForPurity(a, e);
+        },
+        .transition_statement => |ts| {
+            if (ts.guard) |g| try checkExprForPurity(a, g);
+            if (ts.effect) |e| try checkExprForPurity(a, e);
+            try checkFlowRef(a, ts.target);
+        },
+        .entry_do_exit => |ed| try checkExprForPurity(a, ed.behavior),
+        // send payloads/triggers and control-ref/target-ref leaves: no checks
+        // beyond what their parents already perform (S2.4 scope).
+        .send_action, .control_ref, .target_ref => {},
+
         else => {},
     }
+}
+
+/// S2.4: collect the names of steps declared in a behavioral body (recursing
+/// into visibility wrappers, nested bodies, and escape-node bodies so forward
+/// and nested references resolve). Permissive superset — never a false negative.
+fn collectStepNames(
+    a: *Analyzer,
+    members: []*ast.Node,
+    set: *std.StringHashMap(void),
+) std.mem.Allocator.Error!void {
+    for (members) |m| {
+        switch (m.payload) {
+            .action_usage, .state_usage, .part_usage, .port_usage,
+            .attribute_usage, .item_usage => {
+                if (elemUsageOf(m)) |u| {
+                    try set.put(u.name, {});
+                    if (u.inline_body) |ib| {
+                        if (ib.payload == .inline_body) {
+                            try collectStepNames(a, ib.payload.inline_body.members, set);
+                        }
+                    }
+                }
+            },
+            .pin_decl => |p| try set.put(p.name, {}),
+            .escape_node => |p| {
+                try set.put(p.name, {});
+                if (p.body) |b| {
+                    if (b.payload == .action_body) try collectStepNames(a, b.payload.action_body.members, set);
+                }
+            },
+            .visibility_wrapper => |vw| try collectStepNames(a, vw.members, set),
+            .action_body => |ab| try collectStepNames(a, ab.members, set),
+            .loop_statement => |ls| {
+                if (ls.body.payload == .action_body) {
+                    try collectStepNames(a, ls.body.payload.action_body.members, set);
+                }
+            },
+            else => {},
+        }
+    }
+}
+
+/// Leftmost identifier of an identifier / member_access chain (the feature path
+/// head). Returns null for any other node shape.
+fn headIdentifier(node: *ast.Node) ?[]const u8 {
+    var cur = node;
+    while (true) {
+        switch (cur.payload) {
+            .identifier => |id| return id.name,
+            .member_access => |ma| cur = ma.receiver,
+            else => return null,
+        }
+    }
+}
+
+/// S2.4: resolve a control-flow target (succession ref / decide-branch target /
+/// par branch / transition target). Control endpoints and nested control blocks
+/// are always valid; named refs must resolve to a step in the current body.
+fn checkFlowRef(a: *Analyzer, node: *ast.Node) std.mem.Allocator.Error!void {
+    switch (node.payload) {
+        .control_ref => {},
+        .decide_block => |db| {
+            for (db.branches) |br| {
+                if (br.guard.expr) |e| try checkExprForPurity(a, e);
+                try checkFlowRef(a, br.target);
+            }
+        },
+        .par_block => |pb| {
+            for (pb.branches) |b| try checkFlowRef(a, b);
+            if (pb.exit) |ex| try checkFlowRef(a, ex);
+        },
+        .target_ref => |tr| {
+            if (tr.endpoint == null and tr.name_segments.len > 0) {
+                try resolveStepName(a, tr.name_segments[0], node.span);
+            }
+        },
+        else => {
+            if (headIdentifier(node)) |name| try resolveStepName(a, name, node.span);
+        },
+    }
+}
+
+fn resolveStepName(a: *Analyzer, name: []const u8, span: ast.Span) !void {
+    if (a.current_steps) |steps| {
+        if (steps.contains(name)) return;
+    }
+    try a.collector.emitFmt(
+        Codes.e_behavioral_step_not_found,
+        .err,
+        span,
+        "step `{s}` is not declared in this behavior",
+        .{name},
+    );
 }
 
 fn checkCompositionNode(a: *Analyzer, node: *ast.Node) !void {
