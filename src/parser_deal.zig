@@ -995,7 +995,13 @@ fn parseElementDef(
     const name = p.tokenText(name_tok.span);
 
     const specializes = try parseOptionalStructuralRelationship(p);
-    const body_result = try parseDefinitionBody(p, modifiers, direction);
+    // BH-7: action def / state def take dedicated behavioral bodies (Section
+    // 9b/9c); every other definition uses the shared DefinitionBody.
+    const body_result = switch (kind) {
+        .action_def => try parseActionBody(p),
+        .state_def => try parseStateBody(p),
+        else => try parseDefinitionBody(p, modifiers, direction),
+    };
 
     const end_pos = if (body_result.end > 0) body_result.end else name_tok.span.end;
     const span = ast.Span{
@@ -1696,6 +1702,701 @@ fn parseDefinitionBody(
         .members = try members.toOwnedSlice(p.arena),
         .annotations = try annots.toOwnedSlice(p.arena),
         .end = close.span.end,
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §10b: Behavioral surface — ActionBody / StateBody (BH-1..BH-7, Stage-2 S2.3)
+//
+// Implements deal.ebnf §9b/§9c. Dispatch is operator-driven LL(2): a name-led
+// member is parsed as an expression, then the FOLLOWING token selects the
+// production — "(" already consumed by the call ⇒ perform; "->" ⇒ succession;
+// "~>" ⇒ item flow. See spec/ir/v0.1/behavioral-mapping.md for the AST→IR→
+// SysML v2 targets each node lowers to (S2.5/S2.6).
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Segments of a QualifiedName plus an accurate source span (parseQualified-
+/// NameSegments discards spans; the behavioral nodes need them).
+const SegSpan = struct { segs: [][]const u8, start: u32, end: u32 };
+
+fn parseSegsWithSpan(p: *Parser) !SegSpan {
+    var segs: std.ArrayList([]const u8) = .empty;
+    const first = p.peek();
+    if (first.tag != .ident and !isKeyword(first.tag)) {
+        return SegSpan{ .segs = try segs.toOwnedSlice(p.arena), .start = first.span.start, .end = first.span.start };
+    }
+    _ = p.advance();
+    try segs.append(p.arena, p.tokenText(first.span));
+    var end = first.span.end;
+    while (p.peek().tag == .dot) {
+        const second = p.peek2();
+        if (second.tag == .ident or isKeyword(second.tag)) {
+            _ = p.advance(); // "."
+            const seg = p.advance();
+            try segs.append(p.arena, p.tokenText(seg.span));
+            end = seg.span.end;
+        } else break;
+    }
+    return SegSpan{ .segs = try segs.toOwnedSlice(p.arena), .start = first.span.start, .end = end };
+}
+
+/// `[ Expression | else ]` → Guard value struct (BH-2/BH-3).
+fn parseGuard(p: *Parser) !ast.Guard {
+    _ = try p.expect(.l_bracket);
+    if (p.peek().tag == .kw_else) {
+        _ = p.advance();
+        _ = try p.expect(.r_bracket);
+        return ast.Guard{ .expr = null, .is_else = true };
+    }
+    const e = try expr.parseExpression(p, 0);
+    _ = try p.expect(.r_bracket);
+    return ast.Guard{ .expr = e, .is_else = false };
+}
+
+/// `[ Expression ]` where the `[else]` default is meaningless (accept / loop /
+/// transition guards) — returns just the condition expression (null on else).
+fn parseGuardExpr(p: *Parser) !?*ast.Node {
+    const g = try parseGuard(p);
+    return g.expr;
+}
+
+/// FlowRef: start/done/terminate → control_ref; decide/par → block; else a
+/// QualifiedName parsed as an expression (identifier / member_access).
+fn parseFlowRef(p: *Parser) std.mem.Allocator.Error!*ast.Node {
+    const tok = p.peek();
+    switch (tok.tag) {
+        .kw_start => {
+            _ = p.advance();
+            return p.makeNode(.control_ref, tok.span, .{ .control_ref = .{ .endpoint = .start } });
+        },
+        .kw_done => {
+            _ = p.advance();
+            return p.makeNode(.control_ref, tok.span, .{ .control_ref = .{ .endpoint = .done } });
+        },
+        .kw_terminate => {
+            _ = p.advance();
+            return p.makeNode(.control_ref, tok.span, .{ .control_ref = .{ .endpoint = .terminate } });
+        },
+        .kw_decide => return parseDecideBlock(p),
+        .kw_par => return parseParBlock(p),
+        else => return expr.parseExpression(p, 0),
+    }
+}
+
+/// TargetRef (transition target): done/terminate → endpoint; else a name.
+fn parseTargetRef(p: *Parser) !*ast.Node {
+    const tok = p.peek();
+    switch (tok.tag) {
+        .kw_done => {
+            _ = p.advance();
+            return p.makeNode(.target_ref, tok.span, .{ .target_ref = .{ .endpoint = .done, .name_segments = &.{} } });
+        },
+        .kw_terminate => {
+            _ = p.advance();
+            return p.makeNode(.target_ref, tok.span, .{ .target_ref = .{ .endpoint = .terminate, .name_segments = &.{} } });
+        },
+        else => {
+            const ss = try parseSegsWithSpan(p);
+            const span = ast.Span{ .start = ss.start, .end = ss.end };
+            return p.makeNode(.target_ref, span, .{ .target_ref = .{ .endpoint = null, .name_segments = ss.segs } });
+        },
+    }
+}
+
+/// `FlowRef ( "->" Guard? FlowRef )+ ";"` given an already-parsed head node.
+fn parseSuccessionChainFrom(p: *Parser, head: *ast.Node) !*ast.Node {
+    var steps: std.ArrayList(ast.SuccessionStep) = .empty;
+    try steps.append(p.arena, .{ .guard = null, .ref = head });
+    var end = head.span.end;
+    while (p.peek().tag == .thin_arrow) {
+        _ = p.advance(); // "->"
+        var g: ?ast.Guard = null;
+        if (p.peek().tag == .l_bracket) g = try parseGuard(p);
+        const ref = try parseFlowRef(p);
+        end = ref.span.end;
+        try steps.append(p.arena, .{ .guard = g, .ref = ref });
+    }
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = head.span.start, .end = end };
+    return p.makeNode(.succession_chain, span, .{ .succession_chain = .{ .steps = try steps.toOwnedSlice(p.arena) } });
+}
+
+/// `decide { ( Guard "->" FlowRef )+ }` (BH-3).
+fn parseDecideBlock(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "decide"
+    _ = try p.expect(.l_brace);
+    var branches: std.ArrayList(ast.DecideBranch) = .empty;
+    while (p.peek().tag == .l_bracket) {
+        const g = try parseGuard(p);
+        _ = try p.expect(.thin_arrow);
+        const target = try parseFlowRef(p);
+        try branches.append(p.arena, .{ .guard = g, .target = target });
+    }
+    const close = try p.expect(.r_brace);
+    const span = ast.Span{ .start = start_tok.span.start, .end = close.span.end };
+    return p.makeNode(.decide_block, span, .{ .decide_block = .{ .branches = try branches.toOwnedSlice(p.arena) } });
+}
+
+/// `par { ( "->" FlowRef )+ } ( "->" FlowRef )?` (BH-3).
+fn parseParBlock(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "par"
+    _ = try p.expect(.l_brace);
+    var branches: std.ArrayList(*ast.Node) = .empty;
+    while (p.peek().tag == .thin_arrow) {
+        _ = p.advance(); // "->"
+        const ref = try parseFlowRef(p);
+        try branches.append(p.arena, ref);
+    }
+    const close = try p.expect(.r_brace);
+    var end = close.span.end;
+    var exit_ref: ?*ast.Node = null;
+    if (p.peek().tag == .thin_arrow) {
+        _ = p.advance(); // "->"
+        const ex = try parseFlowRef(p);
+        exit_ref = ex;
+        end = ex.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    return p.makeNode(.par_block, span, .{ .par_block = .{ .branches = try branches.toOwnedSlice(p.arena), .exit = exit_ref } });
+}
+
+/// `_DirectionPrefix IDENT TypeAnnotation Multiplicity? ( "=" Expression )? ";"`.
+fn parsePinDeclaration(p: *Parser) !*ast.Node {
+    const dir_tok = p.advance(); // in | out | inout
+    const direction: ast.Direction = switch (dir_tok.tag) {
+        .kw_in => .in,
+        .kw_out => .out,
+        .kw_inout => .inout,
+        else => .in,
+    };
+    const name_tok = try p.expect(.ident);
+    const name = p.tokenText(name_tok.span);
+    const type_node = try parseTypeAnnotation(p); // consumes ": Type"
+    const mult = try parseOptionalMultiplicity(p);
+    var default_value: ?*ast.Node = null;
+    if (p.peek().tag == .eq) {
+        _ = p.advance();
+        default_value = try expr.parseExpression(p, 0);
+    }
+    var end = type_node.span.end;
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = dir_tok.span.start, .end = end };
+    return p.makeNode(.pin_decl, span, .{ .pin_decl = .{
+        .name = name,
+        .direction = direction,
+        .type_node = type_node,
+        .multiplicity = mult,
+        .default_value = default_value,
+    } });
+}
+
+/// `loop ( while | until ) Guard ActionBody  |  for IDENT in Expression ActionBody`.
+fn parseLoopStatement(p: *Parser) !*ast.Node {
+    const start_tok = p.peek();
+    if (start_tok.tag == .kw_loop) {
+        _ = p.advance(); // "loop"
+        const wk = p.advance(); // while | until
+        const kind: ast.LoopKind = if (wk.tag == .kw_until) .until_loop else .while_loop;
+        const guard = try parseGuardExpr(p);
+        const body = try parseActionBodyNode(p);
+        const span = ast.Span{ .start = start_tok.span.start, .end = body.span.end };
+        return p.makeNode(.loop_statement, span, .{ .loop_statement = .{
+            .kind = kind,
+            .guard = guard,
+            .var_name = null,
+            .iterable = null,
+            .body = body,
+        } });
+    }
+    // for IDENT in Expression ActionBody
+    _ = p.advance(); // "for"
+    const var_tok = try p.expect(.ident);
+    _ = try p.expect(.kw_in);
+    const iterable = try expr.parseExpression(p, 0);
+    const body = try parseActionBodyNode(p);
+    const span = ast.Span{ .start = start_tok.span.start, .end = body.span.end };
+    return p.makeNode(.loop_statement, span, .{ .loop_statement = .{
+        .kind = .for_loop,
+        .guard = null,
+        .var_name = p.tokenText(var_tok.span),
+        .iterable = iterable,
+        .body = body,
+    } });
+}
+
+/// `send QualifiedName ( "to" QualifiedName )? ";"`.
+fn parseSendAction(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "send"
+    const payload = try parseSegsWithSpan(p);
+    var target: ?[][]const u8 = null;
+    var end = payload.end;
+    if (p.peek().tag == .kw_to) {
+        _ = p.advance();
+        const t = try parseSegsWithSpan(p);
+        target = t.segs;
+        end = t.end;
+    }
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    return p.makeNode(.send_action, span, .{ .send_action = .{
+        .payload_segments = payload.segs,
+        .target_segments = target,
+    } });
+}
+
+/// `accept QualifiedName ( "[" Expression "]" )? ";"`.
+fn parseAcceptAction(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "accept"
+    const trigger = try parseSegsWithSpan(p);
+    var guard: ?*ast.Node = null;
+    var end = trigger.end;
+    if (p.peek().tag == .l_bracket) {
+        guard = try parseGuardExpr(p);
+    }
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    return p.makeNode(.accept_action, span, .{ .accept_action = .{
+        .trigger_segments = trigger.segs,
+        .guard = guard,
+    } });
+}
+
+/// `assign QualifiedName ":=" Expression ";"`.
+fn parseAssignAction(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "assign"
+    const target = try parseSegsWithSpan(p);
+    _ = try p.expect(.colon_eq);
+    const value = try expr.parseExpression(p, 0);
+    var end = value.span.end;
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    return p.makeNode(.assign_action, span, .{ .assign_action = .{
+        .target_segments = target.segs,
+        .value = value,
+    } });
+}
+
+/// `bind FeatureRef "=" FeatureRef ";"`.
+fn parseBindingStatement(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "bind"
+    const lhs = try expr.parseExpression(p, 0);
+    _ = try p.expect(.eq);
+    const rhs = try expr.parseExpression(p, 0);
+    var end = rhs.span.end;
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    return p.makeNode(.binding_statement, span, .{ .binding_statement = .{ .lhs = lhs, .rhs = rhs } });
+}
+
+/// `node IDENT ":" QualifiedName ActionBody? ";"` (BH-1 escape hatch).
+fn parseEscapeNode(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "node"
+    const name_tok = try p.expect(.ident);
+    const name = p.tokenText(name_tok.span);
+    _ = try p.expect(.colon);
+    const ty = try parseSegsWithSpan(p);
+    var body: ?*ast.Node = null;
+    var end = ty.end;
+    if (p.peek().tag == .l_brace) {
+        const b = try parseActionBodyNode(p);
+        body = b;
+        end = b.span.end;
+    }
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    return p.makeNode(.escape_node, span, .{ .escape_node = .{
+        .name = name,
+        .type_segments = ty.segs,
+        .body = body,
+    } });
+}
+
+/// `succession QualifiedName "->" Guard? QualifiedName ";"` (BH-1 escape hatch).
+fn parseEscapeSuccession(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "succession"
+    const src = try parseSegsWithSpan(p);
+    _ = try p.expect(.thin_arrow);
+    var guard: ?ast.Guard = null;
+    if (p.peek().tag == .l_bracket) guard = try parseGuard(p);
+    const tgt = try parseSegsWithSpan(p);
+    var end = tgt.end;
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    return p.makeNode(.escape_succession, span, .{ .escape_succession = .{
+        .source_segments = src.segs,
+        .guard = guard,
+        .target_segments = tgt.segs,
+    } });
+}
+
+/// Item-flow tail: `"~>" FeatureRef ( ":" QualifiedName )? ";"`, given a parsed
+/// source node (BH-6).
+fn parseItemFlowFrom(p: *Parser, source: *ast.Node) !*ast.Node {
+    _ = p.advance(); // "~>"
+    const target = try expr.parseExpression(p, 0);
+    var flow_type: ?[][]const u8 = null;
+    var end = target.span.end;
+    if (p.peek().tag == .colon) {
+        _ = p.advance();
+        const ft = try parseSegsWithSpan(p);
+        flow_type = ft.segs;
+        end = ft.end;
+    }
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = source.span.start, .end = end };
+    return p.makeNode(.item_flow_statement, span, .{ .item_flow_statement = .{
+        .source = source,
+        .target = target,
+        .flow_type_segments = flow_type,
+    } });
+}
+
+/// Name-led action member: perform (call ";"), succession ("->"), or item flow
+/// ("~>"). Returns null without consuming when the lookahead cannot start one.
+fn parseNameLedActionMember(p: *Parser) !?*ast.Node {
+    const tok = p.peek();
+    if (tok.tag != .ident and !isKeyword(tok.tag)) return null;
+    const head = try expr.parseExpression(p, 0);
+    switch (p.peek().tag) {
+        .thin_arrow => return try parseSuccessionChainFrom(p, head),
+        .item_flow => return try parseItemFlowFrom(p, head),
+        .semicolon => {
+            const semi = p.advance();
+            if (head.kind != .call) {
+                try p.diags.append(p.arena, .{
+                    .code = "E0151",
+                    .severity = .err,
+                    .message = "a bare reference is not an action statement (expected a call, '->', or '~>')",
+                    .span = head.span,
+                });
+            }
+            const span = ast.Span{ .start = head.span.start, .end = semi.span.end };
+            return try p.makeNode(.perform_statement, span, .{ .perform_statement = .{ .call = head } });
+        },
+        else => {
+            try p.diags.append(p.arena, .{
+                .code = "E0151",
+                .severity = .err,
+                .message = "expected '->', '~>', or ';' after action member",
+                .span = p.peek().span,
+            });
+            return head;
+        },
+    }
+}
+
+/// Dispatch a single ActionBody member, appending to `members` (annotations go
+/// to `annots` when provided, else to `members`).
+fn parseActionMember(
+    p: *Parser,
+    members: *std.ArrayList(*ast.Node),
+    annots: ?*std.ArrayList(*ast.Node),
+) std.mem.Allocator.Error!void {
+    const tok = p.peek();
+    switch (tok.tag) {
+        .kw_public, .kw_protected, .kw_private => try members.append(p.arena, try parseVisibilityWrapper(p)),
+        .annotation, .annotation_prefix => {
+            const ann = try parseAnnotationStatement(p);
+            if (annots) |a| try a.append(p.arena, ann) else try members.append(p.arena, ann);
+        },
+        .doc_comment => {
+            const dc_tok = p.advance();
+            const dc = try p.makeNode(.doc_comment, dc_tok.span, .{ .doc_comment = .{ .text = p.tokenText(dc_tok.span) } });
+            try members.append(p.arena, dc);
+        },
+        .kw_in, .kw_out, .kw_inout => {
+            // LL(2): `in x : T` is a pin; `in attribute x` is a directed usage.
+            if (p.peek2().tag == .ident) {
+                try members.append(p.arena, try parsePinDeclaration(p));
+            } else if (try parseMemberDeclaration(p)) |m| {
+                try members.append(p.arena, m);
+            }
+        },
+        // Element usages admissible in a body (sub-actions + directed attrs).
+        .kw_action, .kw_part, .kw_port, .kw_attribute, .kw_item => {
+            if (try parseMemberDeclaration(p)) |m| try members.append(p.arena, m);
+        },
+        .kw_decide, .kw_par => {
+            const blk = try parseFlowRef(p);
+            if (p.peek().tag == .thin_arrow) {
+                try members.append(p.arena, try parseSuccessionChainFrom(p, blk));
+            } else {
+                if (p.peek().tag == .semicolon) _ = p.advance();
+                try members.append(p.arena, blk);
+            }
+        },
+        .kw_loop, .kw_for => try members.append(p.arena, try parseLoopStatement(p)),
+        .kw_send => try members.append(p.arena, try parseSendAction(p)),
+        .kw_accept => try members.append(p.arena, try parseAcceptAction(p)),
+        .kw_assign => try members.append(p.arena, try parseAssignAction(p)),
+        .kw_bind => try members.append(p.arena, try parseBindingStatement(p)),
+        .kw_node => try members.append(p.arena, try parseEscapeNode(p)),
+        .kw_succession => try members.append(p.arena, try parseEscapeSuccession(p)),
+        .kw_start, .kw_done, .kw_terminate => {
+            const head = try parseFlowRef(p);
+            try members.append(p.arena, try parseSuccessionChainFrom(p, head));
+        },
+        else => {
+            if (try parseNameLedActionMember(p)) |m| try members.append(p.arena, m);
+        },
+    }
+}
+
+/// Consume `"{" _ActionMember* "}"`, filling `members` / `annots`. Returns the
+/// closing brace's end offset. Mirrors parseDefinitionBody's recovery (D-17).
+fn parseActionBodyMembers(
+    p: *Parser,
+    members: *std.ArrayList(*ast.Node),
+    annots: ?*std.ArrayList(*ast.Node),
+) std.mem.Allocator.Error!u32 {
+    _ = try p.expect(.l_brace);
+    while (p.peek().tag != .r_brace and p.peek().tag != .eof) {
+        const tok_start = p.peek().span.start;
+        try parseActionMember(p, members, annots);
+        // Forward-progress guard: if the dispatcher consumed nothing, emit and
+        // sync so the loop always terminates.
+        if (p.peek().span.start == tok_start and
+            p.peek().tag != .r_brace and p.peek().tag != .eof)
+        {
+            try p.diags.append(p.arena, .{
+                .code = "E0150",
+                .severity = .err,
+                .message = "unexpected token in action body",
+                .span = p.peek().span,
+            });
+            syncToStatement(p);
+            const after = p.peek();
+            if (after.tag == .semicolon or after.tag == .comma) {
+                _ = p.advance();
+            } else if (after.span.start == tok_start) {
+                _ = p.advance();
+            }
+        }
+    }
+    const close = try p.expect(.r_brace);
+    return close.span.end;
+}
+
+/// Action def body → BodyResult (annotations separated, like the shared body).
+fn parseActionBody(p: *Parser) !BodyResult {
+    var members: std.ArrayList(*ast.Node) = .empty;
+    var annots: std.ArrayList(*ast.Node) = .empty;
+    const end = try parseActionBodyMembers(p, &members, &annots);
+    return BodyResult{
+        .members = try members.toOwnedSlice(p.arena),
+        .annotations = try annots.toOwnedSlice(p.arena),
+        .end = end,
+    };
+}
+
+/// Nested action body (loop body / escape-node body) → a single action_body
+/// node holding all members in source order (annotations interleaved).
+fn parseActionBodyNode(p: *Parser) !*ast.Node {
+    const open = p.peek();
+    var members: std.ArrayList(*ast.Node) = .empty;
+    const end = try parseActionBodyMembers(p, &members, null);
+    const span = ast.Span{ .start = open.span.start, .end = end };
+    return p.makeNode(.action_body, span, .{ .action_body = .{ .members = try members.toOwnedSlice(p.arena) } });
+}
+
+// ─── §10c: State bodies (BH-4, BH-7) ──────────────────────────────────────
+
+/// `entry | do | exit "/" BehaviorRef ";"` → StateSubactionMembership (8.3.18.4).
+fn parseEntryDoExit(p: *Parser) !*ast.Node {
+    const k_tok = p.advance(); // entry | do | exit
+    const kind: ast.SubactionKind = switch (k_tok.tag) {
+        .kw_entry => .entry,
+        .kw_do => .do_action,
+        .kw_exit => .exit,
+        else => .entry,
+    };
+    _ = try p.expect(.slash);
+    const behavior = try expr.parseExpression(p, 0); // BehaviorRef (call / name)
+    var end = behavior.span.end;
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = k_tok.span.start, .end = end };
+    return p.makeNode(.entry_do_exit, span, .{ .entry_do_exit = .{ .kind = kind, .behavior = behavior } });
+}
+
+/// `on QualifiedName Guard? ( "/" BehaviorRef )? "->" TargetRef ";"` (BH-4).
+fn parseTransitionStatement(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "on"
+    const trigger = try parseSegsWithSpan(p);
+    var guard: ?*ast.Node = null;
+    if (p.peek().tag == .l_bracket) guard = try parseGuardExpr(p);
+    var effect: ?*ast.Node = null;
+    if (p.peek().tag == .slash) {
+        _ = p.advance();
+        effect = try expr.parseExpression(p, 0);
+    }
+    _ = try p.expect(.thin_arrow);
+    const target = try parseTargetRef(p);
+    var end = target.span.end;
+    if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    return p.makeNode(.transition_statement, span, .{ .transition_statement = .{
+        .trigger_segments = trigger.segs,
+        .guard = guard,
+        .effect = effect,
+        .target = target,
+    } });
+}
+
+/// `state IDENT TypeAnnotation? ( StateBody | ";" )` (BH-4). A body is stored
+/// as an inline_body node of members (the generic members container).
+fn parseStateUsage(p: *Parser) !*ast.Node {
+    const start_tok = p.advance(); // "state"
+    const name_tok = try p.expect(.ident);
+    const name = p.tokenText(name_tok.span);
+    const type_node = try parseOptionalTypeAnnotation(p);
+    var inline_body: ?*ast.Node = null;
+    var end = name_tok.span.end;
+    if (type_node) |tn| end = tn.span.end;
+    if (p.peek().tag == .l_brace) {
+        const open = p.peek();
+        var bmembers: std.ArrayList(*ast.Node) = .empty;
+        const bend = try parseStateBodyMembers(p, &bmembers, null);
+        const bspan = ast.Span{ .start = open.span.start, .end = bend };
+        inline_body = try p.makeNode(.inline_body, bspan, .{ .inline_body = .{ .members = try bmembers.toOwnedSlice(p.arena) } });
+        end = bend;
+    } else if (p.peek().tag == .semicolon) {
+        const semi = p.advance();
+        end = semi.span.end;
+    }
+    const span = ast.Span{ .start = start_tok.span.start, .end = end };
+    const usage = ast.ElementUsage{
+        .name = name,
+        .modifiers = &.{},
+        .direction = .none,
+        .type_node = type_node,
+        .multiplicity = null,
+        .default_value = null,
+        .inline_body = inline_body,
+        .annotations = &.{},
+        .doc = null,
+    };
+    return p.makeNode(.state_usage, span, .{ .state_usage = usage });
+}
+
+/// Name-led state member: a bare `S -> T;` succession chain.
+fn parseNameLedStateMember(p: *Parser) !?*ast.Node {
+    const tok = p.peek();
+    if (tok.tag != .ident and !isKeyword(tok.tag)) return null;
+    const head = try expr.parseExpression(p, 0);
+    if (p.peek().tag == .thin_arrow) return try parseSuccessionChainFrom(p, head);
+    try p.diags.append(p.arena, .{
+        .code = "E0152",
+        .severity = .err,
+        .message = "expected '->' in state body succession",
+        .span = p.peek().span,
+    });
+    return head;
+}
+
+/// Dispatch a single StateBody member.
+fn parseStateMember(
+    p: *Parser,
+    members: *std.ArrayList(*ast.Node),
+    annots: ?*std.ArrayList(*ast.Node),
+) std.mem.Allocator.Error!void {
+    const tok = p.peek();
+    switch (tok.tag) {
+        .annotation, .annotation_prefix => {
+            const ann = try parseAnnotationStatement(p);
+            if (annots) |a| try a.append(p.arena, ann) else try members.append(p.arena, ann);
+        },
+        .doc_comment => {
+            const dc_tok = p.advance();
+            const dc = try p.makeNode(.doc_comment, dc_tok.span, .{ .doc_comment = .{ .text = p.tokenText(dc_tok.span) } });
+            try members.append(p.arena, dc);
+        },
+        .kw_entry, .kw_do, .kw_exit => try members.append(p.arena, try parseEntryDoExit(p)),
+        .kw_state => try members.append(p.arena, try parseStateUsage(p)),
+        .kw_on => try members.append(p.arena, try parseTransitionStatement(p)),
+        .kw_start, .kw_done, .kw_terminate => {
+            const head = try parseFlowRef(p);
+            try members.append(p.arena, try parseSuccessionChainFrom(p, head));
+        },
+        else => {
+            if (try parseNameLedStateMember(p)) |m| try members.append(p.arena, m);
+        },
+    }
+}
+
+/// Consume `"{" _StateMember* "}"`, returning the closing brace's end offset.
+fn parseStateBodyMembers(
+    p: *Parser,
+    members: *std.ArrayList(*ast.Node),
+    annots: ?*std.ArrayList(*ast.Node),
+) std.mem.Allocator.Error!u32 {
+    _ = try p.expect(.l_brace);
+    while (p.peek().tag != .r_brace and p.peek().tag != .eof) {
+        const tok_start = p.peek().span.start;
+        try parseStateMember(p, members, annots);
+        if (p.peek().span.start == tok_start and
+            p.peek().tag != .r_brace and p.peek().tag != .eof)
+        {
+            try p.diags.append(p.arena, .{
+                .code = "E0150",
+                .severity = .err,
+                .message = "unexpected token in state body",
+                .span = p.peek().span,
+            });
+            syncToStatement(p);
+            const after = p.peek();
+            if (after.tag == .semicolon or after.tag == .comma) {
+                _ = p.advance();
+            } else if (after.span.start == tok_start) {
+                _ = p.advance();
+            }
+        }
+    }
+    const close = try p.expect(.r_brace);
+    return close.span.end;
+}
+
+/// State def body → BodyResult.
+fn parseStateBody(p: *Parser) !BodyResult {
+    var members: std.ArrayList(*ast.Node) = .empty;
+    var annots: std.ArrayList(*ast.Node) = .empty;
+    const end = try parseStateBodyMembers(p, &members, &annots);
+    return BodyResult{
+        .members = try members.toOwnedSlice(p.arena),
+        .annotations = try annots.toOwnedSlice(p.arena),
+        .end = end,
     };
 }
 

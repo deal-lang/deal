@@ -21,6 +21,7 @@ comptime {
     _ = @import("expr_precedence.zig");
     _ = @import("parser_deal_snapshot.zig");
     _ = @import("parser_deal_coverage.zig");
+    _ = @import("parser_behavioral.zig");
     _ = @import("parser_dealx_smoke.zig");
     _ = @import("parser_dealx_connect_via.zig");
     _ = @import("parser_dealx_snapshot.zig");
