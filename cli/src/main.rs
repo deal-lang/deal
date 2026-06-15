@@ -1672,10 +1672,13 @@ const STARTER_DEALX: &str = r#"package model;
 
 /// Run the `deal init <name>` subcommand.
 ///
-/// Scaffolds a full PS-8 project layout in `./<name>/` including:
-///   - Directories: model/, packages/, simulations/, test/data/, docs/, .deal/
+/// Scaffolds the RECOMMENDED project layout in `./<name>/`. The layout is a
+/// human convention for readability/findability, NOT a requirement — the
+/// toolchain discovers `*.deal`/`*.dealx` anywhere (a flat directory of
+/// arbitrarily-named files works too). Includes:
+///   - Directories: definitions/, model/, simulations/, test/data/, docs/, .deal/
 ///   - deal.toml: [project], [workspace], [dependencies] with deal-std git dep (D-67)
-///   - packages/starter.deal: part def, port def, requirement def (D-69)
+///   - definitions/starter.deal: part def, port def, requirement def (D-69)
 ///   - model/starter.dealx: composition + satisfy block (D-69)
 ///   - .gitignore: contains `.deal/`
 ///
@@ -1711,10 +1714,13 @@ fn run_init(name_opt: Option<String>, _json: bool, color: ColorMode) -> Result<(
         }
     }
 
-    // ── Create PS-8 directory tree ──
+    // ── Create the recommended directory tree ──
+    // Convention only — discovery is layout-agnostic (Phase 1b). `definitions/`
+    // holds *.deal defs (group by kind as the project grows); `model/` holds
+    // *.dealx usages + co-located *.dealview sidecars.
     let dirs = [
+        "definitions",
         "model",
-        "packages",
         "simulations",
         "test/data",
         "docs",
@@ -1748,7 +1754,9 @@ marking = "Unclassified"
 description = "A DEAL project"
 
 [workspace]
-packages = ["packages/*"]
+# Recommended source roots. Discovery is layout-agnostic, so this is
+# documentary — `deal check .` finds *.deal/*.dealx anywhere.
+packages = ["definitions/*", "model"]
 
 [dependencies]
 deal-std = {{ git = "https://github.com/deal-lang/deal-stdlib", tag = "{DEFAULT_STDLIB_TAG}" }}
@@ -1759,8 +1767,8 @@ deal-std = {{ git = "https://github.com/deal-lang/deal-stdlib", tag = "{DEFAULT_
     })?;
 
     // ── Starter model files (D-69) ──
-    std::fs::write(project_dir.join("packages").join("starter.deal"), STARTER_DEAL)
-        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot write packages/starter.deal: {}", e)))?;
+    std::fs::write(project_dir.join("definitions").join("starter.deal"), STARTER_DEAL)
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot write definitions/starter.deal: {}", e)))?;
 
     std::fs::write(project_dir.join("model").join("starter.dealx"), STARTER_DEALX)
         .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot write model/starter.dealx: {}", e)))?;

@@ -210,7 +210,7 @@ fn visit(node: *ast.Node, seen: *std.AutoHashMap(ast.NodeKind, usize)) !void {
         .part_def, .port_def, .action_def, .state_def, .attribute_def,
         .item_def, .interface_def, .connection_def, .flow_def,
         .allocation_def, .requirement_def,
-        .need_def, .use_case_def => {
+        .need_def, .use_case_def, .actor_def => {
             const ed = getElementDef(node) orelse return;
             if (ed.specializes) |s| try visit(s, seen);
             if (ed.doc) |d| try visit(d, seen);
@@ -366,6 +366,7 @@ fn getElementDef(node: *ast.Node) ?ast.ElementDef {
         // constraint_def uses ConstraintDefinition now (Phase 05.2)
         .need_def => |p| p,
         .use_case_def => |p| p,
+        .actor_def => |p| p,
         else => null,
     };
 }

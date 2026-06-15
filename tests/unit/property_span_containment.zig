@@ -228,7 +228,7 @@ fn visit(node: *ast.Node, parent_span: ast.Span) anyerror!void {
         .part_def, .port_def, .action_def, .state_def, .attribute_def,
         .item_def, .interface_def, .connection_def, .flow_def,
         .allocation_def, .requirement_def,
-        .need_def, .use_case_def => {
+        .need_def, .use_case_def, .actor_def => {
             const ed = getElementDef(node).?;
             if (ed.specializes) |s| try visit(s, node.span);
             if (ed.doc) |d| try visit(d, node.span);
@@ -412,6 +412,7 @@ fn getElementDef(node: *ast.Node) ?ast.ElementDef {
         // constraint_def uses ConstraintDefinition (Phase 05.2), not ElementDef
         .need_def => |p| p,
         .use_case_def => |p| p,
+        .actor_def => |p| p,
         else => null,
     };
 }

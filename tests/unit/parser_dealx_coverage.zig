@@ -159,7 +159,7 @@ fn visit(node: *ast.Node, seen: *std.AutoHashMap(ast.NodeKind, usize)) std.mem.A
         .part_def, .port_def, .action_def, .state_def, .attribute_def,
         .item_def, .interface_def, .connection_def, .flow_def,
         .allocation_def, .requirement_def,
-        .need_def, .use_case_def => {
+        .need_def, .use_case_def, .actor_def => {
             // ElementDef shape — descend into members for completeness.
             const ed: ast.ElementDef = switch (node.payload) {
                 .part_def => |x| x,
@@ -175,6 +175,7 @@ fn visit(node: *ast.Node, seen: *std.AutoHashMap(ast.NodeKind, usize)) std.mem.A
                 .requirement_def => |x| x,
                 .need_def => |x| x,
                 .use_case_def => |x| x,
+                .actor_def => |x| x,
                 else => unreachable,
             };
             for (ed.annotations) |a| try visit(a, seen);

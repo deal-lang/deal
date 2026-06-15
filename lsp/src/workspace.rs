@@ -1,10 +1,13 @@
 //! Workspace discovery + eager parse (Plan 03-04 / D-47).
 //!
 //! On LSP `initialized`, walk the workspace root for `*.deal` / `*.dealx`
-//! files under `packages/` and `model/`, parse each silently (no
-//! publishDiagnostics — eager parse is a background warm-up), and populate
-//! the in-memory symbol `Index` (D-46 / D-49). The disk
-//! `.deal/index.json` is NOT consulted or written here (D-48).
+//! files **anywhere under the root** (layout-agnostic, Phase 1b — build/VCS
+//! dirs pruned), parse each silently (no publishDiagnostics — eager parse is
+//! a background warm-up), and populate the in-memory symbol `Index`
+//! (D-46 / D-49). The disk `.deal/index.json` is NOT consulted or written
+//! here (D-48). Directory layout is a human convention; the engine imposes
+//! none — a flat directory of arbitrarily-named files is discovered the same
+//! as the recommended `definitions/` + `model/` layout.
 //!
 //! ## deal.toml shape (verified live, 2026-05-25)
 //!
@@ -150,29 +153,44 @@ impl Workspace {
         Ok(Self::from_manifest_text(canonical_root, manifest_text.as_deref()))
     }
 
-    /// Enumerate every `*.deal` and `*.dealx` file under `<root>/packages`
-    /// and `<root>/model`. Returns paths sorted lexicographically for
-    /// deterministic eager-parse ordering.
+    /// Enumerate every `*.deal` / `*.dealx` file anywhere under the workspace
+    /// root — **layout-agnostic** (Phase 1b). The directory layout is a human
+    /// convention, not a contract: a flat directory of arbitrarily-named files
+    /// (`gonzo.deal`) is discovered exactly like the recommended
+    /// `definitions/` + `model/` layout. Element kind comes from file content,
+    /// the namespace from the in-file `package …;` declaration, and
+    /// def-vs-composition from the extension — never from directory names.
+    ///
+    /// Build / vendor / VCS directories are pruned (their subtrees are not
+    /// model source). Returns paths sorted lexicographically for deterministic
+    /// eager-parse ordering.
     pub fn enumerate_files(&self) -> Vec<PathBuf> {
+        /// Directory names whose subtrees are never model source.
+        const SKIP_DIRS: [&str; 6] =
+            [".deal", ".git", "build", "target", "node_modules", ".zig-cache"];
         let mut out = Vec::new();
-        for sub in ["packages", "model"] {
-            let dir = self.root.join(sub);
-            if !dir.is_dir() {
+        for entry in WalkDir::new(&self.root)
+            .max_depth(MAX_WALK_DEPTH)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| {
+                // Never prune the root itself (depth 0), even if its own dir
+                // name happens to match a skip name. Otherwise prune a skip
+                // directory's entire subtree (matched by name at any depth).
+                e.depth() == 0
+                    || !(e.file_type().is_dir()
+                        && e.file_name()
+                            .to_str()
+                            .map_or(false, |n| SKIP_DIRS.contains(&n)))
+            })
+            .filter_map(|e| e.ok())
+        {
+            if !entry.file_type().is_file() {
                 continue;
             }
-            for entry in WalkDir::new(&dir)
-                .max_depth(MAX_WALK_DEPTH)
-                .follow_links(false)
-                .into_iter()
-                .filter_map(|e| e.ok())
-            {
-                if !entry.file_type().is_file() {
-                    continue;
-                }
-                let ext = entry.path().extension().and_then(|s| s.to_str());
-                if matches!(ext, Some("deal") | Some("dealx")) {
-                    out.push(entry.path().to_path_buf());
-                }
+            let ext = entry.path().extension().and_then(|s| s.to_str());
+            if matches!(ext, Some("deal") | Some("dealx")) {
+                out.push(entry.path().to_path_buf());
             }
         }
         out.sort();
@@ -298,6 +316,37 @@ name = "x"
         assert!(names.contains(&"a.deal".to_string()));
         assert!(names.contains(&"b.deal".to_string()));
         assert!(names.contains(&"c.dealx".to_string()));
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn enumerate_is_layout_agnostic_flat_and_gonzo() {
+        // Phase 1b: a flat directory with arbitrarily-named files and NO
+        // packages/ or model/ dirs must still be discovered; build/ is pruned.
+        let tmp = std::env::temp_dir().join(format!(
+            "deal-lsp-ws-gonzo-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        fs::write(tmp.join("gonzo.deal"), "package gonzo;").unwrap();
+        fs::write(tmp.join("whatever.dealx"), "").unwrap();
+        // a .deal under a pruned build/ dir must NOT be discovered
+        fs::create_dir_all(tmp.join("build")).unwrap();
+        fs::write(tmp.join("build/ignored.deal"), "package x;").unwrap();
+        let ws = Workspace {
+            root: tmp.clone(),
+            aliases: HashMap::new(),
+        };
+        let files = ws.enumerate_files();
+        let names: Vec<String> = files
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(names.contains(&"gonzo.deal".to_string()), "flat gonzo.deal must be found: {names:?}");
+        assert!(names.contains(&"whatever.dealx".to_string()), "arbitrarily-named .dealx must be found");
+        assert!(!names.contains(&"ignored.deal".to_string()), "build/ subtree must be pruned");
+        assert_eq!(files.len(), 2, "exactly the 2 root files, got {files:?}");
         let _ = fs::remove_dir_all(&tmp);
     }
 }
