@@ -93,6 +93,26 @@ pub const NodeKind = enum {
     calc_body,          // CalcBody ("{" LocalBinding* ReturnStatement "}")
     require_statement,  // RequireStatement ("require" ConditionExpression ";")
 
+    // ── Behavioral surface (BH-1..BH-7, Stage-2 S2.2) ────────────────
+    action_body,        // ActionBody / StateBody container (BH-7)
+    pin_decl,           // PinDecl (in/out/inout x : T)
+    succession_chain,   // SuccessionChain (a -> b -> c)
+    control_ref,        // ControlRef (start | done | terminate in flow position)
+    decide_block,       // DecideBlock (decide { [g] -> ref })
+    par_block,          // ParBlock (par { -> ref })
+    loop_statement,     // LoopStatement (loop while/until | for x in e)
+    send_action,        // SendAction (send P to T)
+    accept_action,      // AcceptAction (accept S [g])
+    assign_action,      // AssignAction (assign x := e)
+    perform_statement,  // PerformStatement (f(x);)
+    item_flow_statement,// ItemFlowStatement (a.x ~> b.y)
+    binding_statement,  // BindingStatement (bind a = b)
+    escape_node,        // EscapeNode (node a : T)
+    escape_succession,  // EscapeSuccession (succession a -> b)
+    entry_do_exit,      // EntryDoExit (entry|do|exit / Behavior)
+    transition_statement, // TransitionStatement (on T [g] / e -> S)
+    target_ref,         // TargetRef (done | terminate | QualifiedName)
+
     // ── Member / usages (14) ────────────────────────────────────────
     part_usage,
     port_usage,
@@ -665,6 +685,160 @@ pub const ValidateTag = struct {
     attrs: []*Node = &.{},
 };
 
+// ─── Behavioral surface payloads (BH-1..BH-7, Stage-2 S2.2) ─────────────────
+// Surface AST that mirrors deal.ebnf §9b/§9c. These are *members* of an
+// ActionBody/StateBody; S2.5 lowers them (desugaring control blocks) to the
+// IR v0.1 node/edge model. See spec/ir/v0.1/behavioral-mapping.md.
+
+/// Control endpoint keyword in a flow position. `start`/`done` are stdlib
+/// control actions; `terminate` → TerminateActionUsage (8.3.17.16).
+pub const ControlEndpoint = enum { start, done, terminate };
+
+/// Loop flavor. while/until → WhileLoopActionUsage (8.3.17.19);
+/// for → ForLoopActionUsage (8.3.17.9).
+pub const LoopKind = enum { while_loop, until_loop, for_loop };
+
+/// State sub-action kind → StateSubactionMembership.kind (8.3.18.4).
+pub const SubactionKind = enum { entry, do_action, exit };
+
+/// A bracketed guard `[ Expression | else ]`. Helper struct (not a node):
+/// `is_else` marks the `[else]` default branch; otherwise `expr` is the
+/// boolean condition. Used by succession links, decide branches, transitions.
+pub const Guard = struct {
+    expr: ?*Node = null,
+    is_else: bool = false,
+};
+
+/// One link in a succession chain: an optional guard then a flow reference.
+/// The head step of a chain has `guard = null`.
+pub const SuccessionStep = struct {
+    guard: ?Guard = null,
+    ref: *Node, // identifier / control_ref / decide_block / par_block
+};
+
+/// One branch of a decide block: a guard and its target flow reference.
+pub const DecideBranch = struct {
+    guard: Guard,
+    target: *Node,
+};
+
+/// ActionBody / StateBody container (BH-7). Members are the behavioral nodes
+/// below plus pins, sub-actions, annotations, and visibility wrappers.
+pub const ActionBody = struct {
+    members: []*Node,
+};
+
+/// Directed parameter (pin) of an action — `in/out/inout x : T [m]? = d?;`.
+/// → directed Feature + FeatureDirectionKind (8.3.3.1.5).
+pub const PinDecl = struct {
+    name: []const u8,
+    direction: Direction, // in | out | inout (never .none for a pin)
+    type_node: *Node, // TypeAnnotation
+    multiplicity: ?*Node = null,
+    default_value: ?*Node = null,
+};
+
+/// `start | done | terminate` in a flow position. → SuccessionAsUsage (8.3.13.6).
+pub const SuccessionChain = struct {
+    steps: []SuccessionStep,
+};
+
+pub const ControlRef = struct {
+    endpoint: ControlEndpoint,
+};
+
+/// `decide { [g] -> ref ... }` → DecisionNode (8.3.17.7) + implicit MergeNode.
+pub const DecideBlock = struct {
+    branches: []DecideBranch,
+};
+
+/// `par { -> ref ... } (-> ref)?` → ForkNode (8.3.17.8) + implicit JoinNode.
+pub const ParBlock = struct {
+    branches: []*Node, // each is a flow ref (the `-> ref` head of a thread)
+    exit: ?*Node = null, // optional `-> ref` after the block (out of the join)
+};
+
+/// `loop while/until [g] { body }` / `for v in e { body }`.
+/// → WhileLoopActionUsage (8.3.17.19) / ForLoopActionUsage (8.3.17.9).
+pub const LoopStatement = struct {
+    kind: LoopKind,
+    guard: ?*Node = null, // while/until guard expression
+    var_name: ?[]const u8 = null, // for-loop iteration variable
+    iterable: ?*Node = null, // for-loop iterable expression
+    body: *Node, // action_body node
+};
+
+/// `send Payload to Target?;` → SendActionUsage (8.3.17.15).
+pub const SendAction = struct {
+    payload_segments: [][]const u8,
+    target_segments: ?[][]const u8 = null,
+};
+
+/// `accept Trigger [g]?;` → AcceptActionUsage (8.3.17.2).
+pub const AcceptAction = struct {
+    trigger_segments: [][]const u8,
+    guard: ?*Node = null,
+};
+
+/// `assign Target := Value;` → AssignmentActionUsage (8.3.17.5).
+pub const AssignAction = struct {
+    target_segments: [][]const u8,
+    value: *Node,
+};
+
+/// `Callee(args);` bare call → PerformActionUsage (8.3.17.14).
+pub const PerformStatement = struct {
+    call: *Node, // call node
+};
+
+/// `Source ~> Target (: FlowType)?;` → FlowUsage (8.3.16.3) / KerML ItemFlow.
+pub const ItemFlowStatement = struct {
+    source: *Node, // feature ref (identifier / member_access)
+    target: *Node,
+    flow_type_segments: ?[][]const u8 = null,
+};
+
+/// `bind Lhs = Rhs;` → BindingConnectorAsUsage / KerML BindingConnector (8.3.4.5.2).
+pub const BindingStatement = struct {
+    lhs: *Node,
+    rhs: *Node,
+};
+
+/// `node Name : Type { body }?;` escape hatch (BH-1) → ActionUsage (named Step).
+pub const EscapeNode = struct {
+    name: []const u8,
+    type_segments: [][]const u8,
+    body: ?*Node = null, // optional action_body
+};
+
+/// `succession Source -> [g]? Target;` escape hatch → SuccessionAsUsage.
+pub const EscapeSuccession = struct {
+    source_segments: [][]const u8,
+    guard: ?Guard = null,
+    target_segments: [][]const u8,
+};
+
+/// `entry|do|exit / Behavior;` → StateSubactionMembership (8.3.18.4).
+pub const EntryDoExit = struct {
+    kind: SubactionKind,
+    behavior: *Node, // call or identifier (BehaviorRef)
+};
+
+/// `on Trigger [g]? (/ Effect)? -> Target;` → TransitionUsage (8.3.18.9)
+/// + TransitionFeatureMembership (8.3.18.8) for trigger/guard/effect.
+pub const TransitionStatement = struct {
+    trigger_segments: [][]const u8,
+    guard: ?*Node = null,
+    effect: ?*Node = null, // BehaviorRef (call/identifier)
+    target: *Node, // target_ref node
+};
+
+/// Transition / chain target: `done | terminate | QualifiedName`.
+pub const TargetRef = struct {
+    endpoint: ?ControlEndpoint = null, // set for done/terminate
+    name_segments: [][]const u8 = &.{}, // set for a named target
+};
+
 // ─── Payload union ────────────────────────────────────────────────────────
 
 /// Tagged-union payload (D-01). Zig 0.16.0 enforces exhaustive switch over
@@ -705,6 +879,26 @@ pub const Payload = union(NodeKind) {
     constraint_body: ConstraintBody,
     calc_body: CalcBody,
     require_statement: RequireStatement,
+
+    // Behavioral surface (BH-1..BH-7, Stage-2 S2.2)
+    action_body: ActionBody,
+    pin_decl: PinDecl,
+    succession_chain: SuccessionChain,
+    control_ref: ControlRef,
+    decide_block: DecideBlock,
+    par_block: ParBlock,
+    loop_statement: LoopStatement,
+    send_action: SendAction,
+    accept_action: AcceptAction,
+    assign_action: AssignAction,
+    perform_statement: PerformStatement,
+    item_flow_statement: ItemFlowStatement,
+    binding_statement: BindingStatement,
+    escape_node: EscapeNode,
+    escape_succession: EscapeSuccession,
+    entry_do_exit: EntryDoExit,
+    transition_statement: TransitionStatement,
+    target_ref: TargetRef,
 
     // Usages
     part_usage: PartUsage,

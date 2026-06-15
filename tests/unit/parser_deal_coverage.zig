@@ -279,6 +279,15 @@ fn visit(node: *ast.Node, seen: *std.AutoHashMap(ast.NodeKind, usize)) !void {
         },
         .multiplicity => {}, // leaf (lo/hi are ?u32)
         .modifier_list => {}, // leaf
+        // Behavioral surface (Stage-2 S2.2): no behavioral fixtures parse yet
+        // (parser support lands in S2.3), so these are leaf here; S2.3 adds
+        // recursion + fixtures.
+        .action_body, .pin_decl, .succession_chain, .control_ref,
+        .decide_block, .par_block, .loop_statement, .send_action,
+        .accept_action, .assign_action, .perform_statement,
+        .item_flow_statement, .binding_statement, .escape_node,
+        .escape_succession, .entry_do_exit, .transition_statement,
+        .target_ref => {},
         .visibility_wrapper => |p| {
             for (p.members) |m| try visit(m, seen);
         },

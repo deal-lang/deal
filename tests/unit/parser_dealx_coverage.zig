@@ -146,6 +146,14 @@ fn visit(node: *ast.Node, seen: *std.AutoHashMap(ast.NodeKind, usize)) std.mem.A
         .structural_relationship, .doc_comment,
         .identifier, .int_literal, .real_literal, .string_literal,
         .boolean_literal => {},
+        // Behavioral surface (Stage-2 S2.2) — .deal-only; never appears in
+        // .dealx fixtures. Leaf here (parser support + fixtures in S2.3).
+        .action_body, .pin_decl, .succession_chain, .control_ref,
+        .decide_block, .par_block, .loop_statement, .send_action,
+        .accept_action, .assign_action, .perform_statement,
+        .item_flow_statement, .binding_statement, .escape_node,
+        .escape_succession, .entry_do_exit, .transition_statement,
+        .target_ref => {},
         // Other kinds that aren't expected in .dealx but might appear
         // via the shared Pratt expression parser; descend if they have
         // child Nodes.

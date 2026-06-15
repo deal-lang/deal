@@ -179,6 +179,17 @@ const FormatContext = struct {
             .constraint_body => |*p| try ctx.writeConstraintBody(p, indent),
             .calc_body => |*p| try ctx.writeCalcBody(p, indent),
             .require_statement => |*p| try ctx.writeRequireStatement(p, indent),
+
+            // Behavioral surface (Stage-2 S2.2). The parser does not yet
+            // produce these (S2.3), so no fixture round-trips through fmt.
+            // Real writers + round-trip goldens land in S2.3; no-op here keeps
+            // the exhaustive dispatch compiling.
+            .action_body, .pin_decl, .succession_chain, .control_ref,
+            .decide_block, .par_block, .loop_statement, .send_action,
+            .accept_action, .assign_action, .perform_statement,
+            .item_flow_statement, .binding_statement, .escape_node,
+            .escape_succession, .entry_do_exit, .transition_statement,
+            .target_ref => {},
         }
     }
 

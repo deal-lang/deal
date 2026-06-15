@@ -168,6 +168,61 @@ fn writeBool(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), b: bool) !vo
     try buf.appendSlice(allocator, if (b) "true" else "false");
 }
 
+// ─── Behavioral surface helpers (Stage-2 S2.2) ──────────────────────────────
+
+fn endpointName(e: ast.ControlEndpoint) []const u8 {
+    return switch (e) {
+        .start => "start",
+        .done => "done",
+        .terminate => "terminate",
+    };
+}
+
+/// A Guard `{ "expr": node|null, "is_else": bool }` (alphabetical).
+fn writeGuard(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), g: ast.Guard) !void {
+    try buf.appendSlice(allocator, "{\"expr\":");
+    try writeOptNode(allocator, buf, g.expr);
+    try buf.appendSlice(allocator, ",\"is_else\":");
+    try writeBool(allocator, buf, g.is_else);
+    try buf.append(allocator, '}');
+}
+
+fn writeOptGuard(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), g: ?ast.Guard) !void {
+    if (g) |gg| {
+        try writeGuard(allocator, buf, gg);
+    } else {
+        try buf.appendSlice(allocator, "null");
+    }
+}
+
+/// SuccessionStep array: each `{ "guard": Guard|null, "ref": node }`.
+fn writeSuccessionSteps(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), steps: []const ast.SuccessionStep) !void {
+    try buf.append(allocator, '[');
+    for (steps, 0..) |s, i| {
+        if (i > 0) try buf.append(allocator, ',');
+        try buf.appendSlice(allocator, "{\"guard\":");
+        try writeOptGuard(allocator, buf, s.guard);
+        try buf.appendSlice(allocator, ",\"ref\":");
+        try writeNode(allocator, buf, s.ref);
+        try buf.append(allocator, '}');
+    }
+    try buf.append(allocator, ']');
+}
+
+/// DecideBranch array: each `{ "guard": Guard, "target": node }`.
+fn writeDecideBranches(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), branches: []const ast.DecideBranch) !void {
+    try buf.append(allocator, '[');
+    for (branches, 0..) |b, i| {
+        if (i > 0) try buf.append(allocator, ',');
+        try buf.appendSlice(allocator, "{\"guard\":");
+        try writeGuard(allocator, buf, b.guard);
+        try buf.appendSlice(allocator, ",\"target\":");
+        try writeNode(allocator, buf, b.target);
+        try buf.append(allocator, '}');
+    }
+    try buf.append(allocator, ']');
+}
+
 fn writeU32(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), n: u32) !void {
     try appendU32(allocator, buf, n);
 }
@@ -411,6 +466,163 @@ fn writePayload(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), payload: 
             try writeNode(allocator, buf, p.condition);
             try buf.appendSlice(allocator, ",\"precision\":");
             try writeOptNode(allocator, buf, p.precision);
+        },
+
+        // ── Behavioral surface (Stage-2 S2.2). Fields alphabetical (D-18). ──
+        .action_body => |p| {
+            try buf.appendSlice(allocator, ",\"members\":");
+            try writeNodeArrayMut(allocator, buf, p.members);
+        },
+        .pin_decl => |p| {
+            // default_value, direction, multiplicity, name, type_node
+            try buf.appendSlice(allocator, ",\"default_value\":");
+            try writeOptNode(allocator, buf, p.default_value);
+            try buf.appendSlice(allocator, ",\"direction\":\"");
+            try buf.appendSlice(allocator, directionName(p.direction));
+            try buf.appendSlice(allocator, "\",\"multiplicity\":");
+            try writeOptNode(allocator, buf, p.multiplicity);
+            try buf.appendSlice(allocator, ",\"name\":");
+            try writeStr(allocator, buf, p.name);
+            try buf.appendSlice(allocator, ",\"type_node\":");
+            try writeNode(allocator, buf, p.type_node);
+        },
+        .succession_chain => |p| {
+            try buf.appendSlice(allocator, ",\"steps\":");
+            try writeSuccessionSteps(allocator, buf, p.steps);
+        },
+        .control_ref => |p| {
+            try buf.appendSlice(allocator, ",\"endpoint\":\"");
+            try buf.appendSlice(allocator, endpointName(p.endpoint));
+            try buf.appendSlice(allocator, "\"");
+        },
+        .decide_block => |p| {
+            try buf.appendSlice(allocator, ",\"branches\":");
+            try writeDecideBranches(allocator, buf, p.branches);
+        },
+        .par_block => |p| {
+            // branches, exit
+            try buf.appendSlice(allocator, ",\"branches\":");
+            try writeNodeArrayMut(allocator, buf, p.branches);
+            try buf.appendSlice(allocator, ",\"exit\":");
+            try writeOptNode(allocator, buf, p.exit);
+        },
+        .loop_statement => |p| {
+            // body, guard, iterable, kind, var_name
+            try buf.appendSlice(allocator, ",\"body\":");
+            try writeNode(allocator, buf, p.body);
+            try buf.appendSlice(allocator, ",\"guard\":");
+            try writeOptNode(allocator, buf, p.guard);
+            try buf.appendSlice(allocator, ",\"iterable\":");
+            try writeOptNode(allocator, buf, p.iterable);
+            try buf.appendSlice(allocator, ",\"kind\":\"");
+            try buf.appendSlice(allocator, switch (p.kind) {
+                .while_loop => "while_loop",
+                .until_loop => "until_loop",
+                .for_loop => "for_loop",
+            });
+            try buf.appendSlice(allocator, "\",\"var_name\":");
+            try writeOptStr(allocator, buf, p.var_name);
+        },
+        .send_action => |p| {
+            // payload_segments, target_segments
+            try buf.appendSlice(allocator, ",\"payload_segments\":");
+            try writeStringArray(allocator, buf, p.payload_segments);
+            try buf.appendSlice(allocator, ",\"target_segments\":");
+            if (p.target_segments) |t| {
+                try writeStringArray(allocator, buf, t);
+            } else {
+                try buf.appendSlice(allocator, "null");
+            }
+        },
+        .accept_action => |p| {
+            // guard, trigger_segments
+            try buf.appendSlice(allocator, ",\"guard\":");
+            try writeOptNode(allocator, buf, p.guard);
+            try buf.appendSlice(allocator, ",\"trigger_segments\":");
+            try writeStringArray(allocator, buf, p.trigger_segments);
+        },
+        .assign_action => |p| {
+            // target_segments, value
+            try buf.appendSlice(allocator, ",\"target_segments\":");
+            try writeStringArray(allocator, buf, p.target_segments);
+            try buf.appendSlice(allocator, ",\"value\":");
+            try writeNode(allocator, buf, p.value);
+        },
+        .perform_statement => |p| {
+            try buf.appendSlice(allocator, ",\"call\":");
+            try writeNode(allocator, buf, p.call);
+        },
+        .item_flow_statement => |p| {
+            // flow_type_segments, source, target
+            try buf.appendSlice(allocator, ",\"flow_type_segments\":");
+            if (p.flow_type_segments) |ft| {
+                try writeStringArray(allocator, buf, ft);
+            } else {
+                try buf.appendSlice(allocator, "null");
+            }
+            try buf.appendSlice(allocator, ",\"source\":");
+            try writeNode(allocator, buf, p.source);
+            try buf.appendSlice(allocator, ",\"target\":");
+            try writeNode(allocator, buf, p.target);
+        },
+        .binding_statement => |p| {
+            // lhs, rhs
+            try buf.appendSlice(allocator, ",\"lhs\":");
+            try writeNode(allocator, buf, p.lhs);
+            try buf.appendSlice(allocator, ",\"rhs\":");
+            try writeNode(allocator, buf, p.rhs);
+        },
+        .escape_node => |p| {
+            // body, name, type_segments
+            try buf.appendSlice(allocator, ",\"body\":");
+            try writeOptNode(allocator, buf, p.body);
+            try buf.appendSlice(allocator, ",\"name\":");
+            try writeStr(allocator, buf, p.name);
+            try buf.appendSlice(allocator, ",\"type_segments\":");
+            try writeStringArray(allocator, buf, p.type_segments);
+        },
+        .escape_succession => |p| {
+            // guard, source_segments, target_segments
+            try buf.appendSlice(allocator, ",\"guard\":");
+            try writeOptGuard(allocator, buf, p.guard);
+            try buf.appendSlice(allocator, ",\"source_segments\":");
+            try writeStringArray(allocator, buf, p.source_segments);
+            try buf.appendSlice(allocator, ",\"target_segments\":");
+            try writeStringArray(allocator, buf, p.target_segments);
+        },
+        .entry_do_exit => |p| {
+            // behavior, kind
+            try buf.appendSlice(allocator, ",\"behavior\":");
+            try writeNode(allocator, buf, p.behavior);
+            try buf.appendSlice(allocator, ",\"kind\":\"");
+            try buf.appendSlice(allocator, switch (p.kind) {
+                .entry => "entry",
+                .do_action => "do",
+                .exit => "exit",
+            });
+            try buf.appendSlice(allocator, "\"");
+        },
+        .transition_statement => |p| {
+            // effect, guard, target, trigger_segments
+            try buf.appendSlice(allocator, ",\"effect\":");
+            try writeOptNode(allocator, buf, p.effect);
+            try buf.appendSlice(allocator, ",\"guard\":");
+            try writeOptNode(allocator, buf, p.guard);
+            try buf.appendSlice(allocator, ",\"target\":");
+            try writeNode(allocator, buf, p.target);
+            try buf.appendSlice(allocator, ",\"trigger_segments\":");
+            try writeStringArray(allocator, buf, p.trigger_segments);
+        },
+        .target_ref => |p| {
+            // endpoint, name_segments
+            try buf.appendSlice(allocator, ",\"endpoint\":");
+            if (p.endpoint) |e| {
+                try writeStr(allocator, buf, endpointName(e));
+            } else {
+                try buf.appendSlice(allocator, "null");
+            }
+            try buf.appendSlice(allocator, ",\"name_segments\":");
+            try writeStringArray(allocator, buf, p.name_segments);
         },
 
         // ── Usages (same field set as definitions) ───────────────────
@@ -908,6 +1120,25 @@ fn nodekindName(k: ast.NodeKind) []const u8 {
         .constraint_body => "constraint_body",
         .calc_body => "calc_body",
         .require_statement => "require_statement",
+        // Behavioral surface (Stage-2 S2.2)
+        .action_body => "action_body",
+        .pin_decl => "pin_decl",
+        .succession_chain => "succession_chain",
+        .control_ref => "control_ref",
+        .decide_block => "decide_block",
+        .par_block => "par_block",
+        .loop_statement => "loop_statement",
+        .send_action => "send_action",
+        .accept_action => "accept_action",
+        .assign_action => "assign_action",
+        .perform_statement => "perform_statement",
+        .item_flow_statement => "item_flow_statement",
+        .binding_statement => "binding_statement",
+        .escape_node => "escape_node",
+        .escape_succession => "escape_succession",
+        .entry_do_exit => "entry_do_exit",
+        .transition_statement => "transition_statement",
+        .target_ref => "target_ref",
         .system_block => "system_block",
         .subsystem_block => "subsystem_block",
         .component_instance => "component_instance",
