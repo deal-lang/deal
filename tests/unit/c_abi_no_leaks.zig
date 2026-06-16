@@ -27,6 +27,7 @@ const showcase_deal_files = [_][]const u8{
     "packages/vehicle/battery.deal",
     "packages/vehicle/motor.deal",
     "packages/vehicle/behaviors.deal",
+    "packages/vehicle/charging-states.deal",
     "packages/vehicle/components.deal",
     "packages/vehicle/index.deal",
     "packages/interfaces/electrical.deal",

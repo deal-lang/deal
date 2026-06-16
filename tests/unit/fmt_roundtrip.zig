@@ -66,6 +66,10 @@ test "fmt_roundtrip.showcase_behaviors" {
     try runRoundTripTest("tests/showcase/packages/vehicle/behaviors.deal");
 }
 
+test "fmt_roundtrip.showcase_charging_states" {
+    try runRoundTripTest("tests/showcase/packages/vehicle/charging-states.deal");
+}
+
 test "fmt_roundtrip.showcase_components" {
     try runRoundTripTest("tests/showcase/packages/vehicle/components.deal");
 }

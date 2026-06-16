@@ -66,6 +66,7 @@ const showcase_files = [_][]const u8{
     "tests/showcase/packages/vehicle/battery.deal",
     "tests/showcase/packages/vehicle/motor.deal",
     "tests/showcase/packages/vehicle/behaviors.deal",
+    "tests/showcase/packages/vehicle/charging-states.deal",
     "tests/showcase/packages/vehicle/components.deal",
     "tests/showcase/packages/vehicle/index.deal",
     "tests/showcase/packages/interfaces/electrical.deal",
