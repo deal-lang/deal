@@ -576,15 +576,200 @@ fn typeRefOf(l: *Lowerer, tn: *ast.Node) std.mem.Allocator.Error!?[]const u8 {
     return null;
 }
 
-fn guardOf(l: *Lowerer, g: ast.Guard) std.mem.Allocator.Error!?[]const u8 {
+fn guardOf(l: *Lowerer, owner: []const u8, g: ast.Guard) std.mem.Allocator.Error!?[]const u8 {
     if (g.is_else) return "else";
-    if (g.expr) |e| return try spanTextOpt(l, e);
+    if (g.expr) |e| {
+        // Edge guards (succession/decide) have no single owning node with a
+        // unique slot, so the root id is disambiguated by the behav_synth
+        // counter (deterministic in source order) and owned by `owner` — the
+        // succession source step. IR v0.2 (S3.2).
+        const root = try synthId(l, owner, "guard");
+        const eid = try lowerExpr(l, root, e);
+        try behavContains(l, owner, eid);
+        return eid;
+    }
     return null;
 }
 
-fn guardOfOpt(l: *Lowerer, g: ?ast.Guard) std.mem.Allocator.Error!?[]const u8 {
-    if (g) |gg| return try guardOf(l, gg);
+fn guardOfOpt(l: *Lowerer, owner: []const u8, g: ?ast.Guard) std.mem.Allocator.Error!?[]const u8 {
+    if (g) |gg| return try guardOf(l, owner, gg);
     return null;
+}
+
+// ─── Expression lowering (IR v0.2, S3.2) ────────────────────────────────────
+// lowerExpr recursively lifts an AST expression subtree into IR expression
+// nodes (operator_expr / feature_ref_expr / literal_expr / invocation_expr),
+// each owned via `contains` and referenced by id from the owning behavioral
+// slot. See spec/ir/v0.2/expression-mapping.md §3 (kinds) and §7 (sites).
+
+fn binaryOpSymbol(op: ast.BinaryOp) []const u8 {
+    return switch (op) {
+        .add => "+",
+        .sub => "-",
+        .mul => "*",
+        .div => "/",
+        .eq => "==",
+        .neq => "!=",
+        .lt => "<",
+        .le => "<=",
+        .gt => ">",
+        .ge => ">=",
+        .log_and => "and",
+        .log_or => "or",
+    };
+}
+
+fn unaryOpSymbol(op: ast.UnaryOp) []const u8 {
+    return switch (op) {
+        .neg => "-",
+        .not, .bang => "not",
+    };
+}
+
+/// Simple name for an expression node: the trailing segment of its structural id.
+fn exprLeafName(id: []const u8) []const u8 {
+    if (std.mem.lastIndexOf(u8, id, ".")) |i| return id[i + 1 ..];
+    return id;
+}
+
+/// Flatten a dotted member-access chain (`a.b.c`) into ordered path segments.
+/// Identifier-rooted paths are the only form produced by DEAL behavioral
+/// feature references; a non-identifier base falls back to its source text
+/// (§9: index/call-rooted access is out of scope for v0.2).
+fn flattenMemberAccess(l: *Lowerer, node: *ast.Node) std.mem.Allocator.Error![]const []const u8 {
+    var members: std.ArrayList([]const u8) = .empty;
+    var cur = node;
+    while (cur.payload == .member_access) {
+        try members.append(l.arena, try l.arena.dupe(u8, cur.payload.member_access.member));
+        cur = cur.payload.member_access.receiver;
+    }
+    const base: ?[]const u8 = switch (cur.payload) {
+        .identifier => |idn| try l.arena.dupe(u8, idn.name),
+        else => try spanTextOpt(l, cur),
+    };
+    const total = members.items.len + @as(usize, if (base != null) 1 else 0);
+    const segs = try l.arena.alloc([]const u8, total);
+    var idx: usize = 0;
+    if (base) |b| {
+        segs[idx] = b;
+        idx += 1;
+    }
+    // `members` holds outermost-first; reverse into source order.
+    var k: usize = members.items.len;
+    while (k > 0) {
+        k -= 1;
+        segs[idx] = members.items[k];
+        idx += 1;
+    }
+    return segs;
+}
+
+/// Callee reference text for an invocation_expr (identifier or dotted path).
+fn calleeText(l: *Lowerer, callee: *ast.Node) std.mem.Allocator.Error!?[]const u8 {
+    return switch (callee.payload) {
+        .identifier => |idn| try l.arena.dupe(u8, idn.name),
+        .member_access => try std.mem.join(l.arena, ".", try flattenMemberAccess(l, callee)),
+        else => try spanTextOpt(l, callee),
+    };
+}
+
+/// Lower one AST expression node into an IR expression node at `id`, recursing
+/// into operands/arguments at `<id>.op0`/`.op1`/`.argN`. Returns the interned id.
+fn lowerExpr(l: *Lowerer, id: []const u8, node: *ast.Node) std.mem.Allocator.Error![]const u8 {
+    const leaf = exprLeafName(id);
+    switch (node.payload) {
+        .binary => |b| {
+            const self_id = try behavAddNode(l, id, .operator_expr, node.span, .{
+                .name = leaf,
+                .operator = try l.arena.dupe(u8, binaryOpSymbol(b.op)),
+            });
+            _ = try lowerExprChild(l, self_id, "op0", b.lhs);
+            _ = try lowerExprChild(l, self_id, "op1", b.rhs);
+            return self_id;
+        },
+        .unary => |u| {
+            const self_id = try behavAddNode(l, id, .operator_expr, node.span, .{
+                .name = leaf,
+                .operator = try l.arena.dupe(u8, unaryOpSymbol(u.op)),
+            });
+            _ = try lowerExprChild(l, self_id, "op0", u.operand);
+            return self_id;
+        },
+        .identifier => |idn| {
+            const segs = try l.arena.alloc([]const u8, 1);
+            segs[0] = try l.arena.dupe(u8, idn.name);
+            return try behavAddNode(l, id, .feature_ref_expr, node.span, .{ .name = leaf, .referent_segments = segs });
+        },
+        .member_access => {
+            const segs = try flattenMemberAccess(l, node);
+            return try behavAddNode(l, id, .feature_ref_expr, node.span, .{ .name = leaf, .referent_segments = segs });
+        },
+        .int_literal => |lit| {
+            return try behavAddNode(l, id, .literal_expr, node.span, .{
+                .name = leaf,
+                .literal_kind = "integer",
+                .literal_value = try l.arena.dupe(u8, lit.text),
+            });
+        },
+        .real_literal => |lit| {
+            return try behavAddNode(l, id, .literal_expr, node.span, .{
+                .name = leaf,
+                .literal_kind = "rational",
+                .literal_value = try l.arena.dupe(u8, lit.text),
+            });
+        },
+        .boolean_literal => |lit| {
+            return try behavAddNode(l, id, .literal_expr, node.span, .{
+                .name = leaf,
+                .literal_kind = "boolean",
+                .literal_value = if (lit.value) "true" else "false",
+            });
+        },
+        .string_literal => |lit| {
+            return try behavAddNode(l, id, .literal_expr, node.span, .{
+                .name = leaf,
+                .literal_kind = "string",
+                .literal_value = try l.arena.dupe(u8, lit.value),
+            });
+        },
+        .call => |c| {
+            const self_id = try behavAddNode(l, id, .invocation_expr, node.span, .{
+                .name = leaf,
+                .callee_ref = try calleeText(l, c.callee),
+            });
+            for (c.args, 0..) |arg, i| {
+                const label = try std.fmt.allocPrint(l.arena, "arg{d}", .{i});
+                _ = try lowerExprChild(l, self_id, label, arg);
+            }
+            return self_id;
+        },
+        else => {
+            // template/interpolation/array/object literals — out of scope (§9).
+            // Keep the id valid and lossless by carrying the source text as a
+            // single-segment feature_ref_expr.
+            const segs = try l.arena.alloc([]const u8, 1);
+            segs[0] = (try spanTextOpt(l, node)) orelse try l.arena.dupe(u8, "");
+            return try behavAddNode(l, id, .feature_ref_expr, node.span, .{ .name = leaf, .referent_segments = segs });
+        },
+    }
+}
+
+/// Lower a child operand/argument at `<parent_id>.<label>`, owned via contains.
+fn lowerExprChild(l: *Lowerer, parent_id: []const u8, label: []const u8, node: *ast.Node) std.mem.Allocator.Error![]const u8 {
+    const child_id = try std.fmt.allocPrint(l.arena, "{s}.{s}", .{ parent_id, label });
+    const cid = try lowerExpr(l, child_id, node);
+    try behavContains(l, parent_id, cid);
+    return cid;
+}
+
+/// Lower an expression into the slot `<owner>.<label>`, owned via contains.
+/// For node-owned slots, where the label is unique per owner. Returns the
+/// root expression node id.
+fn lowerExprSlot(l: *Lowerer, owner: []const u8, label: []const u8, node: *ast.Node) std.mem.Allocator.Error![]const u8 {
+    const root = try std.fmt.allocPrint(l.arena, "{s}.{s}", .{ owner, label });
+    const id = try lowerExpr(l, root, node);
+    try behavContains(l, owner, id);
+    return id;
 }
 
 /// Leftmost identifier of an identifier / member_access chain.
@@ -664,7 +849,7 @@ fn lowerDecide(l: *Lowerer, parent: []const u8, node: *ast.Node) std.mem.Allocat
     try behavContains(l, parent, merge);
     for (db.branches) |br| {
         const be = try flowRefId(l, parent, br.target);
-        try behavEdge(l, decision, be.entry, .succession, try guardOf(l, br.guard), null, null);
+        try behavEdge(l, decision, be.entry, .succession, try guardOf(l, decision, br.guard), null, null);
         try behavEdge(l, be.exit, merge, .succession, null, null, null);
     }
     return .{ .entry = decision, .exit = merge };
@@ -700,7 +885,7 @@ fn lowerSuccessionChain(l: *Lowerer, parent: []const u8, node: *ast.Node) std.me
     while (i < sc.steps.len) : (i += 1) {
         const st = sc.steps[i];
         const cur = try flowRefId(l, parent, st.ref);
-        try behavEdge(l, prev.exit, cur.entry, .succession, try guardOfOpt(l, st.guard), null, null);
+        try behavEdge(l, prev.exit, cur.entry, .succession, try guardOfOpt(l, prev.exit, st.guard), null, null);
         prev = cur;
     }
 }
@@ -744,9 +929,10 @@ fn lowerBehavioralMember(l: *Lowerer, node: *ast.Node, parent: []const u8) std.m
             }
         },
         .perform_statement => |ps| {
+            const id = try synthId(l, parent, "perform");
             var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "perform") };
-            payload.callee_ref = try spanTextOpt(l, ps.call);
-            const id = try behavAddNode(l, try synthId(l, parent, "perform"), .perform_action, node.span, payload);
+            payload.callee_ref = try lowerExprSlot(l, id, "callee", ps.call);
+            _ = try behavAddNode(l, id, .perform_action, node.span, payload);
             try behavContains(l, parent, id);
         },
         .send_action => |sa| {
@@ -759,20 +945,23 @@ fn lowerBehavioralMember(l: *Lowerer, node: *ast.Node, parent: []const u8) std.m
             try behavContains(l, parent, id);
         },
         .accept_action => |aa| {
+            const id = try synthId(l, parent, "accept");
             var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "accept") };
             if (aa.trigger_segments.len > 0) payload.trigger_ref = try std.mem.join(l.arena, ".", aa.trigger_segments);
-            if (aa.guard) |g| payload.guard_expr = try spanTextOpt(l, g);
-            const id = try behavAddNode(l, try synthId(l, parent, "accept"), .accept_action, node.span, payload);
+            if (aa.guard) |g| payload.guard_expr = try lowerExprSlot(l, id, "guard", g);
+            _ = try behavAddNode(l, id, .accept_action, node.span, payload);
             try behavContains(l, parent, id);
         },
         .assign_action => |asg| {
+            const id = try synthId(l, parent, "assign");
             var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "assign") };
             if (asg.target_segments.len > 0) payload.referent_ref = try std.mem.join(l.arena, ".", asg.target_segments);
-            payload.value_expr = try spanTextOpt(l, asg.value);
-            const id = try behavAddNode(l, try synthId(l, parent, "assign"), .assign_action, node.span, payload);
+            payload.value_expr = try lowerExprSlot(l, id, "value", asg.value);
+            _ = try behavAddNode(l, id, .assign_action, node.span, payload);
             try behavContains(l, parent, id);
         },
         .loop_statement => |ls| {
+            const id = try synthId(l, parent, "loop");
             var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "loop") };
             const kind: ir.NodeKind = if (ls.kind == .for_loop) .for_loop_action else .while_loop_action;
             switch (ls.kind) {
@@ -780,10 +969,10 @@ fn lowerBehavioralMember(l: *Lowerer, node: *ast.Node, parent: []const u8) std.m
                 .until_loop => payload.loop_kind = try l.arena.dupe(u8, "until"),
                 .for_loop => {},
             }
-            if (ls.guard) |g| payload.guard_expr = try spanTextOpt(l, g);
+            if (ls.guard) |g| payload.guard_expr = try lowerExprSlot(l, id, "guard", g);
             if (ls.var_name) |v| payload.loop_var = try l.arena.dupe(u8, v);
-            if (ls.iterable) |it| payload.iterable_expr = try spanTextOpt(l, it);
-            const id = try behavAddNode(l, try synthId(l, parent, "loop"), kind, node.span, payload);
+            if (ls.iterable) |it| payload.iterable_expr = try lowerExprSlot(l, id, "iterable", it);
+            _ = try behavAddNode(l, id, kind, node.span, payload);
             try behavContains(l, parent, id);
             if (ls.body.payload == .action_body) {
                 for (ls.body.payload.action_body.members) |bm| try lowerBehavioralMember(l, bm, id);
@@ -815,17 +1004,18 @@ fn lowerBehavioralMember(l: *Lowerer, node: *ast.Node, parent: []const u8) std.m
             const dst_name = if (es.target_segments.len > 0) es.target_segments[0] else "";
             const src = try internId(l, try qualifyId(l.arena, parent, src_name));
             const dst = try internId(l, try qualifyId(l.arena, parent, dst_name));
-            try behavEdge(l, src, dst, .succession, try guardOfOpt(l, es.guard), null, null);
+            try behavEdge(l, src, dst, .succession, try guardOfOpt(l, src, es.guard), null, null);
         },
         .transition_statement => |ts| {
+            const id = try synthId(l, parent, "transition");
             var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "transition") };
             if (ts.trigger_segments.len > 0) payload.trigger_ref = try std.mem.join(l.arena, ".", ts.trigger_segments);
-            if (ts.guard) |g| payload.guard_expr = try spanTextOpt(l, g);
-            if (ts.effect) |e| payload.effect_ref = try spanTextOpt(l, e);
+            if (ts.guard) |g| payload.guard_expr = try lowerExprSlot(l, id, "guard", g);
+            if (ts.effect) |e| payload.effect_ref = try lowerExprSlot(l, id, "effect", e);
             payload.source_ref = try internId(l, parent);
             const tgt = try flowRefId(l, parent, ts.target);
             payload.target_ref = tgt.entry;
-            const id = try behavAddNode(l, try synthId(l, parent, "transition"), .transition, node.span, payload);
+            _ = try behavAddNode(l, id, .transition, node.span, payload);
             try behavContains(l, parent, id);
         },
         .entry_do_exit => |ed| {
@@ -834,9 +1024,10 @@ fn lowerBehavioralMember(l: *Lowerer, node: *ast.Node, parent: []const u8) std.m
                 .do_action => "do",
                 .exit => "exit",
             };
+            const id = try internId(l, try qualifyId(l.arena, parent, kind_str));
             var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, kind_str) };
-            payload.callee_ref = try spanTextOpt(l, ed.behavior);
-            const id = try behavAddNode(l, try qualifyId(l.arena, parent, kind_str), .perform_action, node.span, payload);
+            payload.callee_ref = try lowerExprSlot(l, id, "behavior", ed.behavior);
+            _ = try behavAddNode(l, id, .perform_action, node.span, payload);
             try behavContains(l, parent, id);
             try behavEdge(l, parent, id, .subaction, null, null, try l.arena.dupe(u8, kind_str));
         },

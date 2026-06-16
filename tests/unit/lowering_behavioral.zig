@@ -94,3 +94,37 @@ test "lowering.behavioral.state_machine" {
         "\"subaction_kind\":\"entry\"",
     });
 }
+
+// IR v0.2 (S3.2): structured behavioral expressions. Guards, assignment values,
+// and perform calls lower to operator_expr / feature_ref_expr / literal_expr /
+// invocation_expr nodes (see spec/ir/v0.2/expression-mapping.md §1).
+test "lowering.behavioral.structured_expressions" {
+    const source =
+        \\package p;
+        \\action def A {
+        \\    in soc : Real;
+        \\    action requestTorque;
+        \\    action measure;
+        \\    requestTorque -> decide { [battery.soc >= 80] -> done [else] -> measure };
+        \\    assign soc := soc + 1;
+        \\    for c in cells { balance(c); }
+        \\}
+    ;
+    try lowerAndCheck(source, &.{
+        // the four expression node kinds
+        "\"kind\":\"operator_expr\"",
+        "\"kind\":\"feature_ref_expr\"",
+        "\"kind\":\"literal_expr\"",
+        "\"kind\":\"invocation_expr\"",
+        // operator symbols (KerML), from `>=` guard and `+` value
+        "\"operator\":\">=\"",
+        "\"operator\":\"+\"",
+        // typed literal (the `80` in the guard)
+        "\"literal_kind\":\"integer\"",
+        "\"literal_value\":\"80\"",
+        // dotted feature path → FeatureChain segments
+        "\"referent_segments\":[\"battery\",\"soc\"]",
+        // invocation callee for `balance(c)`
+        "\"callee_ref\":\"balance\"",
+    });
+}
