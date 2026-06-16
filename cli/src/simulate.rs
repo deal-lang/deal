@@ -306,7 +306,7 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
     let mut y = 1970u64;
     let mut remaining = days;
     loop {
-        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
         let days_in_year = if leap { 366 } else { 365 };
         if remaining < days_in_year {
             break;
@@ -314,7 +314,7 @@ fn days_to_ymd(days: u64) -> (u64, u64, u64) {
         remaining -= days_in_year;
         y += 1;
     }
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let leap = (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
     let month_days: &[u64] = if leap {
         &[31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     } else {
@@ -436,6 +436,9 @@ pub enum SimResult {
 ///
 /// On `ErrorKind::NotFound` (tool binary absent): writes `skip.json` and returns
 /// `SimResult::Skipped` (D-72 graceful-skip, NOT `Err`).
+// Sim-dispatch threads runner + I/O sinks through one call; bundling into a
+// context struct is a follow-up cleanup, not P1 scope.
+#[allow(clippy::too_many_arguments)]
 pub fn dispatch_sim(
     sim_name: &str,
     entry: &SimEntry,
@@ -503,6 +506,7 @@ pub fn dispatch_sim(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dispatch_python(
     sim_name: &str,
     entry: &SimEntry,
@@ -583,6 +587,7 @@ fn dispatch_python(
 /// `-batch "<script>"` resolves it from any subdirectory. The harness does not
 /// emit metadata.json, so we write a conforming one here for staleness
 /// enrichment. Absent or unlicensed MATLAB → graceful skip (D-72).
+#[allow(clippy::too_many_arguments)]
 fn dispatch_matlab(
     sim_name: &str,
     entry: &SimEntry,
@@ -703,6 +708,7 @@ fn write_matlab_metadata(
     write_json_atomic(metadata_path, &meta)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn dispatch_runner(
     sim_name: &str,
     entry: &SimEntry,

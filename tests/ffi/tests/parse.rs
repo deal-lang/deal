@@ -90,7 +90,7 @@ fn ffi_smoke() {
     assert_eq!(count, 0, "empty source should produce zero diagnostics");
 
     let has_err = unsafe { deal_has_errors(handle) };
-    assert_eq!(has_err, false, "empty source should report no errors");
+    assert!(!has_err, "empty source should report no errors");
 
     let json = read_ast_json(handle);
     assert!(
@@ -249,7 +249,7 @@ fn ffi_diagnostics_on_malformed() {
             // Parser error codes are E0100..E0499.
             if let Some(num_str) = code.strip_prefix('E') {
                 if let Ok(num) = num_str.parse::<u32>() {
-                    return num >= 100 && num < 500;
+                    return (100..500).contains(&num);
                 }
             }
         }

@@ -134,15 +134,13 @@ fn process_start_element<'a>(
         "REQ-IF" => {
             *found_reqif_root = true;
             let mut ns_ok = false;
-            for attr_result in attributes {
-                if let Ok(attr) = attr_result {
-                    let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
-                    let val = attr
-                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-                        .unwrap_or_default();
-                    if key == "xmlns" && val == REQIF_NAMESPACE {
-                        ns_ok = true;
-                    }
+            for attr in attributes.flatten() {
+                let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
+                let val = attr
+                    .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                    .unwrap_or_default();
+                if key == "xmlns" && val == REQIF_NAMESPACE {
+                    ns_ok = true;
                 }
             }
             *root_has_correct_ns = ns_ok;
@@ -160,16 +158,14 @@ fn process_start_element<'a>(
         }
         elem_name if must_have_identifier.contains(&elem_name) => {
             let mut has_identifier = false;
-            for attr_result in attributes {
-                if let Ok(attr) = attr_result {
-                    let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
-                    if key == "IDENTIFIER" {
-                        let val = attr
-                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-                            .unwrap_or_default();
-                        if !val.is_empty() {
-                            has_identifier = true;
-                        }
+            for attr in attributes.flatten() {
+                let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
+                if key == "IDENTIFIER" {
+                    let val = attr
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                        .unwrap_or_default();
+                    if !val.is_empty() {
+                        has_identifier = true;
                     }
                 }
             }

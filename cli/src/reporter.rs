@@ -255,11 +255,17 @@ mod tests {
 
     #[test]
     fn always_pref_paints_but_only_animates_on_tty() {
+        use std::io::IsTerminal;
         let r = Reporter::new(ColorPref::Always);
         assert!(r.color_enabled());
         assert!(r.paint("ok", Ink::Green).contains("ok"));
-        // Tests do not run under a TTY, so animation stays off regardless.
-        assert!(!r.animated());
+        // Animation is gated on an interactive stderr TTY AND the absence of a
+        // `CI` env var (reporter::new). Assert that exact invariant rather than a
+        // fixed value so the test holds whether run piped, in CI, or in a live
+        // terminal.
+        let expected_animate =
+            std::io::stderr().is_terminal() && std::env::var_os("CI").is_none();
+        assert_eq!(r.animated(), expected_animate);
     }
 
     #[test]

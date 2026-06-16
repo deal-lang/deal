@@ -191,9 +191,7 @@ pub fn run_evidence_baseline_in(project_root: &Path, tag: &str) -> Result<(), Cl
     let baseline_dir = project_root.join("evidence").join("baselines").join(tag);
 
     if !evidence_dir.exists() {
-        return Err(CliError::User(format!(
-            "deal evidence baseline: no .deal/evidence/ directory found — run `deal simulate` first"
-        )));
+        return Err(CliError::User("deal evidence baseline: no .deal/evidence/ directory found — run `deal simulate` first".to_string()));
     }
 
     std::fs::create_dir_all(&baseline_dir).map_err(|e| {
@@ -280,9 +278,7 @@ pub fn run_evidence_baseline_in(project_root: &Path, tag: &str) -> Result<(), Cl
     }
 
     if sim_manifest.is_empty() {
-        return Err(CliError::User(format!(
-            "deal evidence baseline: no simulation output.json files found in .deal/evidence/ — run `deal simulate` first"
-        )));
+        return Err(CliError::User("deal evidence baseline: no simulation output.json files found in .deal/evidence/ — run `deal simulate` first".to_string()));
     }
 
     // Build manifest (BTreeMap top-level keys for D-18 byte-stability).

@@ -1073,7 +1073,7 @@ mod tests {
         assert!(archive.is_ok(), "reqifz must be a valid zip archive");
 
         let mut archive = archive.unwrap();
-        assert!(archive.len() > 0, "zip must not be empty");
+        assert!(!archive.is_empty(), "zip must not be empty");
 
         // Find .reqif entry.
         let mut found = false;

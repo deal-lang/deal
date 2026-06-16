@@ -1129,7 +1129,7 @@ fn check_dimension_compat(_criteria_text: &str, stdlib_bytes: &[u8]) -> bool {
     // limitation: E2503 not yet emitted, per KNOWN LIMITATION in plan context).
     // The call is made to satisfy D-85 (Zig owns dimensions); the return value
     // drives the report but cannot produce false failures on the showcase model.
-    let probe_source = format!("package verify_probe;\n// dimension check probe\n");
+    let probe_source = "package verify_probe;\n// dimension check probe\n".to_string();
     let filename = "verify_probe.deal";
 
     let handle = unsafe {

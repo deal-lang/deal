@@ -302,7 +302,7 @@ fn render_param_decl(param: &Value) -> String {
     let name = param.get("name").and_then(|v| v.as_str()).unwrap_or("_");
     let type_str = param
         .get("type_node")
-        .map(|t| render_type_annotation(t))
+        .map(render_type_annotation)
         .unwrap_or_default();
     if type_str.is_empty() {
         format!("{dir} {name}")

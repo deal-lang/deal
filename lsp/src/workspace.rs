@@ -188,7 +188,7 @@ impl Workspace {
                     || !(e.file_type().is_dir()
                         && e.file_name()
                             .to_str()
-                            .map_or(false, |n| SKIP_DIRS.contains(&n)))
+                            .is_some_and(|n| SKIP_DIRS.contains(&n)))
             })
             .filter_map(|e| e.ok())
         {

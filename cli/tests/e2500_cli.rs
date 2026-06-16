@@ -16,6 +16,7 @@
 //! Test setup: each test creates a tempdir with:
 //!   - A `.deal` source file under `src/`
 //!   - A minimal stdlib seed at `.deal/deps/deal-stdlib/packages/units/units.deal`
+//!
 //! The CLI's D-49 dep-collection block finds the stdlib seed, builds stdlib_bytes,
 //! and deal_check_with_stdlib uses it to resolve V as a Voltage unit_def.
 //!

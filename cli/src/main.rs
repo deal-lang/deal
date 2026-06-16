@@ -586,8 +586,9 @@ fn run_check(
     // edges. BTreeMap preserves D-18 alphabetical-key invariant.
     // Phase 3 LSP can consume this as the workspace symbol index without a
     // separate import step.
-    if !any_errors && !per_file_indexes.is_empty() && workspace_root.is_some() {
-        let workspace_root = workspace_root.unwrap();
+    if let Some(workspace_root) =
+        workspace_root.filter(|_| !any_errors && !per_file_indexes.is_empty())
+    {
         let mut merged_elements = std::collections::BTreeMap::<String, serde_json::Value>::new();
         let mut merged_imports: Vec<serde_json::Value> = Vec::new();
         let mut deal_version: Option<String> = None;
