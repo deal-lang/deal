@@ -22,12 +22,21 @@ Full language documentation, guides, and the language reference live at
 
 ## Status
 
-Milestone **v2.1.0** — roughly **70% complete** (7 of 10 phases substantively
-done). The parser, semantic analyzer, formatter, IR, SysML v2 / ReqIF backends,
-project/dependency tooling, and simulation-evidence pipeline are implemented and
-gated by the test suite. In progress: the `calc` / `constraint` grammar
-(SD-21/22/23). Not yet started: the editor-first platform (Phase 6) — the Tauri
-desktop editor, import pipelines (`deal import`), and documentation generation
+The parser, semantic analyzer, formatter, IR, SysML v2 / ReqIF backends, the
+`calc` / `constraint` surface (SD-21/22/23), project/dependency tooling, and the
+simulation-evidence pipeline are implemented and gated by the test suite.
+
+**Stage 2 — the behavioral surface (BH-1..BH-7) is complete** end to end: actions
+and state machines (pins, succession, `decide`/`par`, loops, send/accept/assign,
+perform, item flow, bind, transitions, entry/do/exit) parse, resolve, format
+idempotently, lower to IR v0.1, and emit OMG-schema-valid SysML v2. The showcase
+(`behaviors.deal`, `charging-states.deal`) round-trips through the whole pipeline.
+See [`CHANGELOG.md`](./CHANGELOG.md). One deferral remains: behavioral guards /
+values are carried as text and not yet emitted as structured SysML `Expression`
+trees (Stage-3 candidate, `spec/ir/v0.1/FUTURE-structured-expressions.md`).
+
+Not yet started: the editor-first platform (Phase 6) — the Tauri desktop editor,
+import pipelines (`deal import`), and documentation generation
 (`deal build --target docs`).
 
 ## What the CLI does today
