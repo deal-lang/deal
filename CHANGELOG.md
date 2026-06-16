@@ -1,0 +1,94 @@
+# Changelog — deal (core compiler)
+
+All notable changes to the DEAL compiler core (Zig engine + Rust CLI/LSP). This
+project tracks the staged language implementation; dates are the working-tree
+dates of the changes, not formal releases.
+
+The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
+
+## [Unreleased]
+
+### Added — Stage 3: structured behavioral expressions (IR v0.2)
+
+Behavioral guards, assignment values, accept payloads, and loop bounds now lower
+to structured IR expression nodes and emit as schema-valid SysML v2 / KerML
+`Expression` trees — completing the 1:1 behavioral mapping. A guard `[soc >= 80]`
+emits as an `OperatorExpression(">=")` over a `FeatureReferenceExpression(soc)`
+and a `LiteralInteger(80)`.
+
+- **IR (`ir.zig`)** — 4 additive expression `NodeKind`s (`operator_expr`,
+  `feature_ref_expr`, `literal_expr`, `invocation_expr`) + payload fields
+  (`operator`, `literal_kind`, `literal_value`, `referent_segments`,
+  `trigger_kind`). The guard/value/iterable/effect/callee slots now hold an
+  expr-node id; `Edge.guard` keeps `"else"` as a sentinel. `ir_version` → `"v0.2"`
+  (`json.zig`); the JSON serializer gained the new kinds + fields.
+- **Lowering (`lowering.zig`)** — `lowerExpr` recursively lifts AST expression
+  subtrees (binary/unary → `operator_expr` with the DEAL→KerML operator-symbol
+  table; identifier/member_access → `feature_ref_expr`; literals →
+  `literal_expr`; call → `invocation_expr`), owned via `contains` with
+  deterministic structural ids (`…op0`/`op1`/`argN`). All 9 prior text-capture
+  sites now produce structured expressions.
+- **Emitter (`cli/src/sysml_v2.rs`)** — emit arms for OperatorExpression
+  (8.3.4.8.17), FeatureReferenceExpression/FeatureChainExpression (8.3.4.8.5/.4),
+  Literal{Boolean,Integer,Rational,String} (8.3.4.8.9/.12/.13/.14), and
+  InvocationExpression (8.3.4.8.8) / TriggerInvocationExpression (SysML
+  8.3.17.17). Transition guards wire as a `kind=guard` TransitionFeatureMembership
+  owning a Boolean-valued `Expression` (8.3.18.8/.9), completing the
+  trigger/guard/effect triad. Only non-derived slots authored; clauses cited.
+- **Goldens** — `11-action-behavior` / `12-state-machine` regenerated with guards
+  present (OMG SysML 20250201-valid); new guard-focused fixture
+  `13-structured-guards` (covers FeatureChainExpression). `zig build test`,
+  `cargo test`, and `deal build --validate` green; determinism, id-uniqueness,
+  and fmt idempotence preserved.
+
+### Added — Stage 2: behavioral surface (BH-1..BH-7)
+
+The full behavioral surface now flows end to end: parse → semantic analysis →
+IR → lowering → SysML v2 emission, with the showcase exercising it.
+
+- **Lexer** — behavioral tokens (`->` `~>` `:=`) and 20 reserved keywords
+  (`decide`, `par`, `loop`, `while`, `until`, `for`, `send`, `accept`, `assign`,
+  `bind`, `node`, `succession`, `on`, `entry`, `do`, `exit`, `else`, `start`,
+  `done`, `terminate`).
+- **Parser** — `ActionBody` / `StateBody` (deal.ebnf §9b/§9c) with
+  operator-driven LL(2) dispatch: pins, sub-actions (incl. bodies), succession
+  chains, control endpoints, `decide` / `par` blocks, `loop`/`for`,
+  `send`/`accept`/`assign`, perform calls, item flows, bindings, the
+  `node`/`succession` escape hatch, `entry`/`do`/`exit`, transitions, and
+  state-body parameters.
+- **Sema** — behavioral resolution: pin/escape/flow type checks, dimensional +
+  D7-purity checks on behavioral expressions, and per-body control-flow
+  reference resolution (`E2700` step-not-declared, `E2701` flow-type-not-found).
+- **IR v0.1** — additive superset: 16 behavioral node kinds, 4 edge kinds
+  (succession/item_flow/binding/subaction) with payload, new `IrPayload`
+  behavioral fields; `ir_version` now `"v0.1"`. (`spec/ir/v0.1/`.)
+- **Lowering** — AST → IR v0.1 with §4 desugaring (decide → DecisionNode +
+  implicit MergeNode; par → ForkNode + implicit JoinNode; loops; transitions;
+  entry/do/exit subaction edges); deterministic synthetic-node ids.
+- **fmt** — canonical, idempotent writers for the entire behavioral surface.
+- **SysML v2 emitter** — every behavioral node/edge → its metaclass, each
+  grounded in a closure-bounded wiki lookup with the clause cited in code
+  (ActionDefinition/Usage, control/decision/merge/fork/join nodes,
+  Terminate/Send/Accept/Assignment/Perform/While/For action usages, StateUsage,
+  TransitionUsage with trigger/effect memberships, SuccessionAsUsage, FlowUsage,
+  BindingConnectorAsUsage, StateSubactionMembership, pin ReferenceUsage +
+  FeatureTyping).
+- **Goldens** — `11-action-behavior` and `12-state-machine` SysML v2 fixtures,
+  validated against the OMG SysML 20250201 schema.
+- **Showcase** — `behaviors.deal` rewritten in real behavioral syntax and
+  `charging-states.deal` added (state machine), both round-tripping through the
+  full pipeline.
+
+### Known limitations
+
+- Behavioral guards / assignment values / payloads are carried as source text in
+  the IR and are **not** yet emitted as structured SysML `Expression` trees
+  (Stage-3 candidate; see `spec/ir/v0.1/FUTURE-structured-expressions.md`).
+
+## [v2.1.0] — Stage 1: compiler core
+
+Parser, semantic analyzer (incl. dimensional analysis), formatter, IR v0,
+SysML v2 / ReqIF backends, `calc` / `constraint` (SD-21/22/23), project and
+dependency tooling, and the simulation-evidence pipeline — all gated by the test
+suite. CLI: `deal parse | check | fmt | build | init | install | simulate |
+evidence`.
