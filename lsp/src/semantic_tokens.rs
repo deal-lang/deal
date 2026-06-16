@@ -44,9 +44,9 @@
 use serde_json::Value;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
-    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens,
-    SemanticTokensDelta, SemanticTokensEdit, SemanticTokensFullDeltaResult,
-    SemanticTokensLegend, SemanticTokensResult, Url,
+    SemanticToken, SemanticTokenModifier, SemanticTokenType, SemanticTokens, SemanticTokensDelta,
+    SemanticTokensEdit, SemanticTokensFullDeltaResult, SemanticTokensLegend, SemanticTokensResult,
+    Url,
 };
 
 use crate::documents::Documents;
@@ -280,9 +280,7 @@ fn collect_tokens(node: &Value, out: &mut Vec<RawToken>) {
                 // Phase 05.2 (D-04): calc_def semantic token — exact copy of constraint_def arm.
                 // Phase 6 seam: this arm is the anchor point for future calc-specific modifiers;
                 // do NOT refactor the emit_keyword infrastructure to extend here.
-                "calc_def" => {
-                    emit_keyword(node, "calc def".len(), MOD_DECLARATION, out)
-                }
+                "calc_def" => emit_keyword(node, "calc def".len(), MOD_DECLARATION, out),
                 "attribute_def" => emit_keyword(node, "attribute def".len(), MOD_DECLARATION, out),
                 "item_def" => emit_keyword(node, "item def".len(), MOD_DECLARATION, out),
                 "interface_def" => emit_keyword(node, "interface def".len(), MOD_DECLARATION, out),
@@ -290,6 +288,49 @@ fn collect_tokens(node: &Value, out: &mut Vec<RawToken>) {
                     emit_keyword(node, "connection def".len(), MOD_DECLARATION, out)
                 }
                 "flow_def" => emit_keyword(node, "flow def".len(), MOD_DECLARATION, out),
+                // P1: element defs that had drifted out of coverage. `use case
+                // def` is two source words (12 bytes); span[0] is the `use`
+                // token, so the fixed prefix length lands correctly (clamped by
+                // emit_keyword to the node span width).
+                "allocation_def" => {
+                    emit_keyword(node, "allocation def".len(), MOD_DECLARATION, out)
+                }
+                "need_def" => emit_keyword(node, "need def".len(), MOD_DECLARATION, out),
+                "use_case_def" => emit_keyword(node, "use case def".len(), MOD_DECLARATION, out),
+                "actor_def" => emit_keyword(node, "actor def".len(), MOD_DECLARATION, out),
+
+                // ── Behavioral statements (BH-1…BH-7), P1 WS-D ───────────────
+                // Emit a KEYWORD token over the lead keyword so the behavioral
+                // surface stops rendering as undifferentiated text. No
+                // MOD_DECLARATION — these are control keywords, not declarations.
+                // span[0] is the lead keyword's first byte (emit_keyword clamps
+                // length to the node span).
+                "decide_block" => emit_keyword(node, "decide".len(), 0, out),
+                "par_block" => emit_keyword(node, "par".len(), 0, out),
+                "send_action" => emit_keyword(node, "send".len(), 0, out),
+                "accept_action" => emit_keyword(node, "accept".len(), 0, out),
+                "assign_action" => emit_keyword(node, "assign".len(), 0, out),
+                "binding_statement" => emit_keyword(node, "bind".len(), 0, out),
+                "transition_statement" => emit_keyword(node, "on".len(), 0, out),
+                "state_usage" => emit_keyword(node, "state".len(), 0, out),
+                "escape_succession" => emit_keyword(node, "succession".len(), 0, out),
+                // `loop while/until …` vs `for v in e …`: lead keyword differs.
+                "loop_statement" => {
+                    let lead = match node.get("kind").and_then(|v| v.as_str()) {
+                        Some("for_loop") => "for",
+                        _ => "loop",
+                    };
+                    emit_keyword(node, lead.len(), 0, out);
+                }
+                // `entry|do|exit / Behavior`: the serialized `kind` value is the
+                // source keyword itself, so its byte length is the token length.
+                "entry_do_exit" => {
+                    let lead = node.get("kind").and_then(|v| v.as_str()).unwrap_or("entry");
+                    emit_keyword(node, lead.len(), 0, out);
+                }
+                // `succession_chain` (a -> b), `item_flow_statement` (a ~> b),
+                // and `perform_statement` (f(x);) have no lead keyword — their
+                // identifiers/operators are tokenized by the descent below.
 
                 // type_annotation: emit TYPE token spanning the full span.
                 "type_annotation" => {
@@ -669,14 +710,95 @@ mod tests {
         let mut raws: Vec<RawToken> = Vec::new();
         collect_tokens(&ast, &mut raws);
         // Expect exactly one KEYWORD token at byte 0 with length 8 ("calc def").
-        assert_eq!(raws.len(), 1, "calc_def must emit exactly one semantic token");
+        assert_eq!(
+            raws.len(),
+            1,
+            "calc_def must emit exactly one semantic token"
+        );
         assert_eq!(raws[0].start_byte, 0);
-        assert_eq!(raws[0].length_bytes, "calc def".len(),
-            "token length must equal 'calc def' (8 bytes)");
-        assert_eq!(raws[0].token_type, TT_KEYWORD,
-            "calc_def token must be TT_KEYWORD");
-        assert_eq!(raws[0].modifiers, MOD_DECLARATION,
-            "calc_def token must carry MOD_DECLARATION");
+        assert_eq!(
+            raws[0].length_bytes,
+            "calc def".len(),
+            "token length must equal 'calc def' (8 bytes)"
+        );
+        assert_eq!(
+            raws[0].token_type, TT_KEYWORD,
+            "calc_def token must be TT_KEYWORD"
+        );
+        assert_eq!(
+            raws[0].modifiers, MOD_DECLARATION,
+            "calc_def token must carry MOD_DECLARATION"
+        );
+    }
+
+    #[test]
+    fn collect_tokens_emits_added_element_def_keywords() {
+        // P1 WS-A: the four element defs that had drifted out of coverage.
+        for (kind, kw) in [
+            ("allocation_def", "allocation def"),
+            ("need_def", "need def"),
+            ("use_case_def", "use case def"),
+            ("actor_def", "actor def"),
+        ] {
+            let span_end = kw.len() + 4;
+            let ast = json!({ "k": kind, "span": [0, span_end] });
+            let mut raws: Vec<RawToken> = Vec::new();
+            collect_tokens(&ast, &mut raws);
+            assert_eq!(raws.len(), 1, "{kind} must emit one token");
+            assert_eq!(raws[0].start_byte, 0, "{kind}");
+            assert_eq!(raws[0].length_bytes, kw.len(), "{kind} keyword length");
+            assert_eq!(raws[0].token_type, TT_KEYWORD, "{kind}");
+            assert_eq!(raws[0].modifiers, MOD_DECLARATION, "{kind}");
+        }
+    }
+
+    #[test]
+    fn collect_tokens_emits_behavioral_lead_keywords() {
+        // P1 WS-D: fixed-lead behavioral statements.
+        for (kind, kw) in [
+            ("decide_block", "decide"),
+            ("par_block", "par"),
+            ("send_action", "send"),
+            ("accept_action", "accept"),
+            ("assign_action", "assign"),
+            ("binding_statement", "bind"),
+            ("transition_statement", "on"),
+            ("state_usage", "state"),
+            ("escape_succession", "succession"),
+        ] {
+            let ast = json!({ "k": kind, "span": [0, kw.len() + 8] });
+            let mut raws: Vec<RawToken> = Vec::new();
+            collect_tokens(&ast, &mut raws);
+            assert_eq!(raws.len(), 1, "{kind} must emit one token");
+            assert_eq!(raws[0].length_bytes, kw.len(), "{kind} lead-keyword length");
+            assert_eq!(raws[0].token_type, TT_KEYWORD, "{kind}");
+            assert_eq!(
+                raws[0].modifiers, 0,
+                "{kind} is a control keyword, not a declaration"
+            );
+        }
+    }
+
+    #[test]
+    fn collect_tokens_loop_and_entry_variants_pick_lead_keyword() {
+        // for-loop → "for" (3); while/until-loop → "loop" (4).
+        let for_loop = json!({ "k": "loop_statement", "kind": "for_loop", "span": [0, 20] });
+        let mut raws: Vec<RawToken> = Vec::new();
+        collect_tokens(&for_loop, &mut raws);
+        assert_eq!(raws[0].length_bytes, "for".len());
+
+        let while_loop = json!({ "k": "loop_statement", "kind": "while_loop", "span": [0, 20] });
+        raws.clear();
+        collect_tokens(&while_loop, &mut raws);
+        assert_eq!(raws[0].length_bytes, "loop".len());
+
+        // entry/do/exit: the serialized kind value equals the source keyword.
+        for kw in ["entry", "do", "exit"] {
+            let n = json!({ "k": "entry_do_exit", "kind": kw, "span": [0, 12] });
+            raws.clear();
+            collect_tokens(&n, &mut raws);
+            assert_eq!(raws[0].length_bytes, kw.len(), "entry_do_exit kind {kw}");
+        }
     }
 
     #[test]
@@ -734,7 +856,10 @@ mod tests {
         let data = delta_encode(&tokens, source);
         assert_eq!(
             tuples(&data),
-            vec![(0, 0, 8, TT_KEYWORD, MOD_DECLARATION), (0, 9, 1, TT_TYPE, 0)]
+            vec![
+                (0, 0, 8, TT_KEYWORD, MOD_DECLARATION),
+                (0, 9, 1, TT_TYPE, 0)
+            ]
         );
     }
 

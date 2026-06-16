@@ -103,8 +103,7 @@ fn check_json_mode_envelope_and_exit_one() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code,
-        1,
+        exit_code, 1,
         "deal check --json expected exit 1 but got {}",
         exit_code,
     );
@@ -115,11 +114,23 @@ fn check_json_mode_envelope_and_exit_one() {
         .unwrap_or_else(|e| panic!("--json stdout is not valid JSON: {}\nraw: {}", e, stdout));
 
     // D-32 envelope fields must be present.
-    assert_eq!(envelope["command"], "check", "envelope.command must be 'check'");
+    assert_eq!(
+        envelope["command"], "check",
+        "envelope.command must be 'check'"
+    );
     assert_eq!(envelope["v"], 1, "envelope.v must be 1");
-    assert!(envelope["deal_version"].is_string(), "envelope.deal_version must be a string");
-    assert!(envelope["diagnostics"].is_array(), "envelope.diagnostics must be array");
-    assert!(envelope["summary"].is_object(), "envelope.summary must be object");
+    assert!(
+        envelope["deal_version"].is_string(),
+        "envelope.deal_version must be a string"
+    );
+    assert!(
+        envelope["diagnostics"].is_array(),
+        "envelope.diagnostics must be array"
+    );
+    assert!(
+        envelope["summary"].is_object(),
+        "envelope.summary must be object"
+    );
 
     // At least one diagnostic with code "E2000".
     let diags = envelope["diagnostics"].as_array().unwrap();
@@ -133,11 +144,15 @@ fn check_json_mode_envelope_and_exit_one() {
     // D-32 alphabetical key order: command < deal_version < diagnostics < summary < v.
     // Verify by re-serializing the object and checking key order in raw JSON.
     // serde_json uses BTreeMap by default → keys are alphabetical.
-    let raw_keys: Vec<&str> = envelope.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+    let raw_keys: Vec<&str> = envelope
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(|k| k.as_str())
+        .collect();
     let expected_keys = ["command", "deal_version", "diagnostics", "summary", "v"];
     assert_eq!(
-        raw_keys,
-        expected_keys,
+        raw_keys, expected_keys,
         "D-32 envelope keys must be alphabetical: {:?}",
         raw_keys,
     );
@@ -185,8 +200,7 @@ fn check_nonexistent_file_exits_two() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code,
-        2,
+        exit_code, 2,
         "deal check <nonexistent> expected exit 2 (D-34 internal) but got {}",
         exit_code,
     );

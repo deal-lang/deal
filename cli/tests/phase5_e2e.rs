@@ -154,11 +154,8 @@ fn seed_battery_thermal_inputs(showcase_root: &std::path::Path) {
         "v": 1
     });
     let input_path = ev_dir.join("input.json");
-    std::fs::write(
-        &input_path,
-        serde_json::to_vec_pretty(&input_json).unwrap(),
-    )
-    .expect("write battery_thermal input.json");
+    std::fs::write(&input_path, serde_json::to_vec_pretty(&input_json).unwrap())
+        .expect("write battery_thermal input.json");
 }
 
 /// Run a deal command from a working directory; return (success, stdout, stderr).
@@ -215,8 +212,8 @@ fn test_phase5_simulate_battery_thermal_produces_output_json() {
         serde_json::from_slice(&output_bytes).expect("parse output.json");
 
     // output.json should have either a flat outputs object or spec/sims/v0 envelope
-    let has_outputs = output_val.get("outputs").is_some()
-        || output_val.get("heatGenerated").is_some();
+    let has_outputs =
+        output_val.get("outputs").is_some() || output_val.get("heatGenerated").is_some();
     assert!(
         has_outputs,
         "output.json should contain 'outputs' or top-level sim keys\noutput: {:?}",
@@ -323,15 +320,16 @@ fn test_phase5_evidence_baseline_writes_manifest() {
     let (sim_ok, _stdout, sim_stderr) = run_deal(&["simulate", "battery_thermal"], root);
     if !sim_ok {
         if sim_stderr.contains("python") && sim_stderr.contains("not found") {
-            eprintln!("test_phase5_evidence_baseline_writes_manifest: Python not available — skipping");
+            eprintln!(
+                "test_phase5_evidence_baseline_writes_manifest: Python not available — skipping"
+            );
             return;
         }
         panic!("simulate failed: {}", sim_stderr);
     }
 
     // Create baseline
-    let (ok, _stdout, stderr) =
-        run_deal(&["evidence", "baseline", "v2.1.0"], root);
+    let (ok, _stdout, stderr) = run_deal(&["evidence", "baseline", "v2.1.0"], root);
     assert!(
         ok,
         "deal evidence baseline v2.1.0 should exit 0\nstderr: {}",
@@ -400,8 +398,7 @@ fn test_phase5_check_verify_produces_req_report() {
     // Run verify — no sim runs needed: REQ_BAT_001 is design-evidence-backed
     // (maps EnergyStorage.battery.usableCapacity -> actualCapacity), so its
     // criterion resolves to a REAL verdict from model values (05-08).
-    let (ok, stdout, stderr) =
-        run_deal(&["check", "--verify", "model/traceability.dealx"], root);
+    let (ok, stdout, stderr) = run_deal(&["check", "--verify", "model/traceability.dealx"], root);
 
     let combined = format!("{}{}", stdout, stderr);
 
@@ -476,7 +473,11 @@ fn test_phase5_full_chain() {
 
     // Step 2: evidence capture
     let (capture_ok, _stdout, capture_stderr) = run_deal(&["evidence", "capture"], root);
-    assert!(capture_ok, "step 2 evidence capture failed: {}", capture_stderr);
+    assert!(
+        capture_ok,
+        "step 2 evidence capture failed: {}",
+        capture_stderr
+    );
 
     // Step 3: evidence baseline v2.1.0
     let (baseline_ok, _stdout, baseline_stderr) =

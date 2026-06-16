@@ -28,8 +28,8 @@ fn ctx_from_pairs(pairs: &[(&str, f64)]) -> EvalContext {
 #[test]
 fn test_gte_comparison_true() {
     let ctx = ctx_from_pairs(&[("actualRange", 520.0), ("REQ_SYS_001.minRange", 500.0)]);
-    let result = eval_expr("actualRange >= REQ_SYS_001.minRange", &ctx)
-        .expect("eval should succeed");
+    let result =
+        eval_expr("actualRange >= REQ_SYS_001.minRange", &ctx).expect("eval should succeed");
     assert_eq!(result, EvalValue::Bool(true));
 }
 
@@ -37,8 +37,8 @@ fn test_gte_comparison_true() {
 #[test]
 fn test_gte_comparison_false() {
     let ctx = ctx_from_pairs(&[("actualRange", 490.0), ("REQ_SYS_001.minRange", 500.0)]);
-    let result = eval_expr("actualRange >= REQ_SYS_001.minRange", &ctx)
-        .expect("eval should succeed");
+    let result =
+        eval_expr("actualRange >= REQ_SYS_001.minRange", &ctx).expect("eval should succeed");
     assert_eq!(result, EvalValue::Bool(false));
 }
 
@@ -66,7 +66,7 @@ fn test_and_criteria_fails_when_one_side_false() {
     let ctx = ctx_from_pairs(&[
         ("actualMaxTemp", 45.0),
         ("REQ_BAT_003.maxTemp", 50.0),
-        ("actualMinTemp", -35.0),    // below minTemp → fails
+        ("actualMinTemp", -35.0), // below minTemp → fails
         ("REQ_BAT_003.minTemp", -30.0),
     ]);
     let result = eval_expr(
@@ -81,8 +81,8 @@ fn test_and_criteria_fails_when_one_side_false() {
 #[test]
 fn test_margin_subtraction() {
     let ctx = ctx_from_pairs(&[("actualRange", 520.0), ("REQ_SYS_001.minRange", 500.0)]);
-    let result = eval_expr("actualRange - REQ_SYS_001.minRange", &ctx)
-        .expect("eval should succeed");
+    let result =
+        eval_expr("actualRange - REQ_SYS_001.minRange", &ctx).expect("eval should succeed");
     assert_eq!(result, EvalValue::Number(20.0));
 }
 
@@ -90,8 +90,8 @@ fn test_margin_subtraction() {
 #[test]
 fn test_margin_percent() {
     let ctx = ctx_from_pairs(&[("margin", 20.0), ("REQ_SYS_001.minRange", 500.0)]);
-    let result = eval_expr("margin / REQ_SYS_001.minRange * 100", &ctx)
-        .expect("eval should succeed");
+    let result =
+        eval_expr("margin / REQ_SYS_001.minRange * 100", &ctx).expect("eval should succeed");
     // 20 / 500 * 100 = 4.0
     match result {
         EvalValue::Number(v) => assert!((v - 4.0).abs() < 1e-9, "expected 4.0, got {}", v),
@@ -107,8 +107,11 @@ fn test_max_call() {
         ("chargeTime_neg10C", 31.0),
         ("chargeTime_neg30C", 28.0),
     ]);
-    let result = eval_expr("max(chargeTime_25C, chargeTime_neg10C, chargeTime_neg30C)", &ctx)
-        .expect("eval should succeed");
+    let result = eval_expr(
+        "max(chargeTime_25C, chargeTime_neg10C, chargeTime_neg30C)",
+        &ctx,
+    )
+    .expect("eval should succeed");
     assert_eq!(result, EvalValue::Number(31.0));
 }
 
@@ -179,10 +182,7 @@ fn test_pass_verdict() {
         "actualCapacity >= REQ_BAT_001.minCapacity",
         /*status=*/ None,
         /*has_gap=*/ false,
-        &ctx_from_pairs(&[
-            ("actualCapacity", 85.0),
-            ("REQ_BAT_001.minCapacity", 75.0),
-        ]),
+        &ctx_from_pairs(&[("actualCapacity", 85.0), ("REQ_BAT_001.minCapacity", 75.0)]),
         /*stale=*/ false,
     )
     .expect("evaluate_showcase_case should succeed");
@@ -199,10 +199,7 @@ fn test_partial_verdict() {
         "worstCase <= REQ_BAT_002.chargeTime",
         /*status=*/ Some("partial"),
         /*has_gap=*/ true,
-        &ctx_from_pairs(&[
-            ("worstCase", 28.0),
-            ("REQ_BAT_002.chargeTime", 30.0),
-        ]),
+        &ctx_from_pairs(&[("worstCase", 28.0), ("REQ_BAT_002.chargeTime", 30.0)]),
         /*stale=*/ false,
     )
     .expect("evaluate_showcase_case should succeed");
@@ -219,10 +216,7 @@ fn test_stale_detection() {
         "actualCapacity >= REQ_BAT_001.minCapacity",
         /*status=*/ None,
         /*has_gap=*/ false,
-        &ctx_from_pairs(&[
-            ("actualCapacity", 85.0),
-            ("REQ_BAT_001.minCapacity", 75.0),
-        ]),
+        &ctx_from_pairs(&[("actualCapacity", 85.0), ("REQ_BAT_001.minCapacity", 75.0)]),
         /*stale=*/ true, // hash mismatch
     )
     .expect("evaluate_showcase_case should succeed");
@@ -239,8 +233,8 @@ fn test_partial_via_unmapped_field() {
     let report = verify::evaluate_showcase_case(
         "REQ_BAT_002",
         "worstCase <= REQ_BAT_002.chargeTime",
-        /*status=*/ None,     // no explicit status=partial
-        /*has_gap=*/ false,   // no gap block
+        /*status=*/ None, // no explicit status=partial
+        /*has_gap=*/ false, // no gap block
         &ctx_from_pairs(&[
             // worstCase is missing — context only has the threshold
             ("REQ_BAT_002.chargeTime", 30.0),
@@ -302,11 +296,8 @@ fn test_build_stale_overrides_flags_drift() {
     let drifted = br#"{"outputs":{"heatGenerated":{"value":9999.0}}}"#;
 
     let tmp = setup_baseline_and_evidence("battery_thermal", "v1", &recorded_hash, drifted);
-    let overrides = verify::build_stale_overrides(
-        tmp.path(),
-        &["battery_thermal".to_string()],
-        Some("v1"),
-    );
+    let overrides =
+        verify::build_stale_overrides(tmp.path(), &["battery_thermal".to_string()], Some("v1"));
 
     assert_eq!(
         overrides.get("battery_thermal"),
@@ -323,11 +314,8 @@ fn test_build_stale_overrides_fresh_not_stale() {
 
     // current evidence == blessed bytes → hashes match → fresh
     let tmp = setup_baseline_and_evidence("battery_thermal", "v1", &recorded_hash, blessed);
-    let overrides = verify::build_stale_overrides(
-        tmp.path(),
-        &["battery_thermal".to_string()],
-        Some("v1"),
-    );
+    let overrides =
+        verify::build_stale_overrides(tmp.path(), &["battery_thermal".to_string()], Some("v1"));
 
     assert_eq!(
         overrides.get("battery_thermal"),
@@ -348,8 +336,12 @@ fn test_discover_baseline_tag_picks_greatest() {
         std::fs::write(dir.join("manifest.json"), b"{\"sims\":{},\"v\":1}").unwrap();
     }
     // A stray dir without a manifest must be ignored.
-    std::fs::create_dir_all(root.join("evidence").join("baselines").join("zzz-nomanifest"))
-        .unwrap();
+    std::fs::create_dir_all(
+        root.join("evidence")
+            .join("baselines")
+            .join("zzz-nomanifest"),
+    )
+    .unwrap();
 
     assert_eq!(
         verify::discover_baseline_tag(root).as_deref(),

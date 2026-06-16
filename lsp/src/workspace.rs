@@ -123,9 +123,7 @@ impl Workspace {
     /// this module). All path-safety logic lives in
     /// `discover_from_root`.
     pub fn from_manifest_text(canonical_root: PathBuf, manifest_text: Option<&str>) -> Self {
-        let aliases = manifest_text
-            .and_then(extract_aliases)
-            .unwrap_or_default();
+        let aliases = manifest_text.and_then(extract_aliases).unwrap_or_default();
         Self::new(canonical_root, aliases)
     }
 
@@ -150,7 +148,10 @@ impl Workspace {
         let canonical_root = std::fs::canonicalize(root)
             .with_context(|| format!("canonicalize workspace root {}", root.display()))?;
         let manifest_text = paths::try_load_manifest(&canonical_root)?;
-        Ok(Self::from_manifest_text(canonical_root, manifest_text.as_deref()))
+        Ok(Self::from_manifest_text(
+            canonical_root,
+            manifest_text.as_deref(),
+        ))
     }
 
     /// Enumerate every `*.deal` / `*.dealx` file anywhere under the workspace
@@ -166,8 +167,14 @@ impl Workspace {
     /// eager-parse ordering.
     pub fn enumerate_files(&self) -> Vec<PathBuf> {
         /// Directory names whose subtrees are never model source.
-        const SKIP_DIRS: [&str; 6] =
-            [".deal", ".git", "build", "target", "node_modules", ".zig-cache"];
+        const SKIP_DIRS: [&str; 6] = [
+            ".deal",
+            ".git",
+            "build",
+            "target",
+            "node_modules",
+            ".zig-cache",
+        ];
         let mut out = Vec::new();
         for entry in WalkDir::new(&self.root)
             .max_depth(MAX_WALK_DEPTH)
@@ -220,7 +227,11 @@ pub fn extract_aliases(deal_toml: &str) -> Option<HashMap<String, String>> {
 pub async fn eager_parse(workspace: Arc<Workspace>, documents: Arc<Documents>, index: Arc<Index>) {
     let files = workspace.enumerate_files();
     let total = files.len();
-    tracing::info!("eager_parse: starting on {} files under {}", total, workspace.root.display());
+    tracing::info!(
+        "eager_parse: starting on {} files under {}",
+        total,
+        workspace.root.display()
+    );
 
     let mut indexed = 0usize;
     for path in files {
@@ -232,7 +243,10 @@ pub async fn eager_parse(workspace: Arc<Workspace>, documents: Arc<Documents>, i
             }
         };
         let Ok(uri) = tower_lsp::lsp_types::Url::from_file_path(&path) else {
-            tracing::warn!("eager_parse: cannot build file:// URL for {}", path.display());
+            tracing::warn!(
+                "eager_parse: cannot build file:// URL for {}",
+                path.display()
+            );
             continue;
         };
         if let Err(e) = documents.open_silent(uri.clone(), text, &index).await {
@@ -279,10 +293,7 @@ name = "x"
 
     #[test]
     fn discover_handles_missing_deal_toml() {
-        let tmp = std::env::temp_dir().join(format!(
-            "deal-lsp-ws-test-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("deal-lsp-ws-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         let ws = Workspace::discover(&tmp).expect("discover ok on empty dir");
@@ -292,10 +303,7 @@ name = "x"
 
     #[test]
     fn enumerate_walks_packages_and_model() {
-        let tmp = std::env::temp_dir().join(format!(
-            "deal-lsp-ws-enum-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("deal-lsp-ws-enum-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(tmp.join("packages/sub")).unwrap();
         fs::create_dir_all(tmp.join("model")).unwrap();
@@ -310,7 +318,8 @@ name = "x"
         let files = ws.enumerate_files();
         assert_eq!(files.len(), 3, "expected 3 files, got {files:?}");
         // Lexicographic sort: packages/a.deal, packages/sub/b.deal, model/c.dealx
-        let names: Vec<String> = files.iter()
+        let names: Vec<String> = files
+            .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
             .collect();
         assert!(names.contains(&"a.deal".to_string()));
@@ -323,10 +332,7 @@ name = "x"
     fn enumerate_is_layout_agnostic_flat_and_gonzo() {
         // Phase 1b: a flat directory with arbitrarily-named files and NO
         // packages/ or model/ dirs must still be discovered; build/ is pruned.
-        let tmp = std::env::temp_dir().join(format!(
-            "deal-lsp-ws-gonzo-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("deal-lsp-ws-gonzo-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         fs::write(tmp.join("gonzo.deal"), "package gonzo;").unwrap();
@@ -343,9 +349,18 @@ name = "x"
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
             .collect();
-        assert!(names.contains(&"gonzo.deal".to_string()), "flat gonzo.deal must be found: {names:?}");
-        assert!(names.contains(&"whatever.dealx".to_string()), "arbitrarily-named .dealx must be found");
-        assert!(!names.contains(&"ignored.deal".to_string()), "build/ subtree must be pruned");
+        assert!(
+            names.contains(&"gonzo.deal".to_string()),
+            "flat gonzo.deal must be found: {names:?}"
+        );
+        assert!(
+            names.contains(&"whatever.dealx".to_string()),
+            "arbitrarily-named .dealx must be found"
+        );
+        assert!(
+            !names.contains(&"ignored.deal".to_string()),
+            "build/ subtree must be pruned"
+        );
         assert_eq!(files.len(), 2, "exactly the 2 root files, got {files:?}");
         let _ = fs::remove_dir_all(&tmp);
     }

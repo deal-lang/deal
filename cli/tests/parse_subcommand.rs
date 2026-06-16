@@ -56,18 +56,26 @@ fn parse_clean_file_exits_zero_with_json() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code, 0,
+        exit_code,
+        0,
         "deal parse on clean showcase file expected exit 0 but got {}\nstderr: {}",
         exit_code,
         String::from_utf8_lossy(&output.stderr),
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.trim().is_empty(), "deal parse stdout should not be empty on success");
+    assert!(
+        !stdout.trim().is_empty(),
+        "deal parse stdout should not be empty on success"
+    );
 
     // Verify stdout is valid JSON.
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("deal parse stdout is not valid JSON: {}\nstdout: {}", e, stdout));
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "deal parse stdout is not valid JSON: {}\nstdout: {}",
+            e, stdout
+        )
+    });
 
     // Verify the output is a raw AST JSON envelope (per D-18 top-level key order).
     // The AST envelope keys are: v, mode, filename, root (canonical D-18 order).
@@ -108,14 +116,22 @@ fn parse_json_flag_identical_to_plain_on_success() {
         .arg(&path)
         .output()
         .expect("failed to run deal parse (plain)");
-    assert_eq!(plain.status.code().unwrap_or(99), 0, "plain parse should exit 0");
+    assert_eq!(
+        plain.status.code().unwrap_or(99),
+        0,
+        "plain parse should exit 0"
+    );
 
     let with_json = Command::new(deal_bin())
         .args(["parse", "--json"])
         .arg(&path)
         .output()
         .expect("failed to run deal parse --json");
-    assert_eq!(with_json.status.code().unwrap_or(99), 0, "parse --json should exit 0");
+    assert_eq!(
+        with_json.status.code().unwrap_or(99),
+        0,
+        "parse --json should exit 0"
+    );
 
     // Stdout must be byte-identical: both emit the raw AST JSON (no envelope).
     assert_eq!(
@@ -138,11 +154,19 @@ fn parse_json_no_envelope_leak_on_success() {
         .output()
         .expect("failed to run deal parse --json");
 
-    assert_eq!(output.status.code().unwrap_or(99), 0, "parse --json should exit 0");
+    assert_eq!(
+        output.status.code().unwrap_or(99),
+        0,
+        "parse --json should exit 0"
+    );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(stdout.trim())
-        .unwrap_or_else(|e| panic!("parse --json stdout not valid JSON: {}\nstdout: {}", e, stdout));
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|e| {
+        panic!(
+            "parse --json stdout not valid JSON: {}\nstdout: {}",
+            e, stdout
+        )
+    });
 
     // D-32 envelope has top-level keys: command, deal_version, diagnostics, summary, v.
     // Raw AST must NOT have 'diagnostics' or 'summary' (D-32 diagnostic envelope).
@@ -184,7 +208,8 @@ fn parse_malformed_file_exits_one_stderr_diagnostics_stdout_empty() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code, 1,
+        exit_code,
+        1,
         "deal parse on malformed file expected exit 1 but got {}\nstderr: {}",
         exit_code,
         String::from_utf8_lossy(&output.stderr),
@@ -225,7 +250,8 @@ fn parse_json_malformed_emits_d32_envelope_on_stderr_stdout_empty() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code, 1,
+        exit_code,
+        1,
         "deal parse --json on malformed file expected exit 1 but got {}\nstderr: {}",
         exit_code,
         String::from_utf8_lossy(&output.stderr),
@@ -345,5 +371,9 @@ fn parse_all_showcase_deal_files_exit_zero() {
         failures.join("\n"),
     );
 
-    assert!(total > 0, "No .deal files found under {}", showcase_dir.display());
+    assert!(
+        total > 0,
+        "No .deal files found under {}",
+        showcase_dir.display()
+    );
 }

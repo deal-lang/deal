@@ -117,7 +117,10 @@ impl Index {
     }
 
     pub fn aliases(&self) -> Arc<HashMap<String, String>> {
-        self.aliases.read().map(|a| a.clone()).unwrap_or_else(|_| Arc::new(HashMap::new()))
+        self.aliases
+            .read()
+            .map(|a| a.clone())
+            .unwrap_or_else(|_| Arc::new(HashMap::new()))
     }
 
     /// Test hook for the workspace_index_populated_after_initialize test
@@ -182,8 +185,7 @@ impl Index {
         for (path, entry) in env.elements {
             let start = byte_to_position(rope, entry.span[0]);
             let end = byte_to_position(rope, entry.span[1]);
-            self.kinds
-                .insert(path.clone(), (uri.clone(), entry.kind));
+            self.kinds.insert(path.clone(), (uri.clone(), entry.kind));
             self.symbols
                 .insert(path, (uri.clone(), Range { start, end }));
         }
@@ -264,11 +266,14 @@ fn map_symbol_kind(kind: &str) -> SymbolKind {
         "port_def" | "interface_def" => SymbolKind::INTERFACE,
         "action_def" => SymbolKind::METHOD,
         "state_def" => SymbolKind::ENUM,
-        "requirement_def" => SymbolKind::PROPERTY,
+        "requirement_def" | "need_def" => SymbolKind::PROPERTY,
         "constraint_def" => SymbolKind::OPERATOR,
+        "calc_def" => SymbolKind::FUNCTION,
         "attribute_def" | "attribute_usage" => SymbolKind::FIELD,
         "item_def" => SymbolKind::STRUCT,
-        "connection_def" | "flow_def" => SymbolKind::EVENT,
+        "connection_def" | "flow_def" | "allocation_def" => SymbolKind::EVENT,
+        "use_case_def" => SymbolKind::CLASS,
+        "actor_def" => SymbolKind::CONSTANT,
         _ => SymbolKind::OBJECT,
     }
 }
@@ -353,8 +358,14 @@ mod tests {
         let env_a2 = br#"{"v":1,"elements":{"pkg.Z":{"id":"pkg.Z","kind":"part_def","source_file":"a","span":[0,14]}}}"#;
         idx.refresh_file(&url_a, env_a2, &rope);
         assert_eq!(idx.len(), 2);
-        assert!(idx.lookup("pkg.X").is_none(), "stale pkg.X should be evicted");
-        assert!(idx.lookup("pkg.Y").is_some(), "untouched pkg.Y must survive");
+        assert!(
+            idx.lookup("pkg.X").is_none(),
+            "stale pkg.X should be evicted"
+        );
+        assert!(
+            idx.lookup("pkg.Y").is_some(),
+            "untouched pkg.Y must survive"
+        );
         assert!(idx.lookup("pkg.Z").is_some(), "fresh pkg.Z must be present");
     }
 
@@ -427,7 +438,11 @@ mod tests {
         idx.update_from_envelope(&url(), env, &rope);
         assert_eq!(idx.workspace_symbols("").len(), 1);
         idx.remove_file(&url());
-        assert_eq!(idx.workspace_symbols("").len(), 0, "kinds map must evict too");
+        assert_eq!(
+            idx.workspace_symbols("").len(),
+            0,
+            "kinds map must evict too"
+        );
     }
 
     #[test]
@@ -445,5 +460,18 @@ mod tests {
         let rope = Rope::from_str("α𝄞x");
         let p = byte_to_position(&rope, 6);
         assert_eq!(p.character, 3, "α(1) + 𝄞(2) = 3 UTF-16 units before x");
+    }
+
+    #[test]
+    fn map_symbol_kind_covers_p1_added_kinds() {
+        use tower_lsp::lsp_types::SymbolKind;
+        // P1: every element-def kind must resolve to a non-OBJECT icon.
+        assert_eq!(map_symbol_kind("calc_def"), SymbolKind::FUNCTION);
+        assert_eq!(map_symbol_kind("need_def"), SymbolKind::PROPERTY);
+        assert_eq!(map_symbol_kind("allocation_def"), SymbolKind::EVENT);
+        assert_eq!(map_symbol_kind("use_case_def"), SymbolKind::CLASS);
+        assert_eq!(map_symbol_kind("actor_def"), SymbolKind::CONSTANT);
+        // Sanity: genuinely unknown kinds still fall back to OBJECT.
+        assert_eq!(map_symbol_kind("nonsense_kind"), SymbolKind::OBJECT);
     }
 }

@@ -26,10 +26,7 @@ use crate::documents::Documents;
 use crate::index::byte_to_position;
 
 /// Implementation of `textDocument/hover`.
-pub async fn handle_hover(
-    documents: &Documents,
-    params: HoverParams,
-) -> LspResult<Option<Hover>> {
+pub async fn handle_hover(documents: &Documents, params: HoverParams) -> LspResult<Option<Hover>> {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
     Ok(hover_for(documents, uri, position).await)
@@ -77,10 +74,11 @@ async fn hover_for(documents: &Documents, uri: &Url, position: Position) -> Opti
     // Tier 1: innermost node carrying a doc comment.
     for node in stack.iter().rev() {
         if let Some(doc) = extract_doc_text(node) {
-            let value = match node_label(node) {
+            let mut value = match node_label(node) {
                 Some(sig) => format!("{sig}\n\n{doc}"),
                 None => doc,
             };
+            value.push_str(&sysml_suffix(node));
             return Some(make_hover(&rope, node, value));
         }
     }
@@ -88,11 +86,65 @@ async fn hover_for(documents: &Documents, uri: &Url, position: Position) -> Opti
     // Tier 2: innermost node we can label by kind (+ name).
     for node in stack.iter().rev() {
         if let Some(sig) = node_label(node) {
-            return Some(make_hover(&rope, node, sig));
+            let mut value = sig;
+            value.push_str(&sysml_suffix(node));
+            return Some(make_hover(&rope, node, value));
         }
     }
 
     None
+}
+
+/// Build the trailing SysML-v2-mapping block for a node (P1 WS-C), or an empty
+/// string when the node kind has no recorded mapping — the hover then degrades
+/// to exactly its pre-P1 output (signature + doc), never an error.
+///
+/// Markdown hard line-breaks use a trailing two-space sequence so each fact
+/// renders on its own line in the VS Code hover popup.
+fn sysml_suffix(node: &Value) -> String {
+    let kind = match node.get("k").and_then(|v| v.as_str()) {
+        Some(k) => k,
+        None => return String::new(),
+    };
+    let mut out = String::new();
+    if let Some(m) = crate::sysml_mapping::mapping_for(kind) {
+        out.push_str(&format!(
+            "\n\n---\n**SysML v2** · `{}`  ({})",
+            m.metaclass, m.clause
+        ));
+        if !m.kerml.is_empty() {
+            out.push_str(&format!("  \n**KerML basis** · {}", m.kerml));
+        }
+        if let Some(inj) = &m.injects {
+            out.push_str(&format!("  \n_+ injects {inj}_"));
+        }
+        if let Some(marker) = &m.marker {
+            out.push_str(&format!("  \n_marker · {marker}_"));
+        }
+    }
+    // qualifiedName for reference-like nodes that carry a dotted path. Def nodes
+    // expose only a bare `name` (no package context on the AST), so a true
+    // package-qualified name for definitions is a follow-up that reads the
+    // enclosing package from the workspace index.
+    if let Some(qn) = qualified_name_colon(node) {
+        out.push_str(&format!("  \n**qualifiedName** · `{qn}`"));
+    }
+    out
+}
+
+/// Join a node's `name_segments` / `target_segments` with `::` (SysML
+/// qualified-name separator) when there are at least two segments — i.e. a real
+/// dotted path, not a single bare identifier. Returns `None` otherwise.
+fn qualified_name_colon(node: &Value) -> Option<String> {
+    let arr = node
+        .get("name_segments")
+        .or_else(|| node.get("target_segments"))?
+        .as_array()?;
+    let parts: Vec<&str> = arr.iter().filter_map(|s| s.as_str()).collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    Some(parts.join("::"))
 }
 
 /// Build a Markdown hover from a node's span + a precomputed value string.
@@ -247,10 +299,7 @@ fn render_param_decl(param: &Value) -> String {
         .get("direction")
         .and_then(|v| v.as_str())
         .unwrap_or("in");
-    let name = param
-        .get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("_");
+    let name = param.get("name").and_then(|v| v.as_str()).unwrap_or("_");
     let type_str = param
         .get("type_node")
         .map(|t| render_type_annotation(t))
@@ -303,11 +352,16 @@ fn render_contract_item(item: &Value) -> String {
                 _ => format!("± {value}"),
             }
         }
-        "constraint_ref" => join_segments(item.get("name_segments"))
-            .unwrap_or_else(|| "?".to_string()),
+        "constraint_ref" => {
+            join_segments(item.get("name_segments")).unwrap_or_else(|| "?".to_string())
+        }
         // Fallback: try to render name or name_segments.
         _ => join_segments(item.get("name_segments"))
-            .or_else(|| item.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()))
+            .or_else(|| {
+                item.get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
             .unwrap_or_default(),
     }
 }
@@ -341,6 +395,10 @@ fn kind_to_keyword(kind: &str) -> &str {
         "interface_def" => "interface def",
         "connection_def" => "connection def",
         "flow_def" => "flow def",
+        "allocation_def" => "allocation def",
+        "need_def" => "need def",
+        "use_case_def" => "use case def",
+        "actor_def" => "actor def",
         "type_annotation" => "type",
         "structural_relationship" => "relationship",
         other => other,
@@ -451,7 +509,10 @@ fn walk_children<'a>(node: &'a Value, byte_offset: usize, best: &mut &'a Value) 
 fn consider<'a>(v: &'a Value, byte_offset: usize, best: &mut &'a Value) {
     if let Some(span) = v.get("span").and_then(parse_span) {
         if byte_offset >= span[0] && byte_offset < span[1] {
-            let cur_span = best.get("span").and_then(parse_span).unwrap_or([0, usize::MAX]);
+            let cur_span = best
+                .get("span")
+                .and_then(parse_span)
+                .unwrap_or([0, usize::MAX]);
             let cur_width = cur_span[1].saturating_sub(cur_span[0]);
             let new_width = span[1].saturating_sub(span[0]);
             if new_width <= cur_width {
@@ -630,11 +691,14 @@ mod tests {
         let needle = "part def BatteryCell";
         let s = std::str::from_utf8(&src).unwrap();
         let byte = s.find(needle).expect("needle in source") + 5;
-        let node = find_deepest_node_at(&root, byte)
-            .expect("found a node at byte");
+        let node = find_deepest_node_at(&root, byte).expect("found a node at byte");
         let kind = node.get("k").and_then(|v| v.as_str());
         // The expected hit is the part_def itself (no inner span contains 775).
-        assert_eq!(kind, Some("part_def"), "deepest hit at byte {byte}: {kind:?}");
+        assert_eq!(
+            kind,
+            Some("part_def"),
+            "deepest hit at byte {byte}: {kind:?}"
+        );
         let doc = extract_doc_text(node).expect("part_def carries a doc comment");
         assert!(doc.contains("Individual lithium-ion pouch cell"));
     }
@@ -646,6 +710,73 @@ mod tests {
             node_label(&n).as_deref(),
             Some("```deal\npart def BatteryPack\n```")
         );
+    }
+
+    #[test]
+    fn node_label_p1_added_kinds_render_keyword_and_name() {
+        for (kind, kw) in [
+            ("allocation_def", "allocation def"),
+            ("need_def", "need def"),
+            ("use_case_def", "use case def"),
+            ("actor_def", "actor def"),
+        ] {
+            let n = json!({ "k": kind, "span": [0, 10], "name": "X" });
+            assert_eq!(
+                node_label(&n).as_deref(),
+                Some(format!("```deal\n{kw} X\n```").as_str()),
+                "kind {kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn sysml_suffix_structural_behavioral_expression() {
+        // Structural.
+        let part = json!({ "k": "part_def", "span": [0, 10], "name": "BatteryCell" });
+        let s = sysml_suffix(&part);
+        assert!(s.contains("**SysML v2**"));
+        assert!(s.contains("`PartDefinition`"));
+        assert!(s.contains("8.3.11.2"));
+        assert!(s.contains("**KerML basis**"));
+        // Behavioral with injected pair.
+        let dec = json!({ "k": "decide_block", "span": [0, 10] });
+        let d = sysml_suffix(&dec);
+        assert!(d.contains("`DecisionNode`"));
+        assert!(d.contains("injects"));
+        assert!(d.contains("MergeNode"));
+        // Expression.
+        let op = json!({ "k": "operator_expr", "span": [0, 10] });
+        assert!(sysml_suffix(&op).contains("`OperatorExpression`"));
+    }
+
+    #[test]
+    fn sysml_suffix_actor_shows_marker() {
+        let actor = json!({ "k": "actor_def", "span": [0, 10], "name": "Operator" });
+        let s = sysml_suffix(&actor);
+        assert!(s.contains("`PartDefinition`"));
+        assert!(s.contains("marker"));
+        assert!(s.contains("actor"));
+    }
+
+    #[test]
+    fn sysml_suffix_unmapped_kind_is_empty() {
+        // Graceful degradation: a node kind with no row adds nothing.
+        let n = json!({ "k": "doc_comment", "span": [0, 10] });
+        assert_eq!(sysml_suffix(&n), "");
+        let no_kind = json!({ "span": [0, 10] });
+        assert_eq!(sysml_suffix(&no_kind), "");
+    }
+
+    #[test]
+    fn qualified_name_colon_joins_multi_segment_paths_only() {
+        let multi = json!({ "k": "type_annotation", "name_segments": ["vehicle", "battery", "BatteryPack"] });
+        assert_eq!(
+            qualified_name_colon(&multi).as_deref(),
+            Some("vehicle::battery::BatteryPack")
+        );
+        // A single bare identifier is not a qualified name.
+        let single = json!({ "k": "type_annotation", "name_segments": ["BatteryPack"] });
+        assert!(qualified_name_colon(&single).is_none());
     }
 
     #[test]
@@ -707,8 +838,10 @@ mod tests {
             }
         });
         let label = node_label(&n).unwrap();
-        assert!(label.contains("calc def Drag(in velocity : Real) : Force"),
-            "got: {label}");
+        assert!(
+            label.contains("calc def Drag(in velocity : Real) : Force"),
+            "got: {label}"
+        );
         assert!(label.starts_with("```deal\n"));
         assert!(label.ends_with("\n```"));
     }
@@ -742,7 +875,10 @@ mod tests {
             }
         });
         let label = node_label(&n).unwrap();
-        assert!(label.contains("calc def Drag() : Force => "), "got: {label}");
+        assert!(
+            label.contains("calc def Drag() : Force => "),
+            "got: {label}"
+        );
         assert!(label.contains("PositiveForce"), "got: {label}");
     }
 
@@ -769,8 +905,10 @@ mod tests {
             }
         });
         let label = node_label(&n).unwrap();
-        assert!(label.contains("calc def EstimatedRange() : Real => sig 4"),
-            "got: {label}");
+        assert!(
+            label.contains("calc def EstimatedRange() : Real => sig 4"),
+            "got: {label}"
+        );
     }
 
     #[test]

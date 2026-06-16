@@ -1,0 +1,47 @@
+name: ci
+
+# Per-commit gate (P1 WS-E). Builds libdeal (Zig) so the FFI links, then runs
+# the Rust workspace under fmt/clippy/test, plus the vscode-deal extension's
+# pure-Node suites. This is the guardrail that keeps the kind of drift P1 just
+# fixed (calc_def half-wiring, behavioral surface untokenized) from silently
+# returning between releases — release.yml only runs tests on v*.*.* tags.
+#
+# The vscode-deal extension lives in its own repository and is gated by its
+# own ci.yml (rust + zig are not needed there); this workflow covers the deal
+# repo (Zig core + Rust workspace) only.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  rust:
+    name: build + test (rust workspace)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Zig 0.16.0
+        uses: mlugg/setup-zig@v2 # TODO T-3-07: pin commit SHA before production enable
+        with:
+          version: 0.16.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable # TODO T-3-07: pin commit SHA before production enable
+        with:
+          components: clippy, rustfmt
+
+      - name: Build libdeal.a (host)
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace

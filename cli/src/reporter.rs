@@ -64,7 +64,10 @@ pub struct Cell {
 
 impl Cell {
     pub fn new(text: impl Into<String>, ink: Ink) -> Self {
-        Cell { text: text.into(), ink }
+        Cell {
+            text: text.into(),
+            ink,
+        }
     }
     /// Convenience for an uncolored cell.
     pub fn plain(text: impl Into<String>) -> Self {

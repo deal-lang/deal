@@ -18,8 +18,7 @@ fn serde_json_emits_alphabetical_keys() {
     let serialized = serde_json::to_string(&value).expect("serde_json serialization failed");
 
     assert_eq!(
-        serialized,
-        r#"{"a":2,"z":1}"#,
+        serialized, r#"{"a":2,"z":1}"#,
         "serde_json key order invariant broken: expected alphabetical ({{\"a\":2,\"z\":1}}) \
          but got {serialized:?}. A transitive dep may have enabled serde_json/preserve_order. \
          Run `cargo tree -e features --workspace | grep preserve_order` to locate the offender. \

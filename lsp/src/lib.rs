@@ -14,6 +14,7 @@ pub mod formatting;
 pub mod hover;
 pub mod index;
 pub mod semantic_tokens;
+pub mod sysml_mapping;
 pub mod workspace;
 
 pub use backend::{Backend, DEBOUNCE_MS};

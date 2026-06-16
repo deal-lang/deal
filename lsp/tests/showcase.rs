@@ -79,11 +79,7 @@ type NotificationSink = Arc<Mutex<Vec<JsonRpcRequest>>>;
 /// Spawn the LspService and drain ClientSocket on a background task.
 /// Returns the service handle (for sending requests) and the shared
 /// notification sink.
-async fn spawn_service() -> (
-    LspService<Backend>,
-    Arc<Documents>,
-    NotificationSink,
-) {
+async fn spawn_service() -> (LspService<Backend>, Arc<Documents>, NotificationSink) {
     let (service, _docs, _idx, sink) = spawn_service_full().await;
     (service, _docs, sink)
 }
@@ -168,12 +164,7 @@ async fn did_open(service: &mut LspService<Backend>, uri: &Url, text: &str, vers
     let _: Option<JsonRpcResponse> = service.call(req).await.unwrap();
 }
 
-async fn did_change(
-    service: &mut LspService<Backend>,
-    uri: &Url,
-    text: &str,
-    version: i32,
-) {
+async fn did_change(service: &mut LspService<Backend>, uri: &Url, text: &str, version: i32) {
     let params = DidChangeTextDocumentParams {
         text_document: VersionedTextDocumentIdentifier {
             uri: uri.clone(),
@@ -205,7 +196,11 @@ async fn formatting(service: &mut LspService<Backend>, uri: &Url) -> Option<Vec<
         .id(99)
         .params(serde_json::to_value(params).unwrap())
         .finish();
-    let resp = service.call(req).await.unwrap().expect("formatting returned None response");
+    let resp = service
+        .call(req)
+        .await
+        .unwrap()
+        .expect("formatting returned None response");
     // resp.result() returns Option<&Value>; decode to Option<Vec<TextEdit>>.
     let (_id, result) = resp.into_parts();
     let value = result.expect("formatting response had no result");
@@ -218,9 +213,7 @@ async fn collected_diagnostics(sink: &NotificationSink) -> Vec<PublishDiagnostic
     for req in sink.lock().await.iter() {
         if req.method() == "textDocument/publishDiagnostics" {
             if let Some(params) = req.params() {
-                if let Ok(p) =
-                    serde_json::from_value::<PublishDiagnosticsParams>(params.clone())
-                {
+                if let Ok(p) = serde_json::from_value::<PublishDiagnosticsParams>(params.clone()) {
                     out.push(p);
                 }
             }
@@ -238,8 +231,7 @@ async fn diagnostics_match_phase_2_codes() {
     let (mut service, _docs, sink) = spawn_service().await;
     initialize(&mut service).await;
 
-    let src = std::fs::read_to_string(MALFORMED_SAMPLE)
-        .expect("malformed sample missing");
+    let src = std::fs::read_to_string(MALFORMED_SAMPLE).expect("malformed sample missing");
     let uri = Url::from_file_path(std::fs::canonicalize(MALFORMED_SAMPLE).unwrap())
         .expect("file:// URL build");
 
@@ -296,8 +288,7 @@ async fn format_round_trip() {
     let (mut service, _docs, _sink) = spawn_service().await;
     initialize(&mut service).await;
 
-    let src = std::fs::read_to_string(SHOWCASE_BATTERY)
-        .expect("showcase battery.deal missing");
+    let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("showcase battery.deal missing");
     let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap())
         .expect("file:// URL build");
 
@@ -306,7 +297,11 @@ async fn format_round_trip() {
     let edits = formatting(&mut service, &uri)
         .await
         .expect("formatting returned None for valid file");
-    assert_eq!(edits.len(), 1, "expected exactly one TextEdit covering full document");
+    assert_eq!(
+        edits.len(),
+        1,
+        "expected exactly one TextEdit covering full document"
+    );
 
     // Byte-for-byte regression check against the committed golden.
     // If this fails: regenerate via
@@ -335,23 +330,21 @@ async fn debounce_collapses_rapid_changes() {
     let uri = Url::parse("file:///debounce.deal").unwrap();
     did_open(&mut service, &uri, "package debounce;", 1).await;
     let parses_after_open = documents.parse_count();
-    assert_eq!(parses_after_open, 1, "did_open should trigger exactly one parse");
+    assert_eq!(
+        parses_after_open, 1,
+        "did_open should trigger exactly one parse"
+    );
 
     // Fire 5 did_change events within the debounce window (300ms).
     for v in 2i32..=6 {
-        did_change(
-            &mut service,
-            &uri,
-            &format!("package debounce; // v{v}"),
-            v,
-        )
-        .await;
+        did_change(&mut service, &uri, &format!("package debounce; // v{v}"), v).await;
         tokio::time::sleep(Duration::from_millis(30)).await;
     }
     // None of the 5 should have fired yet (only ~120ms elapsed).
     let parses_mid_burst = documents.parse_count();
     assert_eq!(
-        parses_mid_burst, 1,
+        parses_mid_burst,
+        1,
         "expected 0 debounced parses during burst, got {} extra",
         parses_mid_burst - 1
     );
@@ -388,11 +381,9 @@ async fn call_request<T: serde::de::DeserializeOwned>(
         .unwrap()
         .unwrap_or_else(|| panic!("{method} returned no response"));
     let (_id, result) = resp.into_parts();
-    let value = result
-        .unwrap_or_else(|e| panic!("{method} response had error: {e:?}"));
-    serde_json::from_value(value).unwrap_or_else(|e| {
-        panic!("{method} result deserialise failed: {e}")
-    })
+    let value = result.unwrap_or_else(|e| panic!("{method} response had error: {e:?}"));
+    serde_json::from_value(value)
+        .unwrap_or_else(|e| panic!("{method} result deserialise failed: {e}"))
 }
 
 /// Helper: poll `index.len()` until ≥ `threshold` or `timeout` elapses.
@@ -421,8 +412,7 @@ async fn completion_returns_element_keywords() {
     let _ = wait_for_index(&index, 20, Duration::from_secs(5)).await;
 
     let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
-    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap())
-        .expect("URL");
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).expect("URL");
     did_open(&mut service, &uri, &src, 1).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -442,23 +432,36 @@ async fn completion_returns_element_keywords() {
         CompletionResponse::List(l) => l.items,
     };
 
-    // Assert all 11 element keywords are present as KEYWORD-kind items.
+    // Assert all 16 element keywords are present as KEYWORD-kind items.
     let kw_labels: Vec<String> = items
         .iter()
         .filter(|i| i.kind == Some(CompletionItemKind::KEYWORD))
         .map(|i| i.label.clone())
         .collect();
     for expected in &[
-        "part def", "port def", "action def", "state def", "requirement def",
-        "constraint def", "attribute def", "item def", "interface def",
-        "connection def", "flow def",
+        "part def",
+        "port def",
+        "action def",
+        "state def",
+        "requirement def",
+        "constraint def",
+        "calc def",
+        "attribute def",
+        "item def",
+        "interface def",
+        "connection def",
+        "flow def",
+        "allocation def",
+        "need def",
+        "use case def",
+        "actor def",
     ] {
         assert!(
             kw_labels.iter().any(|l| l == expected),
             "missing element keyword {expected} (have: {kw_labels:?})"
         );
     }
-    assert_eq!(kw_labels.len(), 11, "expected 11 element-keyword items");
+    assert_eq!(kw_labels.len(), 16, "expected 16 element-keyword items");
 
     // Assert ≥3 workspace-type candidates surface as CLASS items.
     let class_items: Vec<&CompletionItem> = items
@@ -490,8 +493,7 @@ async fn definition_lookup_specializes() {
 
     // Open battery.deal — the file containing `<<specializes>> ThermallyManaged`.
     let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
-    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap())
-        .unwrap();
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
     did_open(&mut service, &uri, &src, 1).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -515,18 +517,14 @@ async fn definition_lookup_specializes() {
         work_done_progress_params: WorkDoneProgressParams::default(),
         partial_result_params: PartialResultParams::default(),
     };
-    let resp: GotoDefinitionResponse = call_request_optional(
-        &mut service,
-        "textDocument/definition",
-        11,
-        params,
-    )
-    .await
-    .expect(
-        "textDocument/definition returned null — index lookup miss for \
+    let resp: GotoDefinitionResponse =
+        call_request_optional(&mut service, "textDocument/definition", 11, params)
+            .await
+            .expect(
+                "textDocument/definition returned null — index lookup miss for \
          ThermallyManaged. Likely cause: eager_parse incomplete OR \
          AST candidate extraction returned None.",
-    );
+            );
     let loc = match resp {
         GotoDefinitionResponse::Scalar(l) => l,
         GotoDefinitionResponse::Array(mut v) => v.pop().expect("non-empty array"),
@@ -558,8 +556,7 @@ async fn hover_renders_jsdoc() {
     initialize(&mut service).await;
 
     let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
-    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap())
-        .unwrap();
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
     did_open(&mut service, &uri, &src, 1).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -567,7 +564,9 @@ async fn hover_renders_jsdoc() {
     // /** ... */ doc comment immediately above it covering "Individual
     // lithium-ion pouch cell." Hover on "BatteryCell" identifier.
     let needle = "part def BatteryCell";
-    let byte = src.find(needle).expect("BatteryCell declaration in battery.deal");
+    let byte = src
+        .find(needle)
+        .expect("BatteryCell declaration in battery.deal");
     // Position cursor INSIDE the part_def span (e.g. on "def").
     let (line, char_) = byte_to_line_char(&src, byte + 5);
 
@@ -578,13 +577,8 @@ async fn hover_renders_jsdoc() {
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     };
-    let resp: Option<Hover> = call_request_optional(
-        &mut service,
-        "textDocument/hover",
-        12,
-        params,
-    )
-    .await;
+    let resp: Option<Hover> =
+        call_request_optional(&mut service, "textDocument/hover", 12, params).await;
     let hover = resp.expect("hover returned None for documented declaration");
     let markup = match hover.contents {
         HoverContents::Markup(m) => m,
@@ -608,8 +602,7 @@ async fn semantic_tokens_match_golden() {
     initialize(&mut service).await;
 
     let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
-    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap())
-        .unwrap();
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
     did_open(&mut service, &uri, &src, 1).await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -619,8 +612,7 @@ async fn semantic_tokens_match_golden() {
         partial_result_params: PartialResultParams::default(),
     };
     let resp: SemanticTokensResult =
-        call_request(&mut service, "textDocument/semanticTokens/full", 13, params)
-            .await;
+        call_request(&mut service, "textDocument/semanticTokens/full", 13, params).await;
     let actual = match resp {
         SemanticTokensResult::Tokens(t) => t,
         SemanticTokensResult::Partial(_) => panic!("expected Tokens variant"),
@@ -736,4 +728,3 @@ fn byte_to_line_char(src: &str, byte: usize) -> (u32, u32) {
     }
     (line, col)
 }
-

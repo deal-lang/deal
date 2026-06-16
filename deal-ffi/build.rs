@@ -29,7 +29,11 @@ fn main() {
         .current_dir(&deal_dir)
         .status()
         .expect("failed to invoke `zig build` — is zig 0.16.0 on PATH?");
-    assert!(status.success(), "`zig build` failed in {}", deal_dir.display());
+    assert!(
+        status.success(),
+        "`zig build` failed in {}",
+        deal_dir.display()
+    );
 
     // 2. Tell rustc / lld where to find the static library.
     let lib_dir = deal_dir.join("zig-out").join("lib");

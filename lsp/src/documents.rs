@@ -14,16 +14,16 @@
 //! single re-parse.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use deal_ffi::OwnedDealHandle;
 use ropey::Rope;
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
-use tower_lsp::Client;
 use tower_lsp::lsp_types::Url;
+use tower_lsp::Client;
 
 use crate::diagnostics;
 use crate::index::Index;
@@ -96,7 +96,10 @@ impl Documents {
 
     /// One-shot consume: returns the stashed root and clears the slot.
     pub fn take_pending_workspace_root(&self) -> Option<PathBuf> {
-        self.pending_workspace_root.lock().ok().and_then(|mut s| s.take())
+        self.pending_workspace_root
+            .lock()
+            .ok()
+            .and_then(|mut s| s.take())
     }
 
     /// Total number of `deal_parse` calls this Documents instance has issued.
@@ -156,12 +159,7 @@ impl Documents {
     /// opened in their editor; diagnostics fire on did_open/did_change).
     ///
     /// Returns Err on parse failure (OOM) so the caller can log + skip.
-    pub async fn open_silent(
-        &self,
-        uri: Url,
-        text: String,
-        index: &Index,
-    ) -> anyhow::Result<()> {
+    pub async fn open_silent(&self, uri: Url, text: String, index: &Index) -> anyhow::Result<()> {
         let filename = uri.path();
         let handle = deal_ffi::safe::parse(text.as_bytes(), filename)
             .ok_or_else(|| anyhow::anyhow!("deal_parse returned null for {uri}"))?;
@@ -175,8 +173,7 @@ impl Documents {
         index.update_from_envelope(&uri, &envelope_bytes, &rope);
 
         self.buffers.insert(uri.clone(), rope);
-        self.handles
-            .insert(uri, Arc::new(Mutex::new(handle)));
+        self.handles.insert(uri, Arc::new(Mutex::new(handle)));
 
         Ok(())
     }

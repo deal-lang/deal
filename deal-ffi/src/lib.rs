@@ -300,6 +300,9 @@ mod tests {
         let formatted = safe::format(&handle).expect("format failed");
         // Formatter output is UTF-8 DEAL source — must contain the package keyword.
         let s = std::str::from_utf8(&formatted).expect("formatter emitted non-UTF8");
-        assert!(s.contains("package"), "formatted output missing 'package' keyword");
+        assert!(
+            s.contains("package"),
+            "formatted output missing 'package' keyword"
+        );
     }
 }

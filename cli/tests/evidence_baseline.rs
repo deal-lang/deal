@@ -48,8 +48,7 @@ fn test_baseline_writes_manifest_with_content_hash_and_verdict() {
     .unwrap();
 
     // Run baseline
-    deal::evidence::run_evidence_baseline_in(root, "v1.0.0")
-        .expect("baseline should succeed");
+    deal::evidence::run_evidence_baseline_in(root, "v1.0.0").expect("baseline should succeed");
 
     // Assert manifest.json was written
     let manifest_path = root
@@ -76,13 +75,20 @@ fn test_baseline_writes_manifest_with_content_hash_and_verdict() {
     );
 
     // Per-sim fields
-    let sims = manifest["sims"].as_object().expect("manifest must have sims object");
-    assert!(sims.contains_key("sim_alpha"), "manifest must contain sim_alpha");
+    let sims = manifest["sims"]
+        .as_object()
+        .expect("manifest must have sims object");
+    assert!(
+        sims.contains_key("sim_alpha"),
+        "manifest must contain sim_alpha"
+    );
 
     let sim_entry = &sims["sim_alpha"];
 
     // content_hash: non-empty hex string (SHA-256 = 64 chars)
-    let hash = sim_entry["content_hash"].as_str().expect("content_hash must be a string");
+    let hash = sim_entry["content_hash"]
+        .as_str()
+        .expect("content_hash must be a string");
     assert_eq!(hash.len(), 64, "SHA-256 hex must be 64 chars");
     assert!(
         hash.chars().all(|c| c.is_ascii_hexdigit()),
@@ -90,7 +96,9 @@ fn test_baseline_writes_manifest_with_content_hash_and_verdict() {
     );
 
     // verdict: must be a valid enum member
-    let verdict = sim_entry["verdict"].as_str().expect("verdict must be a string");
+    let verdict = sim_entry["verdict"]
+        .as_str()
+        .expect("verdict must be a string");
     assert!(
         matches!(verdict, "PASS" | "FAIL" | "PARTIAL"),
         "verdict must be PASS, FAIL, or PARTIAL — got: {}",
@@ -98,9 +106,15 @@ fn test_baseline_writes_manifest_with_content_hash_and_verdict() {
     );
 
     // Other D-82 fields must be present
-    assert!(sim_entry["reproducibility_tier"].is_string(), "reproducibility_tier must be string");
+    assert!(
+        sim_entry["reproducibility_tier"].is_string(),
+        "reproducibility_tier must be string"
+    );
     assert!(sim_entry["tool"].is_string(), "tool must be string");
-    assert!(sim_entry["tool_version"].is_string(), "tool_version must be string");
+    assert!(
+        sim_entry["tool_version"].is_string(),
+        "tool_version must be string"
+    );
 }
 
 /// Frozen output.json snapshot is written alongside manifest.json.
@@ -111,8 +125,13 @@ fn test_baseline_writes_frozen_output_snapshot() {
 
     let sim_dir = root.join(".deal").join("evidence").join("sim_beta");
     std::fs::create_dir_all(&sim_dir).unwrap();
-    let output = serde_json::json!({"deal_sim_protocol": "v0", "exit_code": 0, "outputs": {}, "v": 1});
-    std::fs::write(sim_dir.join("output.json"), serde_json::to_vec(&output).unwrap()).unwrap();
+    let output =
+        serde_json::json!({"deal_sim_protocol": "v0", "exit_code": 0, "outputs": {}, "v": 1});
+    std::fs::write(
+        sim_dir.join("output.json"),
+        serde_json::to_vec(&output).unwrap(),
+    )
+    .unwrap();
 
     deal::evidence::run_evidence_baseline_in(root, "v2.0.0").expect("baseline should succeed");
 

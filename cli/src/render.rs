@@ -32,7 +32,9 @@ pub fn render_diagnostic(
     let severity = diagnostic["severity"].as_str().unwrap_or("err");
     let message = diagnostic["message"].as_str().unwrap_or("unknown error");
     let span_start = diagnostic["span"]["start"].as_u64().unwrap_or(0) as usize;
-    let span_end = diagnostic["span"]["end"].as_u64().unwrap_or(span_start as u64) as usize;
+    let span_end = diagnostic["span"]["end"]
+        .as_u64()
+        .unwrap_or(span_start as u64) as usize;
     let notes = diagnostic["notes"].as_str().unwrap_or("");
 
     // Severity label with color.
@@ -108,23 +110,30 @@ fn render_snippet(
     };
 
     // Extract the source line.
-    let line_text = source
-        .lines()
-        .nth(line_num.saturating_sub(1))
-        .unwrap_or("");
+    let line_text = source.lines().nth(line_num.saturating_sub(1)).unwrap_or("");
 
     // Line number gutter.
     let gutter = format!("{}", line_num);
     let gutter_width = gutter.len();
 
     // File pointer line.
-    writeln!(out, "  {} ---> :{line_num}:{col_start}", " ".repeat(gutter_width).blue().bold())?;
+    writeln!(
+        out,
+        "  {} ---> :{line_num}:{col_start}",
+        " ".repeat(gutter_width).blue().bold()
+    )?;
 
     // Blank gutter line.
     writeln!(out, "  {} {} ", " ".repeat(gutter_width), "|".blue().bold())?;
 
     // Source line.
-    writeln!(out, "  {} {} {}", gutter.blue().bold(), "|".blue().bold(), line_text)?;
+    writeln!(
+        out,
+        "  {} {} {}",
+        gutter.blue().bold(),
+        "|".blue().bold(),
+        line_text
+    )?;
 
     // Caret line.
     let indent = col_start.saturating_sub(1);

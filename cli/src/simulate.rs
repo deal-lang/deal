@@ -32,7 +32,11 @@ use crate::CliError;
 /// Allows: alphanumerics, `.`, `_`  (no `/`, `..`, whitespace, or shell metacharacters).
 /// Returns Err if the path contains disallowed characters.
 pub fn validate_model_path(mp: &str) -> Result<(), CliError> {
-    if mp.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_') && !mp.is_empty() {
+    if mp
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
+        && !mp.is_empty()
+    {
         Ok(())
     } else {
         Err(CliError::User(format!(
@@ -102,15 +106,12 @@ pub struct SimIoBinding {
 ///
 /// Returns `CliError::User` if the file is missing or cannot be parsed as TOML.
 pub fn parse_registry(path: &Path) -> Result<SimsRegistry, CliError> {
-    let bytes = std::fs::read(path).map_err(|e| {
-        CliError::User(format!("cannot read {}: {}", path.display(), e))
-    })?;
+    let bytes = std::fs::read(path)
+        .map_err(|e| CliError::User(format!("cannot read {}: {}", path.display(), e)))?;
     let text = std::str::from_utf8(&bytes).map_err(|e| {
         CliError::Internal(anyhow::anyhow!("deal.sims.toml is not valid UTF-8: {}", e))
     })?;
-    toml::from_str(text).map_err(|e| {
-        CliError::User(format!("invalid deal.sims.toml: {}", e))
-    })
+    toml::from_str(text).map_err(|e| CliError::User(format!("invalid deal.sims.toml: {}", e)))
 }
 
 // ─── Topological sort (Kahn's algorithm) ─────────────────────────────────────
@@ -188,7 +189,11 @@ pub fn topological_order(registry: &SimsRegistry) -> Result<Vec<String>, CliErro
                 .filter_map(|n| {
                     let deg = in_degree.get_mut(n)?;
                     *deg -= 1;
-                    if *deg == 0 { Some(n.clone()) } else { None }
+                    if *deg == 0 {
+                        Some(n.clone())
+                    } else {
+                        None
+                    }
                 })
                 .collect();
             sorted_neighbors.sort();
@@ -243,16 +248,14 @@ pub fn evidence_dir(project_root: &Path, sim_name: &str) -> PathBuf {
 /// Write a JSON value to a path atomically (temp-file + rename, D-81).
 fn write_json_atomic(path: &Path, value: &serde_json::Value) -> Result<(), CliError> {
     let parent = path.parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(parent).map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("cannot create {:?}: {}", parent, e))
-    })?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot create {:?}: {}", parent, e)))?;
     let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
     let tmp = parent.join(format!(".deal_sim_tmp_{}_{}", fname, std::process::id()));
     let bytes = serde_json::to_vec_pretty(value)
         .map_err(|e| CliError::Internal(anyhow::anyhow!("serialize JSON: {}", e)))?;
-    std::fs::write(&tmp, &bytes).map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("write tmp {:?}: {}", tmp, e))
-    })?;
+    std::fs::write(&tmp, &bytes)
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("write tmp {:?}: {}", tmp, e)))?;
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         CliError::Internal(anyhow::anyhow!("rename {:?} → {:?}: {}", tmp, path, e))
@@ -263,11 +266,7 @@ fn write_json_atomic(path: &Path, value: &serde_json::Value) -> Result<(), CliEr
 /// Write a graceful-skip record when a tool binary is absent (D-72 / T-05-08).
 ///
 /// Creates `.deal/evidence/<name>/skip.json` with D-18 sorted keys.
-fn write_skip_record(
-    evidence_dir: &Path,
-    sim_name: &str,
-    reason: &str,
-) -> Result<(), CliError> {
+fn write_skip_record(evidence_dir: &Path, sim_name: &str, reason: &str) -> Result<(), CliError> {
     // Timestamp in ISO-8601 format (UTC)
     let timestamp = chrono_like_timestamp();
     let skip = serde_json::json!({
@@ -485,7 +484,11 @@ pub fn dispatch_sim(
                 "warning: zig tool dispatch not yet implemented (Plan 04) — skipping '{}'",
                 sim_name
             );
-            write_skip_record(ev_dir, sim_name, "zig tool dispatch not yet implemented (Plan 04)")?;
+            write_skip_record(
+                ev_dir,
+                sim_name,
+                "zig tool dispatch not yet implemented (Plan 04)",
+            )?;
             Ok(SimResult::Skipped("zig tool not yet implemented".into()))
         }
         other => {
@@ -511,15 +514,21 @@ fn dispatch_python(
     stderr: &mut dyn std::io::Write,
 ) -> Result<SimResult, CliError> {
     let entry_path = entry.entry.as_deref().ok_or_else(|| {
-        CliError::User(format!("sim '{}': python tool requires 'entry' field", sim_name))
+        CliError::User(format!(
+            "sim '{}': python tool requires 'entry' field",
+            sim_name
+        ))
     })?;
 
     // Try "python3" first, then "python" as fallback
     let result = std::process::Command::new("python3")
         .arg(entry_path)
-        .arg("--input").arg(input_json_path)
-        .arg("--output").arg(output_json_path)
-        .arg("--metadata").arg(metadata_json_path)
+        .arg("--input")
+        .arg(input_json_path)
+        .arg("--output")
+        .arg(output_json_path)
+        .arg("--metadata")
+        .arg(metadata_json_path)
         .current_dir(workdir)
         .output();
 
@@ -528,9 +537,12 @@ fn dispatch_python(
             // Try "python" fallback
             std::process::Command::new("python")
                 .arg(entry_path)
-                .arg("--input").arg(input_json_path)
-                .arg("--output").arg(output_json_path)
-                .arg("--metadata").arg(metadata_json_path)
+                .arg("--input")
+                .arg(input_json_path)
+                .arg("--output")
+                .arg(output_json_path)
+                .arg("--metadata")
+                .arg(metadata_json_path)
                 .current_dir(workdir)
                 .output()
         }
@@ -543,7 +555,9 @@ fn dispatch_python(
             let stderr_msg = String::from_utf8_lossy(&output.stderr);
             Err(CliError::User(format!(
                 "simulation '{}' failed (exit {}): {}",
-                sim_name, output.status.code().unwrap_or(-1), stderr_msg.trim()
+                sim_name,
+                output.status.code().unwrap_or(-1),
+                stderr_msg.trim()
             )))
         }
         Err(e) if e.kind() == ErrorKind::NotFound => {
@@ -553,7 +567,9 @@ fn dispatch_python(
             Ok(SimResult::Skipped(reason))
         }
         Err(e) => Err(CliError::Internal(anyhow::anyhow!(
-            "spawn python for '{}': {}", sim_name, e
+            "spawn python for '{}': {}",
+            sim_name,
+            e
         ))),
     }
 }
@@ -587,7 +603,10 @@ fn dispatch_matlab(
 
     // Locate the .m script: simulations/ (workdir) joined with the entry path.
     let entry_rel = entry.entry.as_deref().ok_or_else(|| {
-        CliError::User(format!("sim '{}': matlab tool requires 'entry' field", sim_name))
+        CliError::User(format!(
+            "sim '{}': matlab tool requires 'entry' field",
+            sim_name
+        ))
     })?;
     let script_path = workdir.join(entry_rel);
     let script_dir = script_path.parent().unwrap_or(workdir);
@@ -595,7 +614,10 @@ fn dispatch_matlab(
         .file_stem()
         .and_then(|s| s.to_str())
         .ok_or_else(|| {
-            CliError::User(format!("sim '{}': invalid matlab entry {:?}", sim_name, entry_rel))
+            CliError::User(format!(
+                "sim '{}': invalid matlab entry {:?}",
+                sim_name, entry_rel
+            ))
         })?;
 
     // Absolute script dir so addpath works regardless of cwd.
@@ -702,16 +724,20 @@ fn dispatch_runner(
     let parts: Vec<&str> = runner.split_whitespace().collect();
     if parts.is_empty() {
         return Err(CliError::User(format!(
-            "sim '{}': runner field is empty", sim_name
+            "sim '{}': runner field is empty",
+            sim_name
         )));
     }
 
     let (cmd, args) = (parts[0], &parts[1..]);
     let result = std::process::Command::new(cmd)
         .args(args)
-        .arg("--input").arg(input_json_path)
-        .arg("--output").arg(output_json_path)
-        .arg("--metadata").arg(metadata_json_path)
+        .arg("--input")
+        .arg(input_json_path)
+        .arg("--output")
+        .arg(output_json_path)
+        .arg("--metadata")
+        .arg(metadata_json_path)
         .current_dir(workdir)
         .output();
 
@@ -721,7 +747,9 @@ fn dispatch_runner(
             let stderr_msg = String::from_utf8_lossy(&output.stderr);
             Err(CliError::User(format!(
                 "simulation '{}' failed (exit {}): {}",
-                sim_name, output.status.code().unwrap_or(-1), stderr_msg.trim()
+                sim_name,
+                output.status.code().unwrap_or(-1),
+                stderr_msg.trim()
             )))
         }
         Err(e) if e.kind() == ErrorKind::NotFound => {
@@ -732,7 +760,10 @@ fn dispatch_runner(
             Ok(SimResult::Skipped(reason))
         }
         Err(e) => Err(CliError::Internal(anyhow::anyhow!(
-            "spawn '{}' for '{}': {}", cmd, sim_name, e
+            "spawn '{}' for '{}': {}",
+            cmd,
+            sim_name,
+            e
         ))),
     }
 }
@@ -755,9 +786,8 @@ pub fn run_simulate(
     stale: bool,
     color: ColorPref,
 ) -> Result<(), CliError> {
-    let cwd = std::env::current_dir().map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("cannot get current dir: {}", e))
-    })?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot get current dir: {}", e)))?;
     let rep = Reporter::new(color);
     run_simulate_in_reported(&cwd, names, all, stale, &rep)
 }
@@ -813,28 +843,38 @@ fn run_simulate_in_reported(
 
     for sim_name in &run_order {
         let entry = registry.simulations.get(sim_name).ok_or_else(|| {
-            CliError::User(format!("simulation '{}' not found in deal.sims.toml", sim_name))
+            CliError::User(format!(
+                "simulation '{}' not found in deal.sims.toml",
+                sim_name
+            ))
         })?;
 
         let ev_dir = evidence_dir(project_root, sim_name);
         std::fs::create_dir_all(&ev_dir).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("cannot create evidence dir {:?}: {}", ev_dir, e))
+            CliError::Internal(anyhow::anyhow!(
+                "cannot create evidence dir {:?}: {}",
+                ev_dir,
+                e
+            ))
         })?;
 
         // Staleness check (D-83/D-84): skip if cached hash matches current
         if stale {
             let metadata_path = ev_dir.join("metadata.json");
             if metadata_path.exists() {
-                let sim_source_path = entry.entry.as_deref()
+                let sim_source_path = entry
+                    .entry
+                    .as_deref()
                     .map(|e| project_root.join("simulations").join(e))
                     .unwrap_or_default();
                 let input_val = build_input_json(entry, &ir_elements, &model_index, stderr);
                 let entry_toml = format!("[simulations.{}]\n", sim_name);
                 let current_key = compute_staleness_key(&input_val, &sim_source_path, &entry_toml);
                 if let Ok(meta_bytes) = std::fs::read(&metadata_path) {
-                    if let Ok(meta_json) = serde_json::from_slice::<serde_json::Value>(&meta_bytes) {
-                        if meta_json.get("staleness_key")
-                            .and_then(|v| v.as_str()) == Some(&current_key)
+                    if let Ok(meta_json) = serde_json::from_slice::<serde_json::Value>(&meta_bytes)
+                    {
+                        if meta_json.get("staleness_key").and_then(|v| v.as_str())
+                            == Some(&current_key)
                         {
                             let _ = writeln!(
                                 stderr,
@@ -857,11 +897,14 @@ fn run_simulate_in_reported(
         let metadata_path = ev_dir.join("metadata.json");
         let input_val = if input_path.exists() {
             if let Ok(existing_bytes) = std::fs::read(&input_path) {
-                if let Ok(existing_json) = serde_json::from_slice::<serde_json::Value>(&existing_bytes) {
+                if let Ok(existing_json) =
+                    serde_json::from_slice::<serde_json::Value>(&existing_bytes)
+                {
                     // Prefer existing input.json if it has non-null values for required params
                     let has_real_values = entry.inputs.iter().any(|b| {
                         if let Some(param) = &b.param {
-                            existing_json.pointer(&format!("/inputs/{}/value", param))
+                            existing_json
+                                .pointer(&format!("/inputs/{}/value", param))
                                 .map(|v| !v.is_null())
                                 .unwrap_or(false)
                         } else {
@@ -890,7 +933,9 @@ fn run_simulate_in_reported(
         write_json_atomic(&input_path, &input_val)?;
 
         // Resolve sim source path (for staleness key)
-        let sim_source_path = entry.entry.as_deref()
+        let sim_source_path = entry
+            .entry
+            .as_deref()
             .map(|e| project_root.join("simulations").join(e))
             .unwrap_or_default();
 
@@ -899,7 +944,11 @@ fn run_simulate_in_reported(
 
         // Phase 6 CLI richness: show a live spinner while the sim subprocess
         // runs (TTY only), and time the dispatch for the result line.
-        let detail = entry.entry.as_deref().unwrap_or(sim_name.as_str()).to_string();
+        let detail = entry
+            .entry
+            .as_deref()
+            .unwrap_or(sim_name.as_str())
+            .to_string();
         let pb = rep.spinner(&format!("{:<7} {}", entry.tool, detail));
         let start = Instant::now();
 
@@ -928,9 +977,12 @@ fn run_simulate_in_reported(
                         CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", output_path, e))
                     })?;
                     let output_json: serde_json::Value = serde_json::from_slice(&output_bytes)
-                        .map_err(|e| CliError::User(format!(
-                            "sim '{}': output.json is not valid JSON: {}", sim_name, e
-                        )))?;
+                        .map_err(|e| {
+                            CliError::User(format!(
+                                "sim '{}': output.json is not valid JSON: {}",
+                                sim_name, e
+                            ))
+                        })?;
 
                     if let Err(errors) = crate::sims_protocol::validate_output(&output_json) {
                         return Err(CliError::User(format!(
@@ -942,21 +994,19 @@ fn run_simulate_in_reported(
 
                     // Enrich metadata.json with staleness key (D-83)
                     let entry_toml = format!("[simulations.{}]\n", sim_name);
-                    let staleness_key = compute_staleness_key(
-                        &input_val,
-                        &sim_source_path,
-                        &entry_toml,
-                    );
+                    let staleness_key =
+                        compute_staleness_key(&input_val, &sim_source_path, &entry_toml);
                     if metadata_path.exists() {
                         if let Ok(meta_bytes) = std::fs::read(&metadata_path) {
-                            if let Ok(mut meta_json) = serde_json::from_slice::<serde_json::Value>(&meta_bytes) {
+                            if let Ok(mut meta_json) =
+                                serde_json::from_slice::<serde_json::Value>(&meta_bytes)
+                            {
                                 meta_json["staleness_key"] = serde_json::json!(staleness_key);
                                 meta_json["sim"] = serde_json::json!(sim_name);
                                 write_json_atomic(&metadata_path, &meta_json)?;
                             }
                         }
                     }
-
                 }
                 // Styled timed result line: `python  thermal/motor.py ✓ 0.8s`.
                 let mark = rep.paint("✓", Ink::Green);
@@ -1060,9 +1110,8 @@ fn collect_deal_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
 
 /// Evaluate structural validity of `deal.sims.toml` bindings (no execution).
 pub fn validate_bindings() -> Result<(), CliError> {
-    let cwd = std::env::current_dir().map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("cannot get current dir: {}", e))
-    })?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot get current dir: {}", e)))?;
     let registry_path = cwd.join("simulations").join("deal.sims.toml");
     let registry = parse_registry(&registry_path)?;
 
@@ -1070,9 +1119,8 @@ pub fn validate_bindings() -> Result<(), CliError> {
     for (name, entry) in &registry.simulations {
         for binding in entry.inputs.iter().chain(entry.outputs.iter()) {
             if let Some(mp) = &binding.model_path {
-                validate_model_path(mp).map_err(|e| {
-                    CliError::User(format!("sim '{}': {}", name, e))
-                })?;
+                validate_model_path(mp)
+                    .map_err(|e| CliError::User(format!("sim '{}': {}", name, e)))?;
             }
         }
     }
@@ -1125,7 +1173,10 @@ mod tests {
         assert_eq!(registry.simulations.len(), 5, "expected 5 sims");
 
         // battery_thermal — python
-        let bt = registry.simulations.get("battery_thermal").expect("battery_thermal");
+        let bt = registry
+            .simulations
+            .get("battery_thermal")
+            .expect("battery_thermal");
         assert_eq!(bt.tool, "python");
         assert_eq!(bt.entry.as_deref(), Some("thermal/battery_thermal.py"));
         assert_eq!(bt.class.as_deref(), Some("BatteryThermal"));
@@ -1133,12 +1184,18 @@ mod tests {
         assert_eq!(bt.outputs.len(), 2);
 
         // motor_efficiency — matlab
-        let me = registry.simulations.get("motor_efficiency").expect("motor_efficiency");
+        let me = registry
+            .simulations
+            .get("motor_efficiency")
+            .expect("motor_efficiency");
         assert_eq!(me.tool, "matlab");
         assert!(me.runner.is_some());
 
         // range_model — python, auto_run=true
-        let rm = registry.simulations.get("range_model").expect("range_model");
+        let rm = registry
+            .simulations
+            .get("range_model")
+            .expect("range_model");
         assert_eq!(rm.tool, "python");
         assert!(rm.auto_run);
     }
@@ -1165,8 +1222,18 @@ mod tests {
         //   - all 5 sims present
         //   - deterministic (sorted)
         assert_eq!(order.len(), 5, "all 5 sims must appear in order");
-        for name in &["battery_thermal", "motor_efficiency", "motor_thermal", "range_model", "vehicle_dynamics"] {
-            assert!(order.contains(&name.to_string()), "order must contain '{}'", name);
+        for name in &[
+            "battery_thermal",
+            "motor_efficiency",
+            "motor_thermal",
+            "range_model",
+            "vehicle_dynamics",
+        ] {
+            assert!(
+                order.contains(&name.to_string()),
+                "order must contain '{}'",
+                name
+            );
         }
     }
 
@@ -1193,7 +1260,10 @@ inputs = [
         let order = topological_order(&registry).expect("order");
         let a_idx = order.iter().position(|s| s == "sim_a").unwrap();
         let b_idx = order.iter().position(|s| s == "sim_b").unwrap();
-        assert!(a_idx < b_idx, "sim_a (producer) must precede sim_b (consumer)");
+        assert!(
+            a_idx < b_idx,
+            "sim_a (producer) must precede sim_b (consumer)"
+        );
     }
 
     #[test]
@@ -1217,7 +1287,8 @@ outputs = [{ param = "y", model_path = "Model.y" }]
         let msg = format!("{}", err);
         assert!(
             msg.contains("circular"),
-            "error must mention 'circular', got: {:?}", msg
+            "error must mention 'circular', got: {:?}",
+            msg
         );
     }
 
@@ -1283,8 +1354,16 @@ outputs = [{ param = "y", model_path = "Model.y" }]
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
         tmp.write_all(b"source").unwrap();
 
-        let k1 = compute_staleness_key(&inputs, tmp.path(), "[simulations.my_sim]\ntool = \"python\"");
-        let k2 = compute_staleness_key(&inputs, tmp.path(), "[simulations.my_sim]\ntool = \"matlab\"");
+        let k1 = compute_staleness_key(
+            &inputs,
+            tmp.path(),
+            "[simulations.my_sim]\ntool = \"python\"",
+        );
+        let k2 = compute_staleness_key(
+            &inputs,
+            tmp.path(),
+            "[simulations.my_sim]\ntool = \"matlab\"",
+        );
 
         assert_ne!(k1, k2, "key must change when registry TOML section changes");
     }
@@ -1301,7 +1380,10 @@ outputs = [{ param = "y", model_path = "Model.y" }]
     #[test]
     fn model_path_invalid_paths() {
         assert!(validate_model_path("").is_err(), "empty path");
-        assert!(validate_model_path("../etc/passwd").is_err(), "path traversal");
+        assert!(
+            validate_model_path("../etc/passwd").is_err(),
+            "path traversal"
+        );
         assert!(validate_model_path("foo/bar").is_err(), "slash");
         assert!(validate_model_path("foo bar").is_err(), "space");
         assert!(validate_model_path("foo;bar").is_err(), "semicolon");
@@ -1330,6 +1412,9 @@ outputs = [{ param = "y", model_path = "Model.y" }]
         let timestamp_pos = text.find("\"timestamp\"").unwrap_or(0);
         assert!(reason_pos < sim_pos, "D-18: reason before sim");
         assert!(sim_pos < skipped_pos, "D-18: sim before skipped");
-        assert!(skipped_pos < timestamp_pos, "D-18: skipped before timestamp");
+        assert!(
+            skipped_pos < timestamp_pos,
+            "D-18: skipped before timestamp"
+        );
     }
 }

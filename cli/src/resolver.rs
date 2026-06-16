@@ -150,9 +150,8 @@ fn validate_git_url_scheme(url: &str) -> anyhow::Result<()> {
 /// catch obvious accidents like `path = "/etc/passwd"`. The real protection
 /// is the "no absolute paths" rule: any absolute path is rejected.
 const SYSTEM_PATH_PREFIXES: &[&str] = &[
-    "/etc", "/usr", "/sys", "/proc", "/dev",
-    "/bin", "/sbin", "/lib", "/root", "/boot",
-    "/var", "/tmp",
+    "/etc", "/usr", "/sys", "/proc", "/dev", "/bin", "/sbin", "/lib", "/root", "/boot", "/var",
+    "/tmp",
 ];
 
 /// Validate a path dependency string using string-only checks (no filesystem access).
@@ -183,7 +182,8 @@ fn validate_dep_path_lexical(dep_path: &str) -> anyhow::Result<()> {
                 return Err(anyhow!(
                     "path traversal guard: dependency path '{}' resolves to a system path \
                      (prefix '{}') — absolute paths are not allowed (T-4-02)",
-                    dep_path, prefix
+                    dep_path,
+                    prefix
                 ));
             }
         }
@@ -212,13 +212,14 @@ fn assert_not_system_path(resolved: &Path) -> anyhow::Result<()> {
         // Reject only when the resolved path is EXACTLY a system prefix or sits
         // strictly underneath it (`/etc/...`), never when it merely shares a
         // textual prefix without a separator boundary.
-        let is_system = resolved_str == *prefix
-            || resolved_str.starts_with(&format!("{}/", prefix));
+        let is_system =
+            resolved_str == *prefix || resolved_str.starts_with(&format!("{}/", prefix));
         if is_system {
             return Err(anyhow!(
                 "path traversal guard: resolved path '{}' is a system path (prefix '{}') — \
                  dependency paths must not reference system directories (T-4-02)",
-                resolved.display(), prefix
+                resolved.display(),
+                prefix
             ));
         }
     }
@@ -235,15 +236,21 @@ fn assert_not_system_path(resolved: &Path) -> anyhow::Result<()> {
 ///   3. `peel_to_commit()` to obtain the concrete commit object.
 ///   4. `set_head_detached(commit_id)` + `checkout_head(None)` to materialise the tree.
 ///   5. Return the commit SHA as a 40-hex string.
-pub fn resolve_git_dep(git: &str, tag: Option<&str>, rev: Option<&str>, branch: Option<&str>, dest: &Path) -> anyhow::Result<String> {
+pub fn resolve_git_dep(
+    git: &str,
+    tag: Option<&str>,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    dest: &Path,
+) -> anyhow::Result<String> {
     // T-4-03: scheme validation before any network/filesystem access.
     validate_git_url_scheme(git)?;
 
     // Open or clone.
     // A non-bare clone stores HEAD at <dest>/.git/HEAD; a bare clone stores it
     // at <dest>/HEAD. Check both so that previously-cloned deps are reused.
-    let is_existing_repo = dest.exists()
-        && (dest.join(".git").join("HEAD").exists() || dest.join("HEAD").exists());
+    let is_existing_repo =
+        dest.exists() && (dest.join(".git").join("HEAD").exists() || dest.join("HEAD").exists());
     let repo = if is_existing_repo {
         // Looks like a git repo already exists — open it.
         Repository::open(dest)
@@ -267,10 +274,12 @@ pub fn resolve_git_dep(git: &str, tag: Option<&str>, rev: Option<&str>, branch: 
         "HEAD".to_string()
     };
 
-    let obj = repo.revparse_single(&reference)
+    let obj = repo
+        .revparse_single(&reference)
         .with_context(|| format!("cannot resolve ref '{}' in '{}'", reference, git))?;
 
-    let commit = obj.peel_to_commit()
+    let commit = obj
+        .peel_to_commit()
         .with_context(|| format!("ref '{}' does not point to a commit", reference))?;
 
     let sha = commit.id().to_string();
@@ -303,9 +312,12 @@ pub fn resolve_all(project_dir: &Path) -> anyhow::Result<LockFile> {
     // in the caller-supplied path are resolved to a real, trusted absolute path.
     // This is the CWE-22 guard for the project_dir taint source — all subsequent
     // joins use the canonicalized root, not the raw caller-supplied value.
-    let project_dir = project_dir
-        .canonicalize()
-        .with_context(|| format!("cannot canonicalize project dir '{}'", project_dir.display()))?;
+    let project_dir = project_dir.canonicalize().with_context(|| {
+        format!(
+            "cannot canonicalize project dir '{}'",
+            project_dir.display()
+        )
+    })?;
     let project_dir = project_dir.as_path();
 
     let toml_path = project_dir.join("deal.toml");
@@ -326,7 +338,12 @@ pub fn resolve_all(project_dir: &Path) -> anyhow::Result<LockFile> {
     // BTreeMap iteration is already alphabetical by key (D-18).
     for (name, dep) in &manifest.dependencies {
         match dep {
-            Dependency::Git { git, tag, rev, branch } => {
+            Dependency::Git {
+                git,
+                tag,
+                rev,
+                branch,
+            } => {
                 let dest = deps_base.join(name);
                 let sha = resolve_git_dep(
                     git,
@@ -389,8 +406,7 @@ pub fn resolve_all(project_dir: &Path) -> anyhow::Result<LockFile> {
     };
 
     // Serialize to TOML and write deal.lock.
-    let lock_toml = toml::to_string(&lock)
-        .with_context(|| "failed to serialize deal.lock")?;
+    let lock_toml = toml::to_string(&lock).with_context(|| "failed to serialize deal.lock")?;
     let lock_path = project_dir.join("deal.lock");
     std::fs::write(&lock_path, &lock_toml)
         .with_context(|| format!("cannot write {}", lock_path.display()))?;
@@ -447,6 +463,10 @@ mmm-dep = { git = "https://github.com/org/mmm.git", rev = "abc123" }
 "#;
         let manifest: DealToml = toml::from_str(toml_str).unwrap();
         let keys: Vec<&String> = manifest.dependencies.keys().collect();
-        assert_eq!(keys, vec!["aaa-dep", "mmm-dep", "zzz-dep"], "BTreeMap must iterate alphabetically");
+        assert_eq!(
+            keys,
+            vec!["aaa-dep", "mmm-dep", "zzz-dep"],
+            "BTreeMap must iterate alphabetically"
+        );
     }
 }

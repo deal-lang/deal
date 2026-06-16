@@ -42,8 +42,8 @@ const SHOWCASE_FILES: &[&str] = &[
 /// Resolve a path relative to the deal/ package root (two levels above
 /// tests/ffi/Cargo.toml, since CARGO_MANIFEST_DIR == tests/ffi/).
 fn deal_root() -> std::path::PathBuf {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR not set by Cargo");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set by Cargo");
     let mut p = std::path::PathBuf::from(manifest_dir);
     p.pop(); // tests/ffi -> tests
     p.pop(); // tests -> deal/
@@ -66,7 +66,11 @@ fn gate_all_19() {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(rel_path);
-        let expected_mode = if rel_path.ends_with(".dealx") { "dealx" } else { "deal" };
+        let expected_mode = if rel_path.ends_with(".dealx") {
+            "dealx"
+        } else {
+            "deal"
+        };
 
         // --- Parse via C ABI ---
         let handle = unsafe {
@@ -96,11 +100,15 @@ fn gate_all_19() {
         let mut json_ptr: *const u8 = std::ptr::null();
         let mut json_len: usize = 0;
         let ok = unsafe { deal_ast_json(handle, &mut json_ptr, &mut json_len) };
-        assert!(ok, "gate_all_19: deal_ast_json returned false for {rel_path}");
+        assert!(
+            ok,
+            "gate_all_19: deal_ast_json returned false for {rel_path}"
+        );
 
         let json_bytes = unsafe { std::slice::from_raw_parts(json_ptr, json_len) };
-        let json_str = std::str::from_utf8(json_bytes)
-            .unwrap_or_else(|e| panic!("gate_all_19: AST JSON not valid UTF-8 for {rel_path}: {e}"));
+        let json_str = std::str::from_utf8(json_bytes).unwrap_or_else(|e| {
+            panic!("gate_all_19: AST JSON not valid UTF-8 for {rel_path}: {e}")
+        });
 
         // Assert D-04 envelope begins with {"v":1,"mode":"...
         assert!(
@@ -118,13 +126,13 @@ fn gate_all_19() {
         );
 
         // Validate that serde_json can round-trip the JSON (well-formed check).
-        let parsed: serde_json::Value = serde_json::from_str(json_str)
-            .unwrap_or_else(|e| panic!("gate_all_19: serde_json rejected AST JSON for {rel_path}: {e}"));
+        let parsed: serde_json::Value = serde_json::from_str(json_str).unwrap_or_else(|e| {
+            panic!("gate_all_19: serde_json rejected AST JSON for {rel_path}: {e}")
+        });
 
         let actual_mode = parsed["mode"].as_str().unwrap_or("<no mode>");
         assert_eq!(
-            actual_mode,
-            expected_mode,
+            actual_mode, expected_mode,
             "gate_all_19: mode mismatch for {rel_path}"
         );
 
@@ -133,10 +141,14 @@ fn gate_all_19() {
         passed += 1;
     }
 
-    println!("gate_all_19: {passed}/{} showcase files parsed cleanly", SHOWCASE_FILES.len());
+    println!(
+        "gate_all_19: {passed}/{} showcase files parsed cleanly",
+        SHOWCASE_FILES.len()
+    );
 
     assert_eq!(
-        failed, 0,
+        failed,
+        0,
         "gate_all_19: {failed} of {} showcase files produced unexpected errors",
         SHOWCASE_FILES.len()
     );

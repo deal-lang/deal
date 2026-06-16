@@ -49,7 +49,8 @@ fn fmt_stdout_exits_zero_with_source() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code, 0,
+        exit_code,
+        0,
         "deal fmt --stdout on showcase file expected exit 0 but got {}\nstderr: {}",
         exit_code,
         String::from_utf8_lossy(&output.stderr),
@@ -79,7 +80,8 @@ fn fmt_check_already_canonical_exits_zero() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code, 0,
+        exit_code,
+        0,
         "deal fmt --check on canonical showcase file expected exit 0 but got {}\n\
          stderr: {}\nNote: if exit 1, the showcase file may need a one-shot `deal fmt` pass",
         exit_code,
@@ -131,7 +133,8 @@ fn fmt_json_mode_emits_d32_envelope() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code, 1,
+        exit_code,
+        1,
         "deal fmt --json on sema-error file expected exit 1 but got {}\nstdout: {}",
         exit_code,
         String::from_utf8_lossy(&output.stdout),
@@ -144,8 +147,8 @@ fn fmt_json_mode_emits_d32_envelope() {
         "deal fmt --json expected non-empty stdout"
     );
 
-    let envelope: serde_json::Value = serde_json::from_slice(stdout_bytes)
-        .expect("deal fmt --json stdout is not valid JSON");
+    let envelope: serde_json::Value =
+        serde_json::from_slice(stdout_bytes).expect("deal fmt --json stdout is not valid JSON");
 
     // D-32 envelope must have "command": "fmt".
     assert_eq!(
@@ -165,7 +168,8 @@ fn fmt_json_mode_emits_d32_envelope() {
     let first_code = diagnostics[0]["code"].as_str().unwrap_or("");
     assert_eq!(
         first_code, "E2000",
-        "expected first diagnostic code E2000 but got {}", first_code
+        "expected first diagnostic code E2000 but got {}",
+        first_code
     );
 }
 
@@ -219,7 +223,8 @@ fn fmt_nonexistent_file_exits_two() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code, 2,
+        exit_code,
+        2,
         "deal fmt on nonexistent file expected exit 2 but got {}\nstderr: {}",
         exit_code,
         String::from_utf8_lossy(&output.stderr),

@@ -55,7 +55,9 @@ fn run_fixture_and_compare(source_filename: &str) -> String {
         .or_else(|| source_filename.strip_suffix(".dealx"))
         .expect("fixture must end in .deal or .dealx");
 
-    let expected_path = root.join("tests/golden/sysml-v2").join(format!("{stem}.expected.json"));
+    let expected_path = root
+        .join("tests/golden/sysml-v2")
+        .join(format!("{stem}.expected.json"));
     let expected_json = std::fs::read_to_string(&expected_path)
         .unwrap_or_else(|e| panic!("cannot read {}: {}", expected_path.display(), e));
 
@@ -68,7 +70,8 @@ fn run_fixture_and_compare(source_filename: &str) -> String {
     // Run `deal build --target sysml-v2 --output <tmp>/out.json` on the fixture.
     let result = Command::new(deal_bin())
         .args(["build", "--color=never", "--target", "sysml-v2"])
-        .arg("--output").arg(&output_path)
+        .arg("--output")
+        .arg(&output_path)
         .arg(&source_path)
         .output()
         .unwrap_or_else(|e| panic!("failed to run deal build: {e}"));
@@ -116,7 +119,7 @@ fn assert_schema_valid(json_str: &str, fixture_name: &str) {
     // NOTE: This is a lighter check; the full schema-validity test is in
     // golden_fixture_schema_validity.rs which loads the files directly.
     let _ = value; // Presence of valid JSON is a minimal check here.
-    // Full schema validation is in golden_fixture_schema_validity.rs.
+                   // Full schema validation is in golden_fixture_schema_validity.rs.
 }
 
 // ─── Fixture 01: part definition ────────────────────────────────────────────

@@ -66,9 +66,8 @@ pub fn run_evidence(subcommand: EvidenceCommand) -> Result<(), CliError> {
 /// Writes a BTreeMap-keyed aggregate index to `.deal/captured/index.json` (D-18).
 /// Uses write_file_atomic (tmp+rename) for all writes.
 pub fn run_evidence_capture() -> Result<(), CliError> {
-    let cwd = std::env::current_dir().map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("cannot get current directory: {}", e))
-    })?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot get current directory: {}", e)))?;
     run_evidence_capture_in(&cwd)
 }
 
@@ -103,9 +102,8 @@ pub fn run_evidence_capture_in(project_root: &Path) -> Result<(), CliError> {
     })?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("directory entry error: {}", e))
-        })?;
+        let entry = entry
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("directory entry error: {}", e)))?;
         let sim_path = entry.path();
         if !sim_path.is_dir() {
             continue;
@@ -122,11 +120,7 @@ pub fn run_evidence_capture_in(project_root: &Path) -> Result<(), CliError> {
         // Create captured/<sim-name>/ directory.
         let cap_sim_dir = captured_dir.join(&sim_name);
         std::fs::create_dir_all(&cap_sim_dir).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!(
-                "cannot create {:?}: {}",
-                cap_sim_dir,
-                e
-            ))
+            CliError::Internal(anyhow::anyhow!("cannot create {:?}: {}", cap_sim_dir, e))
         })?;
 
         // Copy output.json, metadata.json, skip.json if present.
@@ -135,16 +129,16 @@ pub fn run_evidence_capture_in(project_root: &Path) -> Result<(), CliError> {
             let src = sim_path.join(artifact);
             if src.exists() {
                 let dst = cap_sim_dir.join(artifact);
-                let bytes = std::fs::read(&src).map_err(|e| {
-                    CliError::Internal(anyhow::anyhow!("read {:?}: {}", src, e))
-                })?;
+                let bytes = std::fs::read(&src)
+                    .map_err(|e| CliError::Internal(anyhow::anyhow!("read {:?}: {}", src, e)))?;
                 write_file_atomic(&dst, &bytes)?;
                 sim_info.insert(artifact.to_string(), serde_json::Value::Bool(true));
             }
         }
-        index.insert(sim_name, serde_json::Value::Object(
-            sim_info.into_iter().collect(),
-        ));
+        index.insert(
+            sim_name,
+            serde_json::Value::Object(sim_info.into_iter().collect()),
+        );
     }
 
     // Write BTreeMap-keyed aggregate index (D-18).
@@ -152,9 +146,8 @@ pub fn run_evidence_capture_in(project_root: &Path) -> Result<(), CliError> {
         "captured": index,
         "v": 1,
     });
-    let index_bytes = serde_json::to_vec_pretty(&index_val).map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("serialize index: {}", e))
-    })?;
+    let index_bytes = serde_json::to_vec_pretty(&index_val)
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("serialize index: {}", e)))?;
     write_file_atomic(&captured_dir.join("index.json"), &index_bytes)?;
 
     let _ = writeln!(
@@ -185,9 +178,8 @@ pub fn run_evidence_capture_in(project_root: &Path) -> Result<(), CliError> {
 /// Plus top-level: tag, timestamp, v:1. All BTreeMap keys alphabetical (D-18).
 /// Uses write_file_atomic for all writes (tmp+rename).
 pub fn run_evidence_baseline(tag: &str) -> Result<(), CliError> {
-    let cwd = std::env::current_dir().map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("cannot get current directory: {}", e))
-    })?;
+    let cwd = std::env::current_dir()
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot get current directory: {}", e)))?;
     run_evidence_baseline_in(&cwd, tag)
 }
 
@@ -221,9 +213,8 @@ pub fn run_evidence_baseline_in(project_root: &Path, tag: &str) -> Result<(), Cl
     let mut sim_manifest: BTreeMap<String, serde_json::Value> = BTreeMap::new();
 
     for entry in entries {
-        let entry = entry.map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("directory entry error: {}", e))
-        })?;
+        let entry = entry
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("directory entry error: {}", e)))?;
         let sim_path = entry.path();
         if !sim_path.is_dir() {
             continue;
@@ -244,9 +235,8 @@ pub fn run_evidence_baseline_in(project_root: &Path, tag: &str) -> Result<(), Cl
         if !output_src.exists() {
             continue;
         }
-        let output_bytes = std::fs::read(&output_src).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("read {:?}: {}", output_src, e))
-        })?;
+        let output_bytes = std::fs::read(&output_src)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("read {:?}: {}", output_src, e)))?;
 
         // SHA-256 content hash (D-82 / T-05-12 tamper detection).
         let content_hash = {
@@ -268,15 +258,25 @@ pub fn run_evidence_baseline_in(project_root: &Path, tag: &str) -> Result<(), Cl
 
         // BTreeMap per-sim entry (alphabetical keys: D-18).
         let mut sim_entry: BTreeMap<String, serde_json::Value> = BTreeMap::new();
-        sim_entry.insert("content_hash".to_string(), serde_json::Value::String(content_hash));
-        sim_entry.insert("reproducibility_tier".to_string(), serde_json::Value::String(reproducibility_tier));
+        sim_entry.insert(
+            "content_hash".to_string(),
+            serde_json::Value::String(content_hash),
+        );
+        sim_entry.insert(
+            "reproducibility_tier".to_string(),
+            serde_json::Value::String(reproducibility_tier),
+        );
         sim_entry.insert("tool".to_string(), serde_json::Value::String(tool));
-        sim_entry.insert("tool_version".to_string(), serde_json::Value::String(tool_version));
+        sim_entry.insert(
+            "tool_version".to_string(),
+            serde_json::Value::String(tool_version),
+        );
         sim_entry.insert("verdict".to_string(), serde_json::Value::String(verdict));
 
-        sim_manifest.insert(sim_name, serde_json::Value::Object(
-            sim_entry.into_iter().collect(),
-        ));
+        sim_manifest.insert(
+            sim_name,
+            serde_json::Value::Object(sim_entry.into_iter().collect()),
+        );
     }
 
     if sim_manifest.is_empty() {
@@ -288,23 +288,30 @@ pub fn run_evidence_baseline_in(project_root: &Path, tag: &str) -> Result<(), Cl
     // Build manifest (BTreeMap top-level keys for D-18 byte-stability).
     let timestamp = chrono_like_timestamp();
     let mut manifest: BTreeMap<String, serde_json::Value> = BTreeMap::new();
-    manifest.insert("sims".to_string(), serde_json::Value::Object(
-        sim_manifest.into_iter().collect(),
-    ));
-    manifest.insert("tag".to_string(), serde_json::Value::String(tag.to_string()));
-    manifest.insert("timestamp".to_string(), serde_json::Value::String(timestamp));
+    manifest.insert(
+        "sims".to_string(),
+        serde_json::Value::Object(sim_manifest.into_iter().collect()),
+    );
+    manifest.insert(
+        "tag".to_string(),
+        serde_json::Value::String(tag.to_string()),
+    );
+    manifest.insert(
+        "timestamp".to_string(),
+        serde_json::Value::String(timestamp),
+    );
     manifest.insert("v".to_string(), serde_json::Value::Number(1.into()));
 
     let manifest_val = serde_json::Value::Object(manifest.into_iter().collect());
-    let manifest_bytes = serde_json::to_vec_pretty(&manifest_val).map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("serialize manifest: {}", e))
-    })?;
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest_val)
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("serialize manifest: {}", e)))?;
     write_file_atomic(&baseline_dir.join("manifest.json"), &manifest_bytes)?;
 
     let _ = writeln!(
         std::io::stderr(),
         "deal evidence baseline: wrote baseline '{}' to evidence/baselines/{}/",
-        tag, tag
+        tag,
+        tag
     );
 
     Ok(())
@@ -337,10 +344,7 @@ fn read_metadata_fields(metadata_path: &Path) -> (String, String, String, String
         Err(_) => return defaults,
     };
 
-    let tool = val["tool"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let tool = val["tool"].as_str().unwrap_or("unknown").to_string();
     let tool_version = val["tool_version"]
         .as_str()
         .unwrap_or("unknown")
@@ -368,15 +372,8 @@ fn read_metadata_fields(metadata_path: &Path) -> (String, String, String, String
 /// Creates temp file in the same directory (same filesystem, enabling POSIX atomic rename).
 fn write_file_atomic(path: &Path, data: &[u8]) -> Result<(), CliError> {
     let parent = path.parent().unwrap_or(Path::new("."));
-    let fname = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("file");
-    let tmp_path = parent.join(format!(
-        ".deal_ev_tmp_{}_{}",
-        fname,
-        std::process::id()
-    ));
+    let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+    let tmp_path = parent.join(format!(".deal_ev_tmp_{}_{}", fname, std::process::id()));
 
     {
         let mut tmp_file = std::fs::File::create(&tmp_path).map_err(|e| {
@@ -454,7 +451,10 @@ mod tests {
         // When .deal/evidence/ doesn't exist, capture should succeed (nothing to do).
         let tmpdir = tempfile::tempdir().expect("tempdir");
         let result = run_evidence_capture_in(tmpdir.path());
-        assert!(result.is_ok(), "capture with no evidence dir should succeed");
+        assert!(
+            result.is_ok(),
+            "capture with no evidence dir should succeed"
+        );
     }
 
     #[test]
@@ -472,11 +472,18 @@ mod tests {
 
         // Verify captured artifacts exist
         assert!(
-            root.join(".deal").join("captured").join("sim_a").join("output.json").exists(),
+            root.join(".deal")
+                .join("captured")
+                .join("sim_a")
+                .join("output.json")
+                .exists(),
             "captured output.json must exist"
         );
         assert!(
-            root.join(".deal").join("captured").join("index.json").exists(),
+            root.join(".deal")
+                .join("captured")
+                .join("index.json")
+                .exists(),
             "captured index.json must exist"
         );
     }
@@ -549,6 +556,9 @@ mod tests {
         });
         std::fs::write(&meta_path, serde_json::to_vec(&meta).unwrap()).unwrap();
         let (_, _, _, verdict) = read_metadata_fields(&meta_path);
-        assert_eq!(verdict, DEFAULT_VERDICT, "invalid verdict must default to PARTIAL");
+        assert_eq!(
+            verdict, DEFAULT_VERDICT,
+            "invalid verdict must default to PARTIAL"
+        );
     }
 }

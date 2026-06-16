@@ -66,39 +66,27 @@ impl LanguageServer for Backend {
                     self.documents.set_pending_workspace_root(path);
                 }
             }
-        } else if let Some(root) = params
-            .root_uri
-            .as_ref()
-            .and_then(|u| u.to_file_path().ok())
-        {
+        } else if let Some(root) = params.root_uri.as_ref().and_then(|u| u.to_file_path().ok()) {
             self.documents.set_pending_workspace_root(root);
         }
 
         let capabilities = ServerCapabilities {
-            text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                TextDocumentSyncKind::FULL,
-            )),
+            text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
             document_formatting_provider: Some(OneOf::Left(true)),
             workspace_symbol_provider: Some(OneOf::Left(true)),
             completion_provider: Some(CompletionOptions {
-                trigger_characters: Some(vec![
-                    ".".to_string(),
-                    ":".to_string(),
-                    "<".to_string(),
-                ]),
+                trigger_characters: Some(vec![".".to_string(), ":".to_string(), "<".to_string()]),
                 ..Default::default()
             }),
             hover_provider: Some(HoverProviderCapability::Simple(true)),
             definition_provider: Some(OneOf::Left(true)),
             semantic_tokens_provider: Some(
-                SemanticTokensServerCapabilities::SemanticTokensOptions(
-                    SemanticTokensOptions {
-                        legend: semantic_tokens::semantic_tokens_legend(),
-                        full: Some(SemanticTokensFullOptions::Delta { delta: Some(true) }),
-                        range: Some(false),
-                        work_done_progress_options: Default::default(),
-                    },
-                ),
+                SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
+                    legend: semantic_tokens::semantic_tokens_legend(),
+                    full: Some(SemanticTokensFullOptions::Delta { delta: Some(true) }),
+                    range: Some(false),
+                    work_done_progress_options: Default::default(),
+                }),
             ),
             ..Default::default()
         };
@@ -162,7 +150,11 @@ impl LanguageServer for Backend {
         let text = params.text_document.text;
         let version = Some(params.text_document.version);
 
-        if let Err(e) = self.documents.open(uri.clone(), text, version, &self.client).await {
+        if let Err(e) = self
+            .documents
+            .open(uri.clone(), text, version, &self.client)
+            .await
+        {
             tracing::error!("did_open({uri}) failed: {e}");
         }
     }
@@ -183,18 +175,15 @@ impl LanguageServer for Backend {
         let client = self.client.clone();
         let index = self.index.clone();
         let uri_for_action = uri.clone();
-        self.debouncer.schedule(
-            uri,
-            Duration::from_millis(DEBOUNCE_MS),
-            async move {
+        self.debouncer
+            .schedule(uri, Duration::from_millis(DEBOUNCE_MS), async move {
                 if let Err(e) = docs
                     .update(uri_for_action.clone(), text, version, &client, Some(&index))
                     .await
                 {
                     tracing::error!("did_change update({uri_for_action}) failed: {e}");
                 }
-            },
-        );
+            });
     }
 
     async fn did_close(&self, _params: DidCloseTextDocumentParams) {
@@ -211,10 +200,7 @@ impl LanguageServer for Backend {
         formatting::handle_formatting(&self.documents, &params.text_document.uri).await
     }
 
-    async fn completion(
-        &self,
-        params: CompletionParams,
-    ) -> LspResult<Option<CompletionResponse>> {
+    async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
         completion::handle_completion(&self.index, params).await
     }
 

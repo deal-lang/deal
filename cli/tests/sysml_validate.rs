@@ -70,8 +70,16 @@ fn serde_json_alphabetical_not_preserve_order() {
     let a_pos = raw.find("\"a\"").expect("'a' not in json");
     let m_pos = raw.find("\"m\"").expect("'m' not in json");
     let z_pos = raw.find("\"z\"").expect("'z' not in json");
-    assert!(a_pos < m_pos, "key 'a' should appear before 'm' (D-18 alphabetical); got: {}", raw);
-    assert!(m_pos < z_pos, "key 'm' should appear before 'z' (D-18 alphabetical); got: {}", raw);
+    assert!(
+        a_pos < m_pos,
+        "key 'a' should appear before 'm' (D-18 alphabetical); got: {}",
+        raw
+    );
+    assert!(
+        m_pos < z_pos,
+        "key 'm' should appear before 'z' (D-18 alphabetical); got: {}",
+        raw
+    );
 }
 
 // ─── Test 3: Build with golden fixture ───────────────────────────────────────
@@ -82,7 +90,10 @@ fn serde_json_alphabetical_not_preserve_order() {
 fn build_golden_fixture_01_exits_zero() {
     let path = repo_root().join("tests/golden/sysml-v2/01-part-def.deal");
     if !path.exists() {
-        eprintln!("Skipping: golden fixture not yet created at {}", path.display());
+        eprintln!(
+            "Skipping: golden fixture not yet created at {}",
+            path.display()
+        );
         return;
     }
 
@@ -111,7 +122,10 @@ fn build_golden_fixture_01_exits_zero() {
 fn build_golden_fixture_01_validate_exits_zero() {
     let path = repo_root().join("tests/golden/sysml-v2/01-part-def.deal");
     if !path.exists() {
-        eprintln!("Skipping: golden fixture not yet created at {}", path.display());
+        eprintln!(
+            "Skipping: golden fixture not yet created at {}",
+            path.display()
+        );
         return;
     }
 

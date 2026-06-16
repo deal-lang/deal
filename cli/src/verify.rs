@@ -37,8 +37,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context as _};
-use sha2::{Digest, Sha256};
 use hex;
+use sha2::{Digest, Sha256};
 
 use crate::CliError;
 
@@ -185,10 +185,10 @@ pub fn eval_expr(expr: &str, ctx: &EvalContext) -> anyhow::Result<EvalValue> {
 #[derive(Debug, Clone, PartialEq)]
 enum TokenKind {
     Number,
-    Ident,  // includes field paths like REQ_SYS_001.minRange
-    Gte,    // >=
-    Lte,    // <=
-    Eq,     // ==
+    Ident, // includes field paths like REQ_SYS_001.minRange
+    Gte,   // >=
+    Lte,   // <=
+    Eq,    // ==
     Plus,
     Minus,
     Star,
@@ -196,8 +196,8 @@ enum TokenKind {
     LParen,
     RParen,
     Comma,
-    And,    // AND keyword
-    // scope-guard catches everything else
+    And, // AND keyword
+         // scope-guard catches everything else
 }
 
 #[derive(Debug, Clone)]
@@ -220,17 +220,26 @@ fn tokenize(s: &str) -> anyhow::Result<Vec<Token>> {
         if i + 1 < chars.len() {
             match (chars[i], chars[i + 1]) {
                 ('>', '=') => {
-                    tokens.push(Token { kind: TokenKind::Gte, text: ">=".into() });
+                    tokens.push(Token {
+                        kind: TokenKind::Gte,
+                        text: ">=".into(),
+                    });
                     i += 2;
                     continue;
                 }
                 ('<', '=') => {
-                    tokens.push(Token { kind: TokenKind::Lte, text: "<=".into() });
+                    tokens.push(Token {
+                        kind: TokenKind::Lte,
+                        text: "<=".into(),
+                    });
                     i += 2;
                     continue;
                 }
                 ('=', '=') => {
-                    tokens.push(Token { kind: TokenKind::Eq, text: "==".into() });
+                    tokens.push(Token {
+                        kind: TokenKind::Eq,
+                        text: "==".into(),
+                    });
                     i += 2;
                     continue;
                 }
@@ -239,13 +248,55 @@ fn tokenize(s: &str) -> anyhow::Result<Vec<Token>> {
         }
         // Single-character operators
         match chars[i] {
-            '+' => { tokens.push(Token { kind: TokenKind::Plus, text: "+".into() }); i += 1; }
-            '-' => { tokens.push(Token { kind: TokenKind::Minus, text: "-".into() }); i += 1; }
-            '*' => { tokens.push(Token { kind: TokenKind::Star, text: "*".into() }); i += 1; }
-            '/' => { tokens.push(Token { kind: TokenKind::Slash, text: "/".into() }); i += 1; }
-            '(' => { tokens.push(Token { kind: TokenKind::LParen, text: "(".into() }); i += 1; }
-            ')' => { tokens.push(Token { kind: TokenKind::RParen, text: ")".into() }); i += 1; }
-            ',' => { tokens.push(Token { kind: TokenKind::Comma, text: ",".into() }); i += 1; }
+            '+' => {
+                tokens.push(Token {
+                    kind: TokenKind::Plus,
+                    text: "+".into(),
+                });
+                i += 1;
+            }
+            '-' => {
+                tokens.push(Token {
+                    kind: TokenKind::Minus,
+                    text: "-".into(),
+                });
+                i += 1;
+            }
+            '*' => {
+                tokens.push(Token {
+                    kind: TokenKind::Star,
+                    text: "*".into(),
+                });
+                i += 1;
+            }
+            '/' => {
+                tokens.push(Token {
+                    kind: TokenKind::Slash,
+                    text: "/".into(),
+                });
+                i += 1;
+            }
+            '(' => {
+                tokens.push(Token {
+                    kind: TokenKind::LParen,
+                    text: "(".into(),
+                });
+                i += 1;
+            }
+            ')' => {
+                tokens.push(Token {
+                    kind: TokenKind::RParen,
+                    text: ")".into(),
+                });
+                i += 1;
+            }
+            ',' => {
+                tokens.push(Token {
+                    kind: TokenKind::Comma,
+                    text: ",".into(),
+                });
+                i += 1;
+            }
             // Numeric literal
             c if c.is_ascii_digit() => {
                 let start = i;
@@ -253,12 +304,17 @@ fn tokenize(s: &str) -> anyhow::Result<Vec<Token>> {
                     i += 1;
                 }
                 let text: String = chars[start..i].iter().collect();
-                tokens.push(Token { kind: TokenKind::Number, text });
+                tokens.push(Token {
+                    kind: TokenKind::Number,
+                    text,
+                });
             }
             // Identifier / keyword / field-path (may contain dots)
             c if c.is_alphanumeric() || c == '_' => {
                 let start = i;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '.') {
+                while i < chars.len()
+                    && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '.')
+                {
                     i += 1;
                 }
                 let text: String = chars[start..i].iter().collect();
@@ -269,7 +325,11 @@ fn tokenize(s: &str) -> anyhow::Result<Vec<Token>> {
                         text
                     ));
                 }
-                let kind = if text == "AND" { TokenKind::And } else { TokenKind::Ident };
+                let kind = if text == "AND" {
+                    TokenKind::And
+                } else {
+                    TokenKind::Ident
+                };
                 tokens.push(Token { kind, text });
             }
             other => {
@@ -285,7 +345,11 @@ fn tokenize(s: &str) -> anyhow::Result<Vec<Token>> {
 
 // ─── Parser (recursive descent) ───────────────────────────────────────────────
 
-fn parse_and_expr(tokens: &[Token], pos: &mut usize, ctx: &EvalContext) -> anyhow::Result<EvalValue> {
+fn parse_and_expr(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &EvalContext,
+) -> anyhow::Result<EvalValue> {
     let mut lhs = parse_cmp_expr(tokens, pos, ctx)?;
     while *pos < tokens.len() && tokens[*pos].kind == TokenKind::And {
         *pos += 1; // consume AND
@@ -303,7 +367,11 @@ fn apply_and(lhs: EvalValue, rhs: EvalValue) -> anyhow::Result<EvalValue> {
     }
 }
 
-fn parse_cmp_expr(tokens: &[Token], pos: &mut usize, ctx: &EvalContext) -> anyhow::Result<EvalValue> {
+fn parse_cmp_expr(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &EvalContext,
+) -> anyhow::Result<EvalValue> {
     let lhs = parse_add_expr(tokens, pos, ctx)?;
     if *pos < tokens.len() {
         match tokens[*pos].kind {
@@ -335,7 +403,11 @@ fn apply_cmp(lhs: EvalValue, rhs: EvalValue, op: TokenKind) -> anyhow::Result<Ev
     }
 }
 
-fn parse_add_expr(tokens: &[Token], pos: &mut usize, ctx: &EvalContext) -> anyhow::Result<EvalValue> {
+fn parse_add_expr(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &EvalContext,
+) -> anyhow::Result<EvalValue> {
     let mut lhs = parse_mul_expr(tokens, pos, ctx)?;
     while *pos < tokens.len() {
         match tokens[*pos].kind {
@@ -366,7 +438,11 @@ fn apply_add(lhs: EvalValue, rhs: EvalValue, op: TokenKind) -> anyhow::Result<Ev
     }
 }
 
-fn parse_mul_expr(tokens: &[Token], pos: &mut usize, ctx: &EvalContext) -> anyhow::Result<EvalValue> {
+fn parse_mul_expr(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &EvalContext,
+) -> anyhow::Result<EvalValue> {
     let mut lhs = parse_primary(tokens, pos, ctx)?;
     while *pos < tokens.len() {
         match tokens[*pos].kind {
@@ -402,13 +478,19 @@ fn apply_mul(lhs: EvalValue, rhs: EvalValue, op: TokenKind) -> anyhow::Result<Ev
     }
 }
 
-fn parse_primary(tokens: &[Token], pos: &mut usize, ctx: &EvalContext) -> anyhow::Result<EvalValue> {
+fn parse_primary(
+    tokens: &[Token],
+    pos: &mut usize,
+    ctx: &EvalContext,
+) -> anyhow::Result<EvalValue> {
     if *pos >= tokens.len() {
         return Err(anyhow!("unexpected end of expression"));
     }
     match &tokens[*pos].kind {
         TokenKind::Number => {
-            let v: f64 = tokens[*pos].text.parse()
+            let v: f64 = tokens[*pos]
+                .text
+                .parse()
                 .with_context(|| format!("invalid number literal '{}'", tokens[*pos].text))?;
             *pos += 1;
             Ok(EvalValue::Number(v))
@@ -425,7 +507,10 @@ fn parse_primary(tokens: &[Token], pos: &mut usize, ctx: &EvalContext) -> anyhow
         TokenKind::Ident => {
             let name = tokens[*pos].text.clone();
             // Check if this is a function call (next token is LParen)
-            if name == "max" && *pos + 1 < tokens.len() && tokens[*pos + 1].kind == TokenKind::LParen {
+            if name == "max"
+                && *pos + 1 < tokens.len()
+                && tokens[*pos + 1].kind == TokenKind::LParen
+            {
                 *pos += 2; // consume 'max' and '('
                 let mut args = Vec::new();
                 loop {
@@ -450,13 +535,11 @@ fn parse_primary(tokens: &[Token], pos: &mut usize, ctx: &EvalContext) -> anyhow
                 None => Ok(EvalValue::Unmapped),
             }
         }
-        other => {
-            Err(anyhow!(
-                "unexpected token '{:?}' ('{}') — unsupported in showcase grammar (D-55)",
-                other,
-                tokens[*pos].text
-            ))
-        }
+        other => Err(anyhow!(
+            "unexpected token '{:?}' ('{}') — unsupported in showcase grammar (D-55)",
+            other,
+            tokens[*pos].text
+        )),
     }
 }
 
@@ -593,11 +676,7 @@ pub fn build_stale_overrides(
 /// Parse and evaluate criteria text from the IR annotation body.
 /// Returns (verdict, stale).
 /// PARTIAL when an unmapped field is encountered.
-fn evaluate_criteria_text(
-    criteria_text: &str,
-    ctx: &EvalContext,
-    stale: bool,
-) -> CriterionResult {
+fn evaluate_criteria_text(criteria_text: &str, ctx: &EvalContext, stale: bool) -> CriterionResult {
     let text = criteria_text.trim().to_string();
     match eval_expr(&text, ctx) {
         Ok(EvalValue::Bool(true)) => CriterionResult {
@@ -970,10 +1049,7 @@ fn resolve_req_attr_refs(
 /// output field name → value for injection into the eval context.
 ///
 /// Reads from `.deal/evidence/<binding>/output.json`.
-fn load_evidence_values(
-    evidence_dir: &Path,
-    binding: &str,
-) -> HashMap<String, f64> {
+fn load_evidence_values(evidence_dir: &Path, binding: &str) -> HashMap<String, f64> {
     let path = evidence_dir.join(binding).join("output.json");
     let bytes = match std::fs::read(&path) {
         Ok(b) => b,
@@ -1035,10 +1111,7 @@ fn extract_numeric_values(v: &serde_json::Value, prefix: &str, out: &mut HashMap
 /// algebra (D-85: "Zig owns dimensions").
 ///
 /// If stdlib_bytes is empty (no stdlib installed), returns true (no check).
-fn check_dimension_compat(
-    _criteria_text: &str,
-    stdlib_bytes: &[u8],
-) -> bool {
+fn check_dimension_compat(_criteria_text: &str, stdlib_bytes: &[u8]) -> bool {
     if stdlib_bytes.is_empty() {
         return true; // no stdlib seed → skip dimension check
     }
@@ -1098,7 +1171,13 @@ pub fn evaluate(
     let blocks = extract_satisfy_blocks(ir_json);
 
     let mut requirements = std::collections::BTreeMap::new();
-    let mut summary = VerifySummary { pass: 0, fail: 0, partial: 0, stale: 0, total: 0 };
+    let mut summary = VerifySummary {
+        pass: 0,
+        fail: 0,
+        partial: 0,
+        stale: 0,
+        total: 0,
+    };
 
     for block in &blocks {
         // Determine staleness for this block's evidence binding
@@ -1132,9 +1211,7 @@ pub fn evaluate(
                 }
                 "simulation" => {
                     // sim output field: map src (output name) → declared field
-                    if let Some(EvalValue::Number(v)) =
-                        resolve_field_path(&m.src, &ctx)
-                    {
+                    if let Some(EvalValue::Number(v)) = resolve_field_path(&m.src, &ctx) {
                         ctx.set(&m.field, EvalValue::Number(v));
                     }
                 }
@@ -1168,28 +1245,31 @@ pub fn evaluate(
         }
 
         // Evaluate criteria
-        let criteria_results: Vec<CriterionResult> = if let Some(ref criteria_text) = block.criteria_text {
-            // Split AND criteria into individual assertions for granularity
-            // (but evaluate as a unit for the D-86 rubric)
-            vec![evaluate_criteria_text(criteria_text, &ctx, is_stale)]
-        } else {
-            // No criteria → structural gap → PARTIAL
-            vec![CriterionResult {
-                verdict: Verdict::Partial,
-                stale: is_stale,
-                description: "(no criteria declared)".to_string(),
-            }]
-        };
+        let criteria_results: Vec<CriterionResult> =
+            if let Some(ref criteria_text) = block.criteria_text {
+                // Split AND criteria into individual assertions for granularity
+                // (but evaluate as a unit for the D-86 rubric)
+                vec![evaluate_criteria_text(criteria_text, &ctx, is_stale)]
+            } else {
+                // No criteria → structural gap → PARTIAL
+                vec![CriterionResult {
+                    verdict: Verdict::Partial,
+                    stale: is_stale,
+                    description: "(no criteria declared)".to_string(),
+                }]
+            };
 
         // D-86 three-level verdict rubric
         let has_unmapped = criteria_results.iter().any(|c| {
             // Check if criteria evaluation produced an unmapped signal
-            c.description.contains("(no criteria") ||
-            matches!(c.verdict, Verdict::Partial) &&
-                !block.has_gap && block.status.as_deref() != Some("partial")
+            c.description.contains("(no criteria")
+                || matches!(c.verdict, Verdict::Partial)
+                    && !block.has_gap
+                    && block.status.as_deref() != Some("partial")
         });
 
-        let verdict = if block.status.as_deref() == Some("partial") || block.has_gap || has_unmapped {
+        let verdict = if block.status.as_deref() == Some("partial") || block.has_gap || has_unmapped
+        {
             Verdict::Partial
         } else if criteria_results.iter().any(|c| c.verdict == Verdict::Fail) {
             Verdict::Fail
@@ -1200,10 +1280,7 @@ pub fn evaluate(
         // Build evidence bindings map
         let mut evidence_bindings = std::collections::BTreeMap::new();
         if !block.evidence_binding.is_empty() {
-            evidence_bindings.insert(
-                "binding".to_string(),
-                block.evidence_binding.clone(),
-            );
+            evidence_bindings.insert("binding".to_string(), block.evidence_binding.clone());
         }
         for field in &block.return_fields {
             evidence_bindings.insert(
@@ -1236,7 +1313,10 @@ pub fn evaluate(
         );
     }
 
-    Ok(VerifyReport { requirements, summary })
+    Ok(VerifyReport {
+        requirements,
+        summary,
+    })
 }
 
 /// Evaluate from raw AST JSON bytes (convenience wrapper).
@@ -1247,9 +1327,15 @@ pub fn evaluate_from_bytes(
     stale_overrides: &HashMap<String, bool>,
     model_index: &crate::model_values::ModelValueIndex,
 ) -> anyhow::Result<VerifyReport> {
-    let ir_json: serde_json::Value = serde_json::from_slice(ir_bytes)
-        .map_err(|e| anyhow!("AST JSON parse error: {}", e))?;
-    evaluate(&ir_json, evidence_dir, stdlib_bytes, stale_overrides, model_index)
+    let ir_json: serde_json::Value =
+        serde_json::from_slice(ir_bytes).map_err(|e| anyhow!("AST JSON parse error: {}", e))?;
+    evaluate(
+        &ir_json,
+        evidence_dir,
+        stdlib_bytes,
+        stale_overrides,
+        model_index,
+    )
 }
 
 // ─── Human-readable report renderer (D-87) ───────────────────────────────────
@@ -1287,7 +1373,11 @@ pub fn render_human(
         &format!(
             "verify · evaluating {} {}",
             criteria_total,
-            if criteria_total == 1 { "criterion" } else { "criteria" }
+            if criteria_total == 1 {
+                "criterion"
+            } else {
+                "criteria"
+            }
         ),
     )?;
     writeln!(out)?;
@@ -1344,7 +1434,11 @@ pub fn render_human(
     let mut parts: Vec<String> = Vec::new();
     if s.fail > 0 {
         parts.push(rep.paint(
-            &format!("{} requirement{} failed", s.fail, if s.fail == 1 { "" } else { "s" }),
+            &format!(
+                "{} requirement{} failed",
+                s.fail,
+                if s.fail == 1 { "" } else { "s" }
+            ),
             Ink::Red,
         ));
     }
@@ -1465,8 +1559,14 @@ pub fn run_verify(
     let mut all_reports: Vec<VerifyReport> = Vec::new();
     let mut any_stale = false;
     for ast_bytes in &parsed {
-        let report = evaluate_from_bytes(ast_bytes, &evidence_dir, &stdlib_bytes, &stale_overrides, &model_index)
-            .map_err(|e| CliError::Internal(anyhow!("verify evaluate error: {}", e)))?;
+        let report = evaluate_from_bytes(
+            ast_bytes,
+            &evidence_dir,
+            &stdlib_bytes,
+            &stale_overrides,
+            &model_index,
+        )
+        .map_err(|e| CliError::Internal(anyhow!("verify evaluate error: {}", e)))?;
 
         if report.summary.stale > 0 {
             any_stale = true;
@@ -1490,7 +1590,9 @@ pub fn run_verify(
     if any_stale && !run_sims {
         // emit report then fail
         emit_report(&merged, json, color)?;
-        return Err(CliError::User("stale evidence detected (D-84); use --run-sims to re-run".into()));
+        return Err(CliError::User(
+            "stale evidence detected (D-84); use --run-sims to re-run".into(),
+        ));
     }
 
     emit_report(&merged, json, color)?;
@@ -1572,7 +1674,13 @@ fn get_ast_json(source_bytes: &[u8], filename: &str) -> Result<Vec<u8>, CliError
 /// Merge multiple VerifyReports into one (for multi-file workspaces).
 fn merge_reports(reports: Vec<VerifyReport>) -> VerifyReport {
     let mut requirements = std::collections::BTreeMap::new();
-    let mut summary = VerifySummary { pass: 0, fail: 0, partial: 0, stale: 0, total: 0 };
+    let mut summary = VerifySummary {
+        pass: 0,
+        fail: 0,
+        partial: 0,
+        stale: 0,
+        total: 0,
+    };
     for report in reports {
         for (k, v) in report.requirements {
             requirements.insert(k, v);
@@ -1583,7 +1691,10 @@ fn merge_reports(reports: Vec<VerifyReport>) -> VerifyReport {
         summary.stale += report.summary.stale;
         summary.total += report.summary.total;
     }
-    VerifyReport { requirements, summary }
+    VerifyReport {
+        requirements,
+        summary,
+    }
 }
 
 /// Emit the report as D-32 JSON envelope or human-readable text.
@@ -1667,7 +1778,10 @@ mod tests {
     #[test]
     fn max_call() {
         let c = ctx(&[("x", 10.0), ("y", 30.0), ("z", 20.0)]);
-        assert_eq!(eval_expr("max(x, y, z)", &c).unwrap(), EvalValue::Number(30.0));
+        assert_eq!(
+            eval_expr("max(x, y, z)", &c).unwrap(),
+            EvalValue::Number(30.0)
+        );
     }
 
     #[test]

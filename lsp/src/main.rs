@@ -19,13 +19,12 @@ async fn main() {
     //      launches got no extra logging.
     //   2. `DEAL_LSP_LOG` env var (e.g. DEAL_LSP_LOG=trace ./deal-lsp).
     //   3. Default: "info".
-    let cli_level: Option<String> = std::env::args().skip(1).find_map(|arg| {
-        arg.strip_prefix("--log=").map(|l| l.to_string())
-    });
+    let cli_level: Option<String> = std::env::args()
+        .skip(1)
+        .find_map(|arg| arg.strip_prefix("--log=").map(|l| l.to_string()));
     let env_filter = match cli_level {
         Some(level) => EnvFilter::new(level),
-        None => EnvFilter::try_from_env("DEAL_LSP_LOG")
-            .unwrap_or_else(|_| EnvFilter::new("info")),
+        None => EnvFilter::try_from_env("DEAL_LSP_LOG").unwrap_or_else(|_| EnvFilter::new("info")),
     };
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)

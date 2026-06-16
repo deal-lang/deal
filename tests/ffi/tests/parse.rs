@@ -52,7 +52,10 @@ fn read_diag_json(handle: *mut DealHandle) -> Vec<u8> {
     let mut ptr: *const u8 = ptr::null();
     let mut len: usize = 0;
     let ok = unsafe { deal_diagnostics_json(handle, &mut ptr, &mut len) };
-    assert!(ok, "deal_diagnostics_json returned false on a non-null handle");
+    assert!(
+        ok,
+        "deal_diagnostics_json returned false on a non-null handle"
+    );
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
     bytes.to_vec()
 }
@@ -62,8 +65,8 @@ fn read_diag_json(handle: *mut DealHandle) -> Vec<u8> {
 fn deal_root() -> std::path::PathBuf {
     // The manifest file is tests/ffi/Cargo.toml, so the package root is two
     // levels up from the CARGO_MANIFEST_DIR env var.
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR not set by Cargo");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set by Cargo");
     let mut p = std::path::PathBuf::from(manifest_dir);
     p.pop(); // tests/ffi -> tests
     p.pop(); // tests -> deal/
@@ -78,7 +81,10 @@ fn ffi_smoke() {
     let filename: &[u8] = b"test.deal";
 
     let handle = parse_into_handle(source, filename);
-    assert!(!handle.is_null(), "deal_parse returned null on empty source");
+    assert!(
+        !handle.is_null(),
+        "deal_parse returned null on empty source"
+    );
 
     let count = unsafe { deal_diagnostics_count(handle) };
     assert_eq!(count, 0, "empty source should produce zero diagnostics");
@@ -87,7 +93,10 @@ fn ffi_smoke() {
     assert_eq!(has_err, false, "empty source should report no errors");
 
     let json = read_ast_json(handle);
-    assert!(json.contains("\"v\":1"), "AST JSON missing \"v\":1 — got {json}");
+    assert!(
+        json.contains("\"v\":1"),
+        "AST JSON missing \"v\":1 — got {json}"
+    );
     assert!(
         json.contains("\"mode\":\"deal\""),
         "AST JSON missing \"mode\":\"deal\" — got {json}"
@@ -154,13 +163,19 @@ fn ffi_parse_battery_real() {
 
     // D-04 envelope.
     assert!(json.contains("\"v\":1"), "missing v:1 — got {json}");
-    assert!(json.contains("\"mode\":\"deal\""), "missing mode:deal — got {json}");
+    assert!(
+        json.contains("\"mode\":\"deal\""),
+        "missing mode:deal — got {json}"
+    );
     assert!(
         json.contains("\"filename\":\"battery.deal\""),
         "missing filename — got {json}"
     );
     // Deal file root node.
-    assert!(json.contains("\"k\":\"deal_file\""), "missing k:deal_file — got {json}");
+    assert!(
+        json.contains("\"k\":\"deal_file\""),
+        "missing k:deal_file — got {json}"
+    );
 
     unsafe { deal_free(handle) };
 }
@@ -181,8 +196,14 @@ fn ffi_parse_dealx_real() {
 
     let json = read_ast_json(handle);
 
-    assert!(json.contains("\"mode\":\"dealx\""), "missing mode:dealx — got {json}");
-    assert!(json.contains("\"k\":\"dealx_file\""), "missing k:dealx_file — got {json}");
+    assert!(
+        json.contains("\"mode\":\"dealx\""),
+        "missing mode:dealx — got {json}"
+    );
+    assert!(
+        json.contains("\"k\":\"dealx_file\""),
+        "missing k:dealx_file — got {json}"
+    );
     // vehicle.dealx contains the canonical connect example (D-09 first-class kind).
     assert!(
         json.contains("\"k\":\"comp_connect\""),
@@ -212,8 +233,12 @@ fn ffi_diagnostics_on_malformed() {
 
     // Parse diagnostics JSON via serde_json and verify structure.
     let diag_bytes = read_diag_json(handle);
-    let diags: serde_json::Value = serde_json::from_slice(&diag_bytes)
-        .unwrap_or_else(|e| panic!("diagnostics JSON parse failed: {e}\nJSON: {:?}", std::str::from_utf8(&diag_bytes)));
+    let diags: serde_json::Value = serde_json::from_slice(&diag_bytes).unwrap_or_else(|e| {
+        panic!(
+            "diagnostics JSON parse failed: {e}\nJSON: {:?}",
+            std::str::from_utf8(&diag_bytes)
+        )
+    });
 
     let arr = diags.as_array().expect("diagnostics JSON must be an array");
     assert!(!arr.is_empty(), "diagnostics array must not be empty");
@@ -251,13 +276,22 @@ fn ffi_ast_json_cache_stable() {
     let (ptr1, len1) = read_ast_json_raw(handle);
     let (ptr2, len2) = read_ast_json_raw(handle);
 
-    assert_eq!(ptr1, ptr2, "deal_ast_json must return the same pointer on second call (D-11 caching)");
-    assert_eq!(len1, len2, "deal_ast_json must return the same length on second call");
+    assert_eq!(
+        ptr1, ptr2,
+        "deal_ast_json must return the same pointer on second call (D-11 caching)"
+    );
+    assert_eq!(
+        len1, len2,
+        "deal_ast_json must return the same length on second call"
+    );
 
     // Also verify the bytes are identical.
     let bytes1 = unsafe { std::slice::from_raw_parts(ptr1, len1) };
     let bytes2 = unsafe { std::slice::from_raw_parts(ptr2, len2) };
-    assert_eq!(bytes1, bytes2, "deal_ast_json must return identical bytes on second call");
+    assert_eq!(
+        bytes1, bytes2,
+        "deal_ast_json must return identical bytes on second call"
+    );
 
     unsafe { deal_free(handle) };
 }
@@ -270,13 +304,19 @@ fn ffi_invalid_utf8() {
     let filename: &[u8] = b"invalid.deal";
 
     let handle = parse_into_handle(invalid_bytes, filename);
-    assert!(!handle.is_null(), "deal_parse must return non-null for invalid UTF-8 (D-10)");
+    assert!(
+        !handle.is_null(),
+        "deal_parse must return non-null for invalid UTF-8 (D-10)"
+    );
 
     let has_err = unsafe { deal_has_errors(handle) };
     assert!(has_err, "invalid UTF-8 must produce at least one error");
 
     let count = unsafe { deal_diagnostics_count(handle) };
-    assert_eq!(count, 1, "invalid UTF-8 must produce exactly one diagnostic (E0001)");
+    assert_eq!(
+        count, 1,
+        "invalid UTF-8 must produce exactly one diagnostic (E0001)"
+    );
 
     let diag_bytes = read_diag_json(handle);
     let diags: serde_json::Value = serde_json::from_slice(&diag_bytes)
@@ -284,7 +324,10 @@ fn ffi_invalid_utf8() {
     let arr = diags.as_array().expect("must be array");
     assert_eq!(arr.len(), 1, "must have exactly one diagnostic");
     let code = arr[0]["code"].as_str().expect("code must be string");
-    assert_eq!(code, "E0001", "invalid UTF-8 must produce E0001, got {code}");
+    assert_eq!(
+        code, "E0001",
+        "invalid UTF-8 must produce E0001, got {code}"
+    );
 
     // AST JSON: root must be null (parser not invoked on invalid UTF-8).
     let ast_json = read_ast_json(handle);

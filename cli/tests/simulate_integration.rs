@@ -24,7 +24,10 @@ fn test_simulate_battery_thermal_produces_output_json() {
     setup_battery_thermal_project(project_root);
 
     // Pre-populate input.json with valid values (bypasses IR resolution for test)
-    let ev_dir = project_root.join(".deal").join("evidence").join("battery_thermal");
+    let ev_dir = project_root
+        .join(".deal")
+        .join("evidence")
+        .join("battery_thermal");
     std::fs::create_dir_all(&ev_dir).unwrap();
 
     let input_json = serde_json::json!({
@@ -37,10 +40,7 @@ fn test_simulate_battery_thermal_produces_output_json() {
         "v": 1
     });
     let input_path = ev_dir.join("input.json");
-    std::fs::write(
-        &input_path,
-        serde_json::to_vec_pretty(&input_json).unwrap(),
-    ).unwrap();
+    std::fs::write(&input_path, serde_json::to_vec_pretty(&input_json).unwrap()).unwrap();
 
     // Dispatch the simulation directly (using the pre-built input.json)
     let entry = deal::simulate::SimEntry {
@@ -84,15 +84,20 @@ fn test_simulate_battery_thermal_produces_output_json() {
     }
 
     // Assert output.json exists
-    assert!(output_path.exists(), ".deal/evidence/battery_thermal/output.json must exist");
+    assert!(
+        output_path.exists(),
+        ".deal/evidence/battery_thermal/output.json must exist"
+    );
 
     // Parse output.json
     let output_bytes = std::fs::read(&output_path).unwrap();
-    let output_json: serde_json::Value = serde_json::from_slice(&output_bytes)
-        .expect("output.json must be valid JSON");
+    let output_json: serde_json::Value =
+        serde_json::from_slice(&output_bytes).expect("output.json must be valid JSON");
 
     // Assert output contains expected keys
-    let outputs = output_json.get("outputs").expect("output.json must have 'outputs' key");
+    let outputs = output_json
+        .get("outputs")
+        .expect("output.json must have 'outputs' key");
     assert!(
         outputs.get("heatGenerated").is_some(),
         "output.json must contain heatGenerated, got: {}",
@@ -105,7 +110,9 @@ fn test_simulate_battery_thermal_produces_output_json() {
 
     // Assert deal_sim_protocol = "v0"
     assert_eq!(
-        output_json.get("deal_sim_protocol").and_then(|v| v.as_str()),
+        output_json
+            .get("deal_sim_protocol")
+            .and_then(|v| v.as_str()),
         Some("v0"),
         "output.json must have deal_sim_protocol = 'v0'"
     );
@@ -126,7 +133,8 @@ fn test_simulate_battery_thermal_produces_output_json() {
     let heat = outputs["heatGenerated"]["value"].as_f64().unwrap();
     assert!(
         (heat - 3125.0).abs() < 1.0,
-        "heatGenerated should be ~3125.0 W (I²R), got {}", heat
+        "heatGenerated should be ~3125.0 W (I²R), got {}",
+        heat
     );
 }
 
@@ -137,7 +145,10 @@ fn test_simulate_writes_metadata_json() {
     let project_root = tmpdir.path();
     setup_battery_thermal_project(project_root);
 
-    let ev_dir = project_root.join(".deal").join("evidence").join("battery_thermal");
+    let ev_dir = project_root
+        .join(".deal")
+        .join("evidence")
+        .join("battery_thermal");
     std::fs::create_dir_all(&ev_dir).unwrap();
 
     let input_json = serde_json::json!({
@@ -189,11 +200,14 @@ fn test_simulate_writes_metadata_json() {
     }
 
     // Assert metadata.json exists
-    assert!(metadata_path.exists(), ".deal/evidence/battery_thermal/metadata.json must exist");
+    assert!(
+        metadata_path.exists(),
+        ".deal/evidence/battery_thermal/metadata.json must exist"
+    );
 
     let meta_bytes = std::fs::read(&metadata_path).unwrap();
-    let meta: serde_json::Value = serde_json::from_slice(&meta_bytes)
-        .expect("metadata.json must be valid JSON");
+    let meta: serde_json::Value =
+        serde_json::from_slice(&meta_bytes).expect("metadata.json must be valid JSON");
 
     // Assert required metadata fields
     assert_eq!(
@@ -224,7 +238,9 @@ fn test_simulate_stale_flag_skips_fresh_sims() {
     let result1 = deal::simulate::run_simulate_in(project_root, &names, false, false);
 
     match result1 {
-        Err(e) if format!("{}", e).contains("not found") || format!("{}", e).contains("skipped") => {
+        Err(e)
+            if format!("{}", e).contains("not found") || format!("{}", e).contains("skipped") =>
+        {
             // Python not available — test cannot run
             return;
         }
@@ -235,7 +251,10 @@ fn test_simulate_stale_flag_skips_fresh_sims() {
         Ok(()) => {}
     }
 
-    let ev_dir = project_root.join(".deal").join("evidence").join("battery_thermal");
+    let ev_dir = project_root
+        .join(".deal")
+        .join("evidence")
+        .join("battery_thermal");
     let metadata_path = ev_dir.join("metadata.json");
 
     // Manually inject a staleness_key into metadata.json to simulate a completed run
@@ -253,13 +272,21 @@ fn test_simulate_stale_flag_skips_fresh_sims() {
             "tool": "python",
             "tool_version": "3.x"
         });
-        std::fs::write(&metadata_path, serde_json::to_vec_pretty(&mock_meta).unwrap()).unwrap();
+        std::fs::write(
+            &metadata_path,
+            serde_json::to_vec_pretty(&mock_meta).unwrap(),
+        )
+        .unwrap();
     }
 
     // Read the current staleness_key from metadata
     let meta_bytes = std::fs::read(&metadata_path).unwrap();
     let meta: serde_json::Value = serde_json::from_slice(&meta_bytes).unwrap();
-    let stored_key = meta.get("staleness_key").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let stored_key = meta
+        .get("staleness_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     // Create a staleness marker we can detect: if the key is "deadbeef" (mock),
     // the second run with --stale will load IR values (null) and compute a different
@@ -318,7 +345,9 @@ outputs = [
 /// Get the absolute path to battery_thermal.py for use in entry field.
 fn get_battery_thermal_entry() -> String {
     let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-    let repo_root = std::path::Path::new(&manifest).parent().unwrap_or(std::path::Path::new("."));
+    let repo_root = std::path::Path::new(&manifest)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
     repo_root
         .join("spec/examples/showcase/simulations/thermal/battery_thermal.py")
         .to_string_lossy()

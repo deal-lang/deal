@@ -103,7 +103,9 @@ fn extract_identifier(attributes: quick_xml::events::attributes::Attributes<'_>)
     for attr_result in attributes.flatten() {
         let key = std::str::from_utf8(attr_result.key.as_ref()).unwrap_or("");
         if key == "IDENTIFIER" {
-            let val = attr_result.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap_or_default();
+            let val = attr_result
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .unwrap_or_default();
             if !val.is_empty() {
                 return Some(val.into_owned());
             }
@@ -135,7 +137,9 @@ fn process_start_element<'a>(
             for attr_result in attributes {
                 if let Ok(attr) = attr_result {
                     let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
-                    let val = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap_or_default();
+                    let val = attr
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                        .unwrap_or_default();
                     if key == "xmlns" && val == REQIF_NAMESPACE {
                         ns_ok = true;
                     }
@@ -160,7 +164,9 @@ fn process_start_element<'a>(
                 if let Ok(attr) = attr_result {
                     let key = std::str::from_utf8(attr.key.as_ref()).unwrap_or("");
                     if key == "IDENTIFIER" {
-                        let val = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0).unwrap_or_default();
+                        let val = attr
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                            .unwrap_or_default();
                         if !val.is_empty() {
                             has_identifier = true;
                         }
@@ -552,7 +558,9 @@ mod tests {
         assert!(result.is_err(), "wrong namespace should fail");
         let errors = result.unwrap_err();
         assert!(
-            errors.iter().any(|e| e.contains("xmlns") || e.contains("namespace") || e.contains("root element")),
+            errors.iter().any(|e| e.contains("xmlns")
+                || e.contains("namespace")
+                || e.contains("root element")),
             "error should mention namespace: {errors:?}"
         );
     }
@@ -596,7 +604,10 @@ mod tests {
   </CORE-CONTENT>
 </REQ-IF>"#;
         let result = validate_reqif_xml(xml.as_bytes());
-        assert!(result.is_err(), "SPEC-OBJECT missing IDENTIFIER should fail");
+        assert!(
+            result.is_err(),
+            "SPEC-OBJECT missing IDENTIFIER should fail"
+        );
         let errors = result.unwrap_err();
         assert!(
             errors.iter().any(|e| e.contains("IDENTIFIER")),
@@ -613,8 +624,7 @@ mod tests {
 
     #[test]
     fn reqif_schemas_dir_locatable() {
-        let dir = locate_reqif_schemas_dir()
-            .expect("should locate spec/references/omg-reqif/");
+        let dir = locate_reqif_schemas_dir().expect("should locate spec/references/omg-reqif/");
         assert!(
             dir.join("reqif.xsd").exists(),
             "reqif.xsd missing in {}",
@@ -643,7 +653,13 @@ mod tests {
     fn load_reqif_schemas_succeeds() {
         let dir = locate_reqif_schemas_dir().expect("locate reqif schemas");
         let schemas = load_reqif_schemas(&dir).expect("load_reqif_schemas failed");
-        assert!(!schemas.reqif_xsd.is_empty(), "reqif.xsd bytes must be non-empty");
-        assert!(!schemas.driver_xsd.is_empty(), "driver.xsd bytes must be non-empty");
+        assert!(
+            !schemas.reqif_xsd.is_empty(),
+            "reqif.xsd bytes must be non-empty"
+        );
+        assert!(
+            !schemas.driver_xsd.is_empty(),
+            "driver.xsd bytes must be non-empty"
+        );
     }
 }

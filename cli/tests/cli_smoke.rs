@@ -94,8 +94,7 @@ fn check_nonexistent_file_exits_two() {
 
     let exit_code = output.status.code().unwrap_or(0);
     assert_eq!(
-        exit_code,
-        2,
+        exit_code, 2,
         "deal check <nonexistent> expected exit 2 (D-34 internal) but got {}",
         exit_code,
     );

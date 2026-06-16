@@ -100,8 +100,12 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
     let (mut service, _docs, sink) = spawn_service().await;
 
     // 2. initialize handshake.
-    let init_uri = Url::from_directory_path(workspace_abs)
-        .map_err(|_| SmokeError::Handshake(format!("invalid workspace URI: {}", workspace_abs.display())))?;
+    let init_uri = Url::from_directory_path(workspace_abs).map_err(|_| {
+        SmokeError::Handshake(format!(
+            "invalid workspace URI: {}",
+            workspace_abs.display()
+        ))
+    })?;
     let init_params = InitializeParams {
         workspace_folders: Some(vec![WorkspaceFolder {
             uri: init_uri.clone(),
@@ -119,8 +123,7 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
         .map_err(|e| SmokeError::Handshake(format!("initialize call failed: {}", e)))?
         .ok_or_else(|| SmokeError::Handshake("initialize returned no response".to_string()))?;
     let (_init_id, init_result) = init_resp.into_parts();
-    init_result
-        .map_err(|e| SmokeError::Handshake(format!("initialize error: {:?}", e)))?;
+    init_result.map_err(|e| SmokeError::Handshake(format!("initialize error: {:?}", e)))?;
     println!("PHASE-3-SMOKE: initialize OK");
 
     // 3. initialized notification (no response expected).
@@ -141,18 +144,20 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
     // 5. Find a canonical .deal file to exercise capabilities against.
     //    Prefer battery.deal (the Plan 03-03 canonical test target); fall
     //    back to any .deal under workspace if not present.
-    let battery_path = workspace_abs
-        .join("packages/vehicle/battery.deal");
+    let battery_path = workspace_abs.join("packages/vehicle/battery.deal");
     let exercise_path = if battery_path.is_file() {
         battery_path
     } else {
-        find_first_deal_file(workspace_abs)
-            .ok_or_else(|| SmokeError::Capability(
-                format!("no .deal files found under {}", workspace_abs.display()),
-            ))?
+        find_first_deal_file(workspace_abs).ok_or_else(|| {
+            SmokeError::Capability(format!(
+                "no .deal files found under {}",
+                workspace_abs.display()
+            ))
+        })?
     };
-    let exercise_uri = Url::from_file_path(&exercise_path)
-        .map_err(|_| SmokeError::Capability(format!("invalid file URI: {}", exercise_path.display())))?;
+    let exercise_uri = Url::from_file_path(&exercise_path).map_err(|_| {
+        SmokeError::Capability(format!("invalid file URI: {}", exercise_path.display()))
+    })?;
     let exercise_text = std::fs::read_to_string(&exercise_path)
         .map_err(|e| SmokeError::Capability(format!("read {}: {}", exercise_path.display(), e)))?;
     println!(
@@ -199,17 +204,23 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
     // Capability 2: Completion at position (0, 0).
     {
         let req = JsonRpcRequest::build("textDocument/completion")
-            .params(serde_json::to_value(CompletionParams {
-                text_document_position: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier {
-                        uri: exercise_uri.clone(),
+            .params(
+                serde_json::to_value(CompletionParams {
+                    text_document_position: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier {
+                            uri: exercise_uri.clone(),
+                        },
+                        position: Position {
+                            line: 0,
+                            character: 0,
+                        },
                     },
-                    position: Position { line: 0, character: 0 },
-                },
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-                context: None,
-            }).unwrap())
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                    context: None,
+                })
+                .unwrap(),
+            )
             .id(2)
             .finish();
         let resp = service
@@ -218,8 +229,8 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
             .map_err(|e| SmokeError::Capability(format!("completion failed: {}", e)))?
             .ok_or_else(|| SmokeError::Capability("completion returned no response".to_string()))?;
         let (_id, result) = resp.into_parts();
-        let result = result
-            .map_err(|e| SmokeError::Capability(format!("completion error: {:?}", e)))?;
+        let result =
+            result.map_err(|e| SmokeError::Capability(format!("completion error: {:?}", e)))?;
         // Result may be null (empty completion list) — that still proves
         // the round-trip. Reject only on outright protocol error above.
         if result.is_null() {
@@ -232,16 +243,22 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
     // Capability 3: Definition at position (0, 0).
     {
         let req = JsonRpcRequest::build("textDocument/definition")
-            .params(serde_json::to_value(GotoDefinitionParams {
-                text_document_position_params: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier {
-                        uri: exercise_uri.clone(),
+            .params(
+                serde_json::to_value(GotoDefinitionParams {
+                    text_document_position_params: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier {
+                            uri: exercise_uri.clone(),
+                        },
+                        position: Position {
+                            line: 0,
+                            character: 0,
+                        },
                     },
-                    position: Position { line: 0, character: 0 },
-                },
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            }).unwrap())
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                })
+                .unwrap(),
+            )
             .id(3)
             .finish();
         let resp = service
@@ -250,23 +267,28 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
             .map_err(|e| SmokeError::Capability(format!("definition failed: {}", e)))?
             .ok_or_else(|| SmokeError::Capability("definition returned no response".to_string()))?;
         let (_id, result) = resp.into_parts();
-        result
-            .map_err(|e| SmokeError::Capability(format!("definition error: {:?}", e)))?;
+        result.map_err(|e| SmokeError::Capability(format!("definition error: {:?}", e)))?;
     }
     println!("PHASE-3-SMOKE: capability 3/5 definition OK");
 
     // Capability 4: Hover at position (0, 0).
     {
         let req = JsonRpcRequest::build("textDocument/hover")
-            .params(serde_json::to_value(HoverParams {
-                text_document_position_params: TextDocumentPositionParams {
-                    text_document: TextDocumentIdentifier {
-                        uri: exercise_uri.clone(),
+            .params(
+                serde_json::to_value(HoverParams {
+                    text_document_position_params: TextDocumentPositionParams {
+                        text_document: TextDocumentIdentifier {
+                            uri: exercise_uri.clone(),
+                        },
+                        position: Position {
+                            line: 0,
+                            character: 0,
+                        },
                     },
-                    position: Position { line: 0, character: 0 },
-                },
-                work_done_progress_params: Default::default(),
-            }).unwrap())
+                    work_done_progress_params: Default::default(),
+                })
+                .unwrap(),
+            )
             .id(4)
             .finish();
         let resp = service
@@ -275,25 +297,27 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
             .map_err(|e| SmokeError::Capability(format!("hover failed: {}", e)))?
             .ok_or_else(|| SmokeError::Capability("hover returned no response".to_string()))?;
         let (_id, result) = resp.into_parts();
-        result
-            .map_err(|e| SmokeError::Capability(format!("hover error: {:?}", e)))?;
+        result.map_err(|e| SmokeError::Capability(format!("hover error: {:?}", e)))?;
     }
     println!("PHASE-3-SMOKE: capability 4/5 hover OK");
 
     // Capability 5: Formatting (whole document).
     {
         let req = JsonRpcRequest::build("textDocument/formatting")
-            .params(serde_json::to_value(DocumentFormattingParams {
-                text_document: TextDocumentIdentifier {
-                    uri: exercise_uri.clone(),
-                },
-                options: FormattingOptions {
-                    tab_size: 2,
-                    insert_spaces: true,
-                    ..Default::default()
-                },
-                work_done_progress_params: Default::default(),
-            }).unwrap())
+            .params(
+                serde_json::to_value(DocumentFormattingParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: exercise_uri.clone(),
+                    },
+                    options: FormattingOptions {
+                        tab_size: 2,
+                        insert_spaces: true,
+                        ..Default::default()
+                    },
+                    work_done_progress_params: Default::default(),
+                })
+                .unwrap(),
+            )
             .id(5)
             .finish();
         let resp = service
@@ -302,8 +326,8 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
             .map_err(|e| SmokeError::Capability(format!("formatting failed: {}", e)))?
             .ok_or_else(|| SmokeError::Capability("formatting returned no response".to_string()))?;
         let (_id, result) = resp.into_parts();
-        let result = result
-            .map_err(|e| SmokeError::Capability(format!("formatting error: {:?}", e)))?;
+        let result =
+            result.map_err(|e| SmokeError::Capability(format!("formatting error: {:?}", e)))?;
         // Formatting result MUST be a non-null array of TextEdits (or null
         // if file is already canonically formatted). Either is acceptable
         // for the smoke — the request returning *without* error proves the
@@ -315,20 +339,25 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
     // Bonus: Semantic tokens (Plan 03-04 / 03-05 added this).
     {
         let req = JsonRpcRequest::build("textDocument/semanticTokens/full")
-            .params(serde_json::to_value(SemanticTokensParams {
-                text_document: TextDocumentIdentifier {
-                    uri: exercise_uri.clone(),
-                },
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            }).unwrap())
+            .params(
+                serde_json::to_value(SemanticTokensParams {
+                    text_document: TextDocumentIdentifier {
+                        uri: exercise_uri.clone(),
+                    },
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                })
+                .unwrap(),
+            )
             .id(6)
             .finish();
         let resp = service
             .call(req)
             .await
             .map_err(|e| SmokeError::Capability(format!("semanticTokens/full failed: {}", e)))?
-            .ok_or_else(|| SmokeError::Capability("semanticTokens/full returned no response".to_string()))?;
+            .ok_or_else(|| {
+                SmokeError::Capability("semanticTokens/full returned no response".to_string())
+            })?;
         let (_id, result) = resp.into_parts();
         let result = result
             .map_err(|e| SmokeError::Capability(format!("semanticTokens/full error: {:?}", e)))?;

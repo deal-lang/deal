@@ -28,8 +28,8 @@ pub mod reqif;
 pub mod reqif_schema;
 pub mod resolver;
 pub mod schema_registry;
-pub mod simulate;
 pub mod sims_protocol;
+pub mod simulate;
 pub mod sysml_v2;
 pub mod verify;
 
@@ -96,9 +96,7 @@ enum Command {
     /// On success: emits the raw alphabetical-keyed AST JSON directly to stdout
     /// (no D-32 envelope — per WARNING-05 Option A; payloads are emitted raw).
     /// On parse error: emits diagnostics to stderr (envelope if --json), exits 1.
-    Parse {
-        paths: Vec<std::path::PathBuf>,
-    },
+    Parse { paths: Vec<std::path::PathBuf> },
     /// Run semantic checks; exit 1 on any blocking diagnostic.
     Check {
         paths: Vec<std::path::PathBuf>,
@@ -215,7 +213,11 @@ fn color_pref(mode: ColorMode) -> reporter::ColorPref {
 ///   0 — zero error-severity diagnostics across all files.
 ///   1 — ≥1 error-severity diagnostic (User error).
 ///   2 — I/O failure, FFI failure (Internal error).
-fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) -> Result<(), CliError> {
+fn run_check(
+    paths: &[std::path::PathBuf],
+    json_mode: bool,
+    color: ColorMode,
+) -> Result<(), CliError> {
     // E2402: check for declared dependencies that have not been installed (Pitfall 4).
     // If the caller supplied a directory arg, look for deal.toml in that directory;
     // otherwise look in the current working directory.
@@ -227,8 +229,8 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
         // being present. The previous logic used the first directory arg (or `.`
         // if none), so `deal check packages/foo.deal` from outside the project
         // root silently skipped the E2402 not-installed gate.
-        let check_root: std::path::PathBuf = find_deal_toml_root(paths)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let check_root: std::path::PathBuf =
+            find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
         let toml_path = check_root.join("deal.toml");
         if toml_path.exists() {
             if let Ok(toml_bytes) = std::fs::read(&toml_path) {
@@ -236,7 +238,8 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
                     if let Ok(manifest) = toml::from_str::<resolver::DealToml>(toml_str) {
                         let deps_base = check_root.join(".deal").join("deps");
                         let stderr_choice = color_choice(color);
-                        let mut stderr = anstream::AutoStream::new(std::io::stderr(), stderr_choice);
+                        let mut stderr =
+                            anstream::AutoStream::new(std::io::stderr(), stderr_choice);
                         let mut missing = false;
                         for (name, dep) in &manifest.dependencies {
                             if matches!(dep, resolver::Dependency::Git { .. }) {
@@ -307,7 +310,8 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
                     if packages_dir.is_dir() {
                         let dep_sources = collect_deal_files_recursive(&packages_dir);
                         if dep_sources.is_empty() {
-                            let dep_name = dep_dir.file_name().unwrap_or_default().to_string_lossy();
+                            let dep_name =
+                                dep_dir.file_name().unwrap_or_default().to_string_lossy();
                             let _ = writeln!(
                                 stderr,
                                 "warning: dependency '{}' has no .deal sources under packages/",
@@ -376,8 +380,7 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
     // not a workspace index. Phase 3 LSP / explicit `--workspace` flag will
     // generalize this; for Phase 2 closeout the directory-arg convention
     // exactly matches SPEC §criterion 1's example (`deal check tests/showcase/`).
-    let workspace_root: Option<std::path::PathBuf> =
-        paths.iter().find(|p| p.is_dir()).cloned();
+    let workspace_root: Option<std::path::PathBuf> = paths.iter().find(|p| p.is_dir()).cloned();
 
     // Collect per-file results.
     let mut all_diagnostics: Vec<serde_json::Value> = Vec::new();
@@ -390,9 +393,8 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
 
     for path in &resolved_paths {
         // Read source bytes — I/O failures are Internal errors.
-        let source_bytes = std::fs::read(path).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e))
-        })?;
+        let source_bytes = std::fs::read(path)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e)))?;
 
         let filename = path.to_string_lossy();
 
@@ -437,7 +439,11 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
         };
 
         if handle.is_null() {
-            let fn_name = if use_stdlib_check { "deal_check_with_stdlib" } else { "deal_parse" };
+            let fn_name = if use_stdlib_check {
+                "deal_check_with_stdlib"
+            } else {
+                "deal_parse"
+            };
             return Err(CliError::Internal(anyhow::anyhow!(
                 "{} returned null for {:?} (OOM)",
                 fn_name,
@@ -498,8 +504,10 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
 
         // Parse the diagnostic JSON array from Zig's output.
         // The Zig side guarantees a JSON array of diagnostic objects.
-        let diag_array: serde_json::Value = serde_json::from_slice(&diag_json_owned)
-            .map_err(|e| CliError::Internal(anyhow::anyhow!("diagnostic JSON parse error: {}", e)))?;
+        let diag_array: serde_json::Value =
+            serde_json::from_slice(&diag_json_owned).map_err(|e| {
+                CliError::Internal(anyhow::anyhow!("diagnostic JSON parse error: {}", e))
+            })?;
 
         let diags = match diag_array.as_array() {
             Some(a) => a,
@@ -609,19 +617,13 @@ fn run_check(paths: &[std::path::PathBuf], json_mode: bool, color: ColorMode) ->
         });
         let index_dir = workspace_root.join(".deal");
         std::fs::create_dir_all(&index_dir).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!(
-                "cannot create {:?}: {}",
-                index_dir,
-                e
-            ))
+            CliError::Internal(anyhow::anyhow!("cannot create {:?}: {}", index_dir, e))
         })?;
         let index_path = index_dir.join("index.json");
-        let serialized = serde_json::to_vec(&workspace_index).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("workspace index serialize: {}", e))
-        })?;
-        std::fs::write(&index_path, &serialized).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("write {:?}: {}", index_path, e))
-        })?;
+        let serialized = serde_json::to_vec(&workspace_index)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("workspace index serialize: {}", e)))?;
+        std::fs::write(&index_path, &serialized)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("write {:?}: {}", index_path, e)))?;
     }
 
     // Phase 6 CLI richness: on a clean human-mode run, emit the staged summary
@@ -715,9 +717,8 @@ fn run_fmt(
     let mut would_change = false;
 
     for path in paths {
-        let source_bytes = std::fs::read(path).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e))
-        })?;
+        let source_bytes = std::fs::read(path)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e)))?;
         let filename = path.to_string_lossy().into_owned();
         let formatted = fmt_source(&source_bytes, &filename, json_mode, &mut stderr)?;
 
@@ -824,7 +825,8 @@ fn fmt_source(
             if !ok {
                 ffi::deal_free(handle);
                 return Err(CliError::Internal(anyhow::anyhow!(
-                    "deal_diagnostics_json OOM for {:?}", filename
+                    "deal_diagnostics_json OOM for {:?}",
+                    filename
                 )));
             }
             let bytes = std::slice::from_raw_parts(out_ptr, out_len).to_vec();
@@ -834,11 +836,11 @@ fn fmt_source(
 
         if json_mode {
             // Emit D-32 envelope to stdout.
-            let all_diagnostics: serde_json::Value =
-                serde_json::from_slice(&diag_json_owned).unwrap_or(serde_json::Value::Array(vec![]));
+            let all_diagnostics: serde_json::Value = serde_json::from_slice(&diag_json_owned)
+                .unwrap_or(serde_json::Value::Array(vec![]));
             let deal_version = env!("CARGO_PKG_VERSION");
-            let diags_json = serde_json::to_string(&all_diagnostics)
-                .unwrap_or_else(|_| "[]".to_string());
+            let diags_json =
+                serde_json::to_string(&all_diagnostics).unwrap_or_else(|_| "[]".to_string());
             let stdout_choice = anstream::ColorChoice::Never;
             let mut stdout = anstream::AutoStream::new(std::io::stdout(), stdout_choice);
             let _ = write!(
@@ -849,8 +851,8 @@ fn fmt_source(
             let _ = writeln!(stdout);
         } else {
             let source_str = std::str::from_utf8(source_bytes).unwrap_or("");
-            let all_diagnostics: serde_json::Value =
-                serde_json::from_slice(&diag_json_owned).unwrap_or(serde_json::Value::Array(vec![]));
+            let all_diagnostics: serde_json::Value = serde_json::from_slice(&diag_json_owned)
+                .unwrap_or(serde_json::Value::Array(vec![]));
             if let Some(diags) = all_diagnostics.as_array() {
                 for diag in diags {
                     let _ = render::render_diagnostic(stderr, source_str, diag);
@@ -869,7 +871,8 @@ fn fmt_source(
         if !ok {
             ffi::deal_free(handle);
             return Err(CliError::Internal(anyhow::anyhow!(
-                "deal_format failed (OOM) for {:?}", filename
+                "deal_format failed (OOM) for {:?}",
+                filename
             )));
         }
         // Clone bytes BEFORE deal_free (Pitfall 3 / T-02-29).
@@ -884,14 +887,11 @@ fn fmt_source(
 /// Write `data` to `path` atomically using a temp file + rename.
 /// On failure (e.g. cross-device rename), falls back to plain write.
 fn write_file_atomic(path: &std::path::Path, data: &[u8]) -> Result<(), CliError> {
-
     // Create temp file in the same directory to ensure same filesystem for rename.
     let parent = path.parent().unwrap_or(std::path::Path::new("."));
     let tmp_path = parent.join(format!(
         ".deal_fmt_tmp_{}_{}",
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("file"),
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("file"),
         std::process::id()
     ));
 
@@ -899,13 +899,17 @@ fn write_file_atomic(path: &std::path::Path, data: &[u8]) -> Result<(), CliError
     {
         let mut tmp_file = std::fs::File::create(&tmp_path).map_err(|e| {
             CliError::Internal(anyhow::anyhow!(
-                "cannot create temp file {:?}: {}", tmp_path, e
+                "cannot create temp file {:?}: {}",
+                tmp_path,
+                e
             ))
         })?;
         tmp_file.write_all(data).map_err(|e| {
             let _ = std::fs::remove_file(&tmp_path);
             CliError::Internal(anyhow::anyhow!(
-                "cannot write temp file {:?}: {}", tmp_path, e
+                "cannot write temp file {:?}: {}",
+                tmp_path,
+                e
             ))
         })?;
     }
@@ -914,7 +918,10 @@ fn write_file_atomic(path: &std::path::Path, data: &[u8]) -> Result<(), CliError
     std::fs::rename(&tmp_path, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp_path);
         CliError::Internal(anyhow::anyhow!(
-            "cannot rename {:?} to {:?}: {}", tmp_path, path, e
+            "cannot rename {:?} to {:?}: {}",
+            tmp_path,
+            path,
+            e
         ))
     })?;
 
@@ -953,9 +960,8 @@ fn run_parse(
 
     for path in paths {
         // I/O failures are Internal errors (exit 2).
-        let source_bytes = std::fs::read(path).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e))
-        })?;
+        let source_bytes = std::fs::read(path)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e)))?;
         let filename = path.to_string_lossy();
 
         // Call FFI parse. SAFETY: source_bytes is alive for the duration.
@@ -1017,12 +1023,11 @@ fn run_parse(
             // Parse error path — emit diagnostics, DO NOT emit AST to stdout.
             if json_mode {
                 // Emit D-32 envelope to STDERR (not stdout) — diagnostics path.
-                let all_diagnostics: serde_json::Value =
-                    serde_json::from_slice(&diag_json_owned)
-                        .unwrap_or(serde_json::Value::Array(vec![]));
+                let all_diagnostics: serde_json::Value = serde_json::from_slice(&diag_json_owned)
+                    .unwrap_or(serde_json::Value::Array(vec![]));
                 let deal_version = env!("CARGO_PKG_VERSION");
-                let diags_json = serde_json::to_string(&all_diagnostics)
-                    .unwrap_or_else(|_| "[]".to_string());
+                let diags_json =
+                    serde_json::to_string(&all_diagnostics).unwrap_or_else(|_| "[]".to_string());
 
                 // Count errors/warnings/hints.
                 let mut err_count: u64 = 0;
@@ -1048,9 +1053,8 @@ fn run_parse(
             } else {
                 // Human mode: render diagnostics to stderr.
                 let source_str = std::str::from_utf8(&source_bytes).unwrap_or("");
-                let all_diagnostics: serde_json::Value =
-                    serde_json::from_slice(&diag_json_owned)
-                        .unwrap_or(serde_json::Value::Array(vec![]));
+                let all_diagnostics: serde_json::Value = serde_json::from_slice(&diag_json_owned)
+                    .unwrap_or(serde_json::Value::Array(vec![]));
                 if let Some(diags) = all_diagnostics.as_array() {
                     for diag in diags {
                         let _ = render::render_diagnostic(&mut stderr, source_str, diag);
@@ -1068,7 +1072,8 @@ fn run_parse(
         // to stdout on success (--json is a no-op for the success path in Phase 2).
         let stdout_choice = color_choice(ColorMode::Never); // JSON output: no color codes
         let mut stdout = anstream::AutoStream::new(std::io::stdout(), stdout_choice);
-        stdout.write_all(&ast_json_owned)
+        stdout
+            .write_all(&ast_json_owned)
             .map_err(|e| CliError::Internal(anyhow::anyhow!("stdout write error: {}", e)))?;
         writeln!(stdout)
             .map_err(|e| CliError::Internal(anyhow::anyhow!("stdout write error: {}", e)))?;
@@ -1122,27 +1127,25 @@ fn collect_deal_files_recursive(dir: &std::path::Path) -> Vec<std::path::PathBuf
     out
 }
 
-fn expand_path_args(
-    paths: &[std::path::PathBuf],
-) -> Result<Vec<std::path::PathBuf>, CliError> {
+fn expand_path_args(paths: &[std::path::PathBuf]) -> Result<Vec<std::path::PathBuf>, CliError> {
     let mut out = Vec::new();
     let mut stack: Vec<std::path::PathBuf> = paths.iter().rev().cloned().collect();
     while let Some(p) = stack.pop() {
-        let meta = std::fs::metadata(&p).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("cannot stat {:?}: {}", p, e))
-        })?;
+        let meta = std::fs::metadata(&p)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot stat {:?}: {}", p, e)))?;
         if meta.is_dir() {
             let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&p)
-                .map_err(|e| {
-                    CliError::Internal(anyhow::anyhow!("cannot read dir {:?}: {}", p, e))
-                })?
+                .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read dir {:?}: {}", p, e)))?
                 .filter_map(|r| r.ok().map(|e| e.path()))
                 .collect();
             entries.sort();
             for entry in entries.into_iter().rev() {
                 stack.push(entry);
             }
-        } else if matches!(p.extension().and_then(|e| e.to_str()), Some("deal" | "dealx")) {
+        } else if matches!(
+            p.extension().and_then(|e| e.to_str()),
+            Some("deal" | "dealx")
+        ) {
             out.push(p);
         }
     }
@@ -1208,9 +1211,8 @@ fn run_build(
     let mut any_sema_errors = false;
 
     for path in &resolved_paths {
-        let source_bytes = std::fs::read(path).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e))
-        })?;
+        let source_bytes = std::fs::read(path)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e)))?;
         let filename = path.to_string_lossy();
 
         // Call FFI parse (includes sema).
@@ -1276,7 +1278,11 @@ fn run_build(
 
         // Parse IR JSON and emit SysML v2.
         let sysml_val = sysml_v2::emit_from_bytes(&ir_json_owned).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("SysML v2 emit failed for {:?}: {}", path, e))
+            CliError::Internal(anyhow::anyhow!(
+                "SysML v2 emit failed for {:?}: {}",
+                path,
+                e
+            ))
         })?;
 
         // Collect all ownedRelationship elements from this file's Package.
@@ -1309,9 +1315,10 @@ fn run_build(
                 for err in &errors {
                     let _ = writeln!(stderr, "validation error: {}", err);
                 }
-                return Err(CliError::User(
-                    format!("SysML v2 validation failed ({} error(s))", errors.len())
-                ));
+                return Err(CliError::User(format!(
+                    "SysML v2 validation failed ({} error(s))",
+                    errors.len()
+                )));
             }
         }
     }
@@ -1327,9 +1334,8 @@ fn run_build(
         })?;
     }
 
-    let output_json = serde_json::to_string_pretty(&consolidated).map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("JSON serialization error: {}", e))
-    })?;
+    let output_json = serde_json::to_string_pretty(&consolidated)
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("JSON serialization error: {}", e)))?;
 
     std::fs::write(&output_path, output_json).map_err(|e| {
         CliError::Internal(anyhow::anyhow!(
@@ -1386,9 +1392,8 @@ fn run_build_reqif(
     let mut any_sema_errors = false;
 
     for path in &resolved_paths {
-        let source_bytes = std::fs::read(path).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e))
-        })?;
+        let source_bytes = std::fs::read(path)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e)))?;
         let filename = path.to_string_lossy();
 
         // FFI parse (includes sema).
@@ -1414,16 +1419,11 @@ fn run_build_reqif(
             any_sema_errors = true;
             let mut out_ptr: *const u8 = std::ptr::null();
             let mut out_len: usize = 0;
-            let diag_ok = unsafe {
-                ffi::deal_diagnostics_json(handle, &mut out_ptr, &mut out_len)
-            };
+            let diag_ok = unsafe { ffi::deal_diagnostics_json(handle, &mut out_ptr, &mut out_len) };
             if diag_ok && !out_ptr.is_null() {
-                let diag_bytes =
-                    unsafe { std::slice::from_raw_parts(out_ptr, out_len).to_vec() };
+                let diag_bytes = unsafe { std::slice::from_raw_parts(out_ptr, out_len).to_vec() };
                 unsafe { ffi::deal_free(handle) };
-                if let Ok(diag_val) =
-                    serde_json::from_slice::<serde_json::Value>(&diag_bytes)
-                {
+                if let Ok(diag_val) = serde_json::from_slice::<serde_json::Value>(&diag_bytes) {
                     if let Some(diags) = diag_val.as_array() {
                         let source_str = std::str::from_utf8(&source_bytes).unwrap_or("");
                         for diag in diags {
@@ -1478,16 +1478,13 @@ fn run_build_reqif(
         "ir_version": "v0",
         "v": 1
     });
-    let merged_bytes =
-        serde_json::to_vec(&merged_ir).map_err(|e| {
-            CliError::Internal(anyhow::anyhow!("IR JSON re-serialization error: {}", e))
-        })?;
+    let merged_bytes = serde_json::to_vec(&merged_ir).map_err(|e| {
+        CliError::Internal(anyhow::anyhow!("IR JSON re-serialization error: {}", e))
+    })?;
 
     // Emit and write .reqifz (structural validation runs inside emit_from_bytes).
-    let (req_count, rel_count) =
-        reqif::emit_from_bytes(&merged_bytes, &output_path).map_err(|e| {
-            CliError::User(format!("ReqIF build failed: {}", e))
-        })?;
+    let (req_count, rel_count) = reqif::emit_from_bytes(&merged_bytes, &output_path)
+        .map_err(|e| CliError::User(format!("ReqIF build failed: {}", e)))?;
 
     // Success message (UI-SPEC §CLI Copywriting).
     use owo_colors::OwoColorize;
@@ -1511,17 +1508,13 @@ fn run_build_reqif(
 /// Infer the output path for the ReqIF .reqifz archive.
 ///
 /// Default: `<repo_root>/build/reqif/model.reqifz`
-fn infer_reqif_output_path(
-    paths: &[std::path::PathBuf],
-) -> Result<std::path::PathBuf, CliError> {
+fn infer_reqif_output_path(paths: &[std::path::PathBuf]) -> Result<std::path::PathBuf, CliError> {
     let base_dir: std::path::PathBuf = if paths.is_empty() {
         std::env::current_dir().map_err(|e| {
             CliError::Internal(anyhow::anyhow!("cannot get current directory: {}", e))
         })?
     } else {
-        let first = paths[0]
-            .canonicalize()
-            .unwrap_or_else(|_| paths[0].clone());
+        let first = paths[0].canonicalize().unwrap_or_else(|_| paths[0].clone());
         let mut found: Option<std::path::PathBuf> = None;
         let mut dir = first.as_path();
         loop {
@@ -1575,7 +1568,9 @@ fn find_deal_toml_root(paths: &[std::path::PathBuf]) -> Option<std::path::PathBu
         let start: &std::path::Path = if canonical.is_dir() {
             canonical.as_path()
         } else {
-            canonical.parent().unwrap_or_else(|| std::path::Path::new("."))
+            canonical
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
         };
         let mut dir = start;
         loop {
@@ -1599,9 +1594,7 @@ fn infer_output_path(paths: &[std::path::PathBuf]) -> Result<std::path::PathBuf,
         })?
     } else {
         // Walk up from first path to find repo root (contains Cargo.toml).
-        let first = paths[0]
-            .canonicalize()
-            .unwrap_or_else(|_| paths[0].clone());
+        let first = paths[0].canonicalize().unwrap_or_else(|_| paths[0].clone());
         let mut found: Option<std::path::PathBuf> = None;
         let mut dir = first.as_path();
         loop {
@@ -1615,7 +1608,8 @@ fn infer_output_path(paths: &[std::path::PathBuf]) -> Result<std::path::PathBuf,
             }
         }
         found.unwrap_or_else(|| {
-            first.parent()
+            first
+                .parent()
                 .unwrap_or_else(|| std::path::Path::new("."))
                 .to_path_buf()
         })
@@ -1629,9 +1623,7 @@ fn infer_output_path(paths: &[std::path::PathBuf]) -> Result<std::path::PathBuf,
         base_dir.join("build")
     };
 
-    Ok(output_base
-        .join("sysml-v2")
-        .join("showcase.sysml-v2.json"))
+    Ok(output_base.join("sysml-v2").join("showcase.sysml-v2.json"))
 }
 
 // ─── Starter model sources (D-69) ────────────────────────────────────────────
@@ -1738,9 +1730,8 @@ fn run_init(name_opt: Option<String>, _json: bool, color: ColorMode) -> Result<(
 
     // ── .gitignore ──
     let gitignore_content = ".deal/\n";
-    std::fs::write(project_dir.join(".gitignore"), gitignore_content).map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("cannot write .gitignore: {}", e))
-    })?;
+    std::fs::write(project_dir.join(".gitignore"), gitignore_content)
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot write .gitignore: {}", e)))?;
 
     // ── deal.toml ──
     // [project] + [workspace] + [dependencies] with deal-std git dep (D-67).
@@ -1762,16 +1753,26 @@ packages = ["definitions/*", "model"]
 deal-std = {{ git = "https://github.com/deal-lang/deal-stdlib", tag = "{DEFAULT_STDLIB_TAG}" }}
 "#
     );
-    std::fs::write(project_dir.join("deal.toml"), &deal_toml_content).map_err(|e| {
-        CliError::Internal(anyhow::anyhow!("cannot write deal.toml: {}", e))
-    })?;
+    std::fs::write(project_dir.join("deal.toml"), &deal_toml_content)
+        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot write deal.toml: {}", e)))?;
 
     // ── Starter model files (D-69) ──
-    std::fs::write(project_dir.join("definitions").join("starter.deal"), STARTER_DEAL)
-        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot write definitions/starter.deal: {}", e)))?;
+    std::fs::write(
+        project_dir.join("definitions").join("starter.deal"),
+        STARTER_DEAL,
+    )
+    .map_err(|e| {
+        CliError::Internal(anyhow::anyhow!(
+            "cannot write definitions/starter.deal: {}",
+            e
+        ))
+    })?;
 
-    std::fs::write(project_dir.join("model").join("starter.dealx"), STARTER_DEALX)
-        .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot write model/starter.dealx: {}", e)))?;
+    std::fs::write(
+        project_dir.join("model").join("starter.dealx"),
+        STARTER_DEALX,
+    )
+    .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot write model/starter.dealx: {}", e)))?;
 
     // ── Print success messages (UI-SPEC §CLI Copywriting) ──
     // Success green: "deal init: project '{name}' created in ./{name}/"
@@ -1828,10 +1829,7 @@ fn run_install(_json: bool, color: ColorMode) -> Result<(), CliError> {
     for (name, dep) in &manifest.dependencies {
         if let resolver::Dependency::Git { git, tag, .. } = dep {
             let version_str = tag.as_deref().unwrap_or("HEAD");
-            let _ = writeln!(
-                stdout,
-                "Downloading {name} v{version_str} from {git}..."
-            );
+            let _ = writeln!(stdout, "Downloading {name} v{version_str} from {git}...");
         }
     }
 
@@ -1877,7 +1875,12 @@ fn run_install(_json: bool, color: ColorMode) -> Result<(), CliError> {
 fn run(cli: Cli) -> Result<(), CliError> {
     match cli.command {
         Command::Parse { paths } => run_parse(&paths, cli.json, cli.color),
-        Command::Check { paths, verify, simulations, run_sims } => {
+        Command::Check {
+            paths,
+            verify,
+            simulations,
+            run_sims,
+        } => {
             // --verify and --simulations are Phase 5 flags; run_check ignores them
             // in Wave 0 (stub dispatch). Plan 05 wires --verify; Plan 03 wires --simulations.
             if verify {
@@ -1888,15 +1891,23 @@ fn run(cli: Cli) -> Result<(), CliError> {
             }
             run_check(&paths, cli.json, cli.color)
         }
-        Command::Fmt { paths, check, stdout } => {
-            run_fmt(&paths, check, stdout, cli.json, cli.color)
-        }
-        Command::Build { target: BuildTarget::SysmlV2, validate, output, paths } => {
-            run_build(&paths, validate, cli.json, cli.color, output.as_deref())
-        }
-        Command::Build { target: BuildTarget::Reqif, validate, output, paths } => {
-            run_build_reqif(&paths, validate, cli.json, cli.color, output.as_deref())
-        }
+        Command::Fmt {
+            paths,
+            check,
+            stdout,
+        } => run_fmt(&paths, check, stdout, cli.json, cli.color),
+        Command::Build {
+            target: BuildTarget::SysmlV2,
+            validate,
+            output,
+            paths,
+        } => run_build(&paths, validate, cli.json, cli.color, output.as_deref()),
+        Command::Build {
+            target: BuildTarget::Reqif,
+            validate,
+            output,
+            paths,
+        } => run_build_reqif(&paths, validate, cli.json, cli.color, output.as_deref()),
         Command::Init { name } => run_init(name, cli.json, cli.color),
         Command::Install => run_install(cli.json, cli.color),
         Command::Simulate { names, all, stale } => {
@@ -1915,19 +1926,15 @@ fn main() -> std::process::ExitCode {
             // the diagnostics were already rendered above).
             let msg = format!("{}", e);
             if !msg.is_empty() {
-                let mut stderr = anstream::AutoStream::new(
-                    std::io::stderr(),
-                    anstream::ColorChoice::Auto,
-                );
+                let mut stderr =
+                    anstream::AutoStream::new(std::io::stderr(), anstream::ColorChoice::Auto);
                 let _ = writeln!(stderr, "error: {}", msg);
             }
             std::process::ExitCode::from(1)
         }
         Err(e) => {
-            let mut stderr = anstream::AutoStream::new(
-                std::io::stderr(),
-                anstream::ColorChoice::Auto,
-            );
+            let mut stderr =
+                anstream::AutoStream::new(std::io::stderr(), anstream::ColorChoice::Auto);
             let _ = writeln!(stderr, "error: {}", e);
             std::process::ExitCode::from(2)
         }

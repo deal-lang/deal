@@ -90,7 +90,8 @@ fn check_workspace_writes_index_json_with_alphabetical_keys() {
 
     let exit_code = output.status.code().unwrap_or(99);
     assert_eq!(
-        exit_code, 0,
+        exit_code,
+        0,
         "deal check on showcase expected exit 0 but got {}\nstderr: {}\nstdout: {}",
         exit_code,
         String::from_utf8_lossy(&output.stderr),

@@ -104,7 +104,12 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Value> {
         let kind = edge_val["kind"].as_str().unwrap_or("");
         let subaction_kind = edge_val.get("subaction_kind").and_then(|v| v.as_str());
         if !src.is_empty() && !dst.is_empty() && !kind.is_empty() {
-            edges.push(IrEdge { src, dst, kind, subaction_kind });
+            edges.push(IrEdge {
+                src,
+                dst,
+                kind,
+                subaction_kind,
+            });
         }
     }
 
@@ -119,7 +124,11 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Value> {
     for (id, node_val) in elements_map {
         let kind = node_val["kind"].as_str().unwrap_or("");
         let payload = &node_val["payload"];
-        nodes.push(IrNode { id: id.as_str(), kind, payload });
+        nodes.push(IrNode {
+            id: id.as_str(),
+            kind,
+            payload,
+        });
     }
 
     // Sort nodes by id for deterministic output (alphabetical element order).
@@ -212,30 +221,50 @@ fn emit_node<'a>(
         //    8.3.17.4 anchors the family emit shape.
         "action_usage" => emit_typed_with_members(node, "ActionUsage", outgoing, node_map), // 8.3.17.4
         "control_node" => emit_typed_with_members(node, "ActionUsage", outgoing, node_map), // stdlib control (start/done)
-        "terminate_action" => emit_typed_with_members(node, "TerminateActionUsage", outgoing, node_map), // 8.3.17.16
+        "terminate_action" => {
+            emit_typed_with_members(node, "TerminateActionUsage", outgoing, node_map)
+        } // 8.3.17.16
         "send_action" => emit_typed_with_members(node, "SendActionUsage", outgoing, node_map), // 8.3.17.15
         "accept_action" => emit_typed_with_members(node, "AcceptActionUsage", outgoing, node_map), // 8.3.17.2
-        "assign_action" => emit_typed_with_members(node, "AssignmentActionUsage", outgoing, node_map), // 8.3.17.5
+        "assign_action" => {
+            emit_typed_with_members(node, "AssignmentActionUsage", outgoing, node_map)
+        } // 8.3.17.5
         "perform_action" => emit_typed_with_members(node, "PerformActionUsage", outgoing, node_map), // 8.3.17.14
-        "while_loop_action" => emit_typed_with_members(node, "WhileLoopActionUsage", outgoing, node_map), // 8.3.17.19
-        "for_loop_action" => emit_typed_with_members(node, "ForLoopActionUsage", outgoing, node_map), // 8.3.17.9
+        "while_loop_action" => {
+            emit_typed_with_members(node, "WhileLoopActionUsage", outgoing, node_map)
+        } // 8.3.17.19
+        "for_loop_action" => {
+            emit_typed_with_members(node, "ForLoopActionUsage", outgoing, node_map)
+        } // 8.3.17.9
         "decision_node" => emit_typed_with_members(node, "DecisionNode", outgoing, node_map), // 8.3.17.7
         "merge_node" => emit_typed_with_members(node, "MergeNode", outgoing, node_map), // 8.3.17.13
-        "fork_node" => emit_typed_with_members(node, "ForkNode", outgoing, node_map), // 8.3.17.8
-        "join_node" => emit_typed_with_members(node, "JoinNode", outgoing, node_map), // 8.3.17.11
-        "state_usage" => emit_state(node, "StateUsage", outgoing, node_map), // 8.3.18.6
+        "fork_node" => emit_typed_with_members(node, "ForkNode", outgoing, node_map),   // 8.3.17.8
+        "join_node" => emit_typed_with_members(node, "JoinNode", outgoing, node_map),   // 8.3.17.11
+        "state_usage" => emit_state(node, "StateUsage", outgoing, node_map),            // 8.3.18.6
         "transition" => emit_transition(node), // 8.3.18.9 (TransitionUsage)
-        "pin" => emit_pin(node), // 8.3.6.3 (ReferenceUsage + FeatureDirectionKind)
+        "pin" => emit_pin(node),               // 8.3.6.3 (ReferenceUsage + FeatureDirectionKind)
         // ── Expression surface (IR v0.2, S3.3) — KerML Expression metaclasses;
         //    SysML inherits them. Clause cited per arm, derived slots untouched,
         //    8.4 implied relationships injected. See expression-mapping.md §1.
         "operator_expr" => emit_operator_expr(node, outgoing, node_map), // KerML 8.3.4.8.17 / FeatureChain 8.3.4.8.4
         "feature_ref_expr" => emit_feature_ref_expr(node), // KerML 8.3.4.8.5 / 8.3.4.8.4
-        "literal_expr" => emit_literal_expr(node), // KerML 8.3.4.8.9/.12/.13/.14
+        "literal_expr" => emit_literal_expr(node),         // KerML 8.3.4.8.9/.12/.13/.14
         "invocation_expr" => emit_invocation_expr(node, outgoing, node_map), // KerML 8.3.4.8.8 / SysML 8.3.17.17
-        "use_case_def"
-        | "allocation_def" | "allocate" | "annotation" | "validate" | "subsystem"
-        | "system" => emit_generic_element(node),
+        // P1 WS-F: real metaclasses (wiki-verified), no longer generic.
+        // use_case_def → UseCaseDefinition (8.3.25.3, specializes
+        // CaseDefinition ▸ CalculationDefinition ▸ ActionDefinition ▸ Behavior).
+        // Body members (subject/actor/pre/postcondition) are carried as owned
+        // FeatureMemberships by emit_typed_with_members; bespoke
+        // Subject/Actor/RequirementConstraint membership typing is a refinement.
+        "use_case_def" => emit_typed_with_members(node, "UseCaseDefinition", outgoing, node_map),
+        // allocation_def → AllocationDefinition (8.3.15.2, specializes
+        // ConnectionDefinition ▸ … ▸ AssociationStructure).
+        "allocation_def" => {
+            emit_typed_with_members(node, "AllocationDefinition", outgoing, node_map)
+        }
+        "allocate" | "annotation" | "validate" | "subsystem" | "system" => {
+            emit_generic_element(node)
+        }
         "constraint_def" => emit_constraint_def(node),
         "calc_def" => emit_calc_def(node, outgoing, node_map, all_edges),
         _ => emit_generic_element(node),
@@ -253,7 +282,10 @@ fn base_fields(id: &str, sysml_type: &str) -> Map<String, Value> {
     m.insert("@type".to_string(), json!(sysml_type));
     m.insert("declaredName".to_string(), json!(local_name(id)));
     m.insert("elementId".to_string(), json!(uuid));
-    m.insert("qualifiedName".to_string(), json!(deal_id_to_qualified_name(id)));
+    m.insert(
+        "qualifiedName".to_string(),
+        json!(deal_id_to_qualified_name(id)),
+    );
     m
 }
 
@@ -424,7 +456,12 @@ fn emit_transition(node: &IrNode) -> anyhow::Result<Value> {
     // (8.3.18.8 validateTransitionFeatureMembershipTriggerAction).
     if let Some(trig) = node.payload.get("trigger_ref").and_then(|v| v.as_str()) {
         if !trig.is_empty() {
-            owned_rels.push(transition_feature_membership(node.id, "trigger", "AcceptActionUsage", trig));
+            owned_rels.push(transition_feature_membership(
+                node.id,
+                "trigger",
+                "AcceptActionUsage",
+                trig,
+            ));
         }
     }
     // guard: guard_expr is the id of the lowered Boolean-valued Expression node
@@ -455,7 +492,9 @@ fn emit_transition(node: &IrNode) -> anyhow::Result<Value> {
 /// references an already-emitted top-level element (the lowered expression node)
 /// by `@id`. `kind` is authored; `transitionFeature` is derived.
 fn transition_feature_membership_ref(transition_id: &str, kind: &str, ref_id: &str) -> Value {
-    let fm_uuid = deal_id_to_uuid(&format!("{transition_id}--TransitionFeatureMembership--{kind}"));
+    let fm_uuid = deal_id_to_uuid(&format!(
+        "{transition_id}--TransitionFeatureMembership--{kind}"
+    ));
     json!({
         "@id": fm_uuid,
         "@type": "TransitionFeatureMembership",
@@ -470,7 +509,12 @@ fn transition_feature_membership_ref(transition_id: &str, kind: &str, ref_id: &s
 /// for effects. `kind` and the owned feature are authored; `transitionFeature`
 /// is derived. `ref_text` is the IR trigger/effect text; its leading identifier
 /// becomes the feature's declaredName.
-fn transition_feature_membership(transition_id: &str, kind: &str, feat_type: &str, ref_text: &str) -> Value {
+fn transition_feature_membership(
+    transition_id: &str,
+    kind: &str,
+    feat_type: &str,
+    ref_text: &str,
+) -> Value {
     let feat_id = format!("{transition_id}--{kind}");
     let feat_uuid = deal_id_to_uuid(&feat_id);
     let name = ref_text.split('(').next().unwrap_or(ref_text).trim();
@@ -482,7 +526,9 @@ fn transition_feature_membership(transition_id: &str, kind: &str, feat_type: &st
         "ownedRelationship": [],
         "qualifiedName": deal_id_to_qualified_name(&feat_id),
     });
-    let fm_uuid = deal_id_to_uuid(&format!("{transition_id}--TransitionFeatureMembership--{kind}"));
+    let fm_uuid = deal_id_to_uuid(&format!(
+        "{transition_id}--TransitionFeatureMembership--{kind}"
+    ));
     json!({
         "@id": fm_uuid,
         "@type": "TransitionFeatureMembership",
@@ -530,7 +576,11 @@ fn emit_feature_ref_expr(node: &IrNode) -> anyhow::Result<Value> {
         .and_then(|v| v.as_array())
         .map(|a| a.iter().filter_map(|s| s.as_str()).collect())
         .unwrap_or_default();
-    let sysml_type = if segs.len() >= 2 { "FeatureChainExpression" } else { "FeatureReferenceExpression" };
+    let sysml_type = if segs.len() >= 2 {
+        "FeatureChainExpression"
+    } else {
+        "FeatureReferenceExpression"
+    };
     let mut m = base_fields(node.id, sysml_type);
     if !segs.is_empty() {
         m.insert("declaredName".to_string(), json!(segs.join(".")));
@@ -543,16 +593,28 @@ fn emit_feature_ref_expr(node: &IrNode) -> anyhow::Result<Value> {
 /// (8.3.4.8.9/.12/.13/.14). Authored: the typed `value`. The result typing
 /// (Integer/Rational/Boolean/String) is derived via checkLiteral*Specialization.
 fn emit_literal_expr(node: &IrNode) -> anyhow::Result<Value> {
-    let kind = node.payload.get("literal_kind").and_then(|v| v.as_str()).unwrap_or("string");
-    let raw = node.payload.get("literal_value").and_then(|v| v.as_str()).unwrap_or("");
+    let kind = node
+        .payload
+        .get("literal_kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("string");
+    let raw = node
+        .payload
+        .get("literal_value")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let (sysml_type, value): (&str, Value) = match kind {
         "integer" => (
             "LiteralInteger",
-            raw.parse::<i64>().map(|n| json!(n)).unwrap_or_else(|_| json!(raw)),
+            raw.parse::<i64>()
+                .map(|n| json!(n))
+                .unwrap_or_else(|_| json!(raw)),
         ),
         "rational" => (
             "LiteralRational",
-            raw.parse::<f64>().map(|n| json!(n)).unwrap_or_else(|_| json!(raw)),
+            raw.parse::<f64>()
+                .map(|n| json!(n))
+                .unwrap_or_else(|_| json!(raw)),
         ),
         "boolean" => ("LiteralBoolean", json!(raw == "true")),
         _ => ("LiteralString", json!(raw)),
@@ -574,7 +636,11 @@ fn emit_invocation_expr<'a>(
     node_map: &HashMap<&str, &IrNode>,
 ) -> anyhow::Result<Value> {
     let trigger = node.payload.get("trigger_kind").and_then(|v| v.as_str());
-    let sysml_type = if trigger.is_some() { "TriggerInvocationExpression" } else { "InvocationExpression" };
+    let sysml_type = if trigger.is_some() {
+        "TriggerInvocationExpression"
+    } else {
+        "InvocationExpression"
+    };
     let mut v = emit_typed_with_members(node, sysml_type, outgoing, node_map)?;
     if let Some(obj) = v.as_object_mut() {
         if let Some(k) = trigger {
@@ -633,8 +699,10 @@ fn emit_state<'a>(
         let member_uuid = deal_id_to_uuid(member_id);
         member_refs.push(json!({ "@id": member_uuid }));
         if let Some(kind) = subaction_kind.get(member_id) {
-            let ssm_uuid =
-                deal_id_to_uuid(&format!("{}--StateSubactionMembership--{}", node.id, member_id));
+            let ssm_uuid = deal_id_to_uuid(&format!(
+                "{}--StateSubactionMembership--{}",
+                node.id, member_id
+            ));
             owned_rels.push(json!({
                 "@id": ssm_uuid,
                 "@type": "StateSubactionMembership",
@@ -1024,7 +1092,10 @@ fn emit_calc_def<'a>(
             result_feature.insert("elementId".to_string(), json!(result_uuid));
             result_feature.insert("isEnd".to_string(), json!(false));
             result_feature.insert("isResult".to_string(), json!(true));
-            result_feature.insert("featureTyping".to_string(), json!([{ "@id": result_type_uuid }]));
+            result_feature.insert(
+                "featureTyping".to_string(),
+                json!([{ "@id": result_type_uuid }]),
+            );
             m.insert("resultFeature".to_string(), json!(result_feature));
         }
     }
@@ -1081,6 +1152,55 @@ pub fn emit_from_bytes(ir_json_bytes: &[u8]) -> anyhow::Result<Value> {
 mod tests {
     use super::*;
 
+    /// P1 WS-B3 drift guard: the metaclass recorded for each structural kind in
+    /// `spec/ir/sysml-mapping.json` must equal the `@type` the emitter actually
+    /// produces. This is what keeps the single source of truth honest — if an
+    /// emitter arm changes the metaclass, this test fails until the JSON catches
+    /// up (and vice-versa). Behavioral/expression kinds are authored from the
+    /// locked mapping contracts, not the emitter, so they are out of this guard;
+    /// `attribute_def` is excluded because the emitter currently conflates it
+    /// with `attribute_usage` (a documented, separate cleanup).
+    #[test]
+    fn sysml_mapping_json_agrees_with_emitter_for_structural_kinds() {
+        const MAPPING_RAW: &str = include_str!("../../spec/ir/sysml-mapping.json");
+        let map: Value = serde_json::from_str(MAPPING_RAW).expect("valid mapping JSON");
+        let kinds = map["kinds"].as_object().expect("kinds object");
+
+        // Structural kinds whose AST/IR kind name and emitter metaclass agree.
+        for kind in [
+            "part_def",
+            "port_def",
+            "interface_def",
+            "connection_def",
+            "item_def",
+            "flow_def",
+            "requirement_def",
+            "need_def",
+            "constraint_def",
+            "state_def",
+            "use_case_def",
+            "allocation_def",
+            "actor_def",
+        ] {
+            let expected = kinds[kind]["metaclass"]
+                .as_str()
+                .unwrap_or_else(|| panic!("mapping JSON missing metaclass for {kind}"));
+
+            // Minimal single-node IR document of this kind.
+            let ir = json!({
+                "elements": { "pkg.Thing": { "kind": kind, "payload": { "name": "Thing" } } },
+                "edges": []
+            });
+            let out = emit(&ir).unwrap_or_else(|e| panic!("emit failed for {kind}: {e}"));
+            let elem = &out["ownedRelationship"][0];
+            let actual = elem["@type"].as_str().unwrap_or("<none>");
+            assert_eq!(
+                actual, expected,
+                "metaclass drift for {kind}: emitter='{actual}', sysml-mapping.json='{expected}'"
+            );
+        }
+    }
+
     #[test]
     fn uuid_is_deterministic() {
         let u1 = deal_id_to_uuid("gold01.parts.Engine");
@@ -1133,7 +1253,9 @@ mod tests {
         });
         let result = emit(&ir).expect("emit failed");
         assert_eq!(result["@type"], "Package", "top-level must be Package");
-        let owned = result["ownedRelationship"].as_array().expect("ownedRelationship array");
+        let owned = result["ownedRelationship"]
+            .as_array()
+            .expect("ownedRelationship array");
         assert_eq!(owned.len(), 1, "should have 1 element");
         assert_eq!(owned[0]["@type"], "PartDefinition");
         // UUID must be consistent.
@@ -1161,7 +1283,12 @@ mod tests {
         let result = emit(&ir).expect("emit failed");
         let raw = serde_json::to_string(&result).expect("serialize");
         let parsed: serde_json::Value = serde_json::from_str(&raw).expect("reparse");
-        let keys: Vec<&str> = parsed.as_object().unwrap().keys().map(|k| k.as_str()).collect();
+        let keys: Vec<&str> = parsed
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
         let sorted: Vec<&str> = {
             let mut s = keys.clone();
             s.sort();

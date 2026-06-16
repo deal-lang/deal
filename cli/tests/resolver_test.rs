@@ -8,8 +8,8 @@
 //!   5. Path traversal rejection: path = "/etc/passwd" is rejected (T-4-02)
 //!   6. Bad URL scheme rejection: url with file:// is allowed; ftp:// is rejected (T-4-03)
 
-use std::path::Path;
 use std::fs;
+use std::path::Path;
 
 /// Build a minimal bare git repo in `bare_dir`, commit a stub file, and tag it `v0.4.0`.
 /// Returns the commit SHA for the tag.
@@ -41,12 +41,20 @@ fn create_bare_git_repo(bare_dir: &Path) -> String {
 
     // Create a stub deal.toml
     let stub_toml = work_dir.join("deal.toml");
-    fs::write(&stub_toml, "[project]\nname = \"deal-std\"\nversion = \"0.4.0\"\n").unwrap();
+    fs::write(
+        &stub_toml,
+        "[project]\nname = \"deal-std\"\nversion = \"0.4.0\"\n",
+    )
+    .unwrap();
 
     // Create stub si.deal in packages/units/
     let pkg_dir = work_dir.join("packages").join("units");
     fs::create_dir_all(&pkg_dir).unwrap();
-    fs::write(pkg_dir.join("si.deal"), "package deal.std.units;\n\nattribute def kg;\n").unwrap();
+    fs::write(
+        pkg_dir.join("si.deal"),
+        "package deal.std.units;\n\nattribute def kg;\n",
+    )
+    .unwrap();
 
     // Stage + commit
     Command::new("git")
@@ -74,11 +82,19 @@ fn create_bare_git_repo(bare_dir: &Path) -> String {
         .current_dir(&work_dir)
         .output()
         .expect("git rev-parse");
-    let sha = String::from_utf8(sha_out.stdout).unwrap().trim().to_string();
+    let sha = String::from_utf8(sha_out.stdout)
+        .unwrap()
+        .trim()
+        .to_string();
 
     // Clone bare into bare_dir
     Command::new("git")
-        .args(["clone", "--bare", work_dir.to_str().unwrap(), bare_dir.to_str().unwrap()])
+        .args([
+            "clone",
+            "--bare",
+            work_dir.to_str().unwrap(),
+            bare_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("git clone --bare");
 
@@ -112,14 +128,20 @@ fn test_git_dep_clone_and_lockfile() {
     create_consumer_project(&project_dir, "deal-std", &bare_url);
 
     // Run resolve_all
-    let lock = deal::resolver::resolve_all(&project_dir)
-        .expect("resolve_all should succeed");
+    let lock = deal::resolver::resolve_all(&project_dir).expect("resolve_all should succeed");
 
     // Assertion A: .deal/deps/deal-std/ exists with the stub file
     let dep_dir = project_dir.join(".deal").join("deps").join("deal-std");
-    assert!(dep_dir.exists(), ".deal/deps/deal-std/ should exist after install");
     assert!(
-        dep_dir.join("packages").join("units").join("si.deal").exists(),
+        dep_dir.exists(),
+        ".deal/deps/deal-std/ should exist after install"
+    );
+    assert!(
+        dep_dir
+            .join("packages")
+            .join("units")
+            .join("si.deal")
+            .exists(),
         "cloned repo should contain packages/units/si.deal"
     );
 
@@ -172,7 +194,11 @@ fn test_path_dep_no_clone() {
     fs::create_dir_all(&project_dir).unwrap();
     fs::create_dir_all(&sibling_dir).unwrap();
     // Write a stub deal.toml in the sibling so it looks like a valid dep
-    fs::write(sibling_dir.join("deal.toml"), "[project]\nname=\"my-lib\"\nversion=\"0.1.0\"\n").unwrap();
+    fs::write(
+        sibling_dir.join("deal.toml"),
+        "[project]\nname=\"my-lib\"\nversion=\"0.1.0\"\n",
+    )
+    .unwrap();
 
     // Relative path dep
     let toml_content = "[project]\nname = \"path-consumer\"\nversion = \"0.1.0\"\n\n[dependencies]\nmy-lib = { path = \"../my-lib\" }\n";
@@ -184,7 +210,10 @@ fn test_path_dep_no_clone() {
     assert_eq!(lock.package.len(), 1);
     assert_eq!(lock.package[0].name, "my-lib");
     assert!(lock.package[0].path.is_some(), "path dep should set path");
-    assert!(lock.package[0].rev.is_none(), "path dep should have rev = None (D-66 in-place)");
+    assert!(
+        lock.package[0].rev.is_none(),
+        "path dep should have rev = None (D-66 in-place)"
+    );
 
     // .deal/deps/my-lib/ should NOT exist (path deps are referenced in-place)
     let vendored = project_dir.join(".deal").join("deps").join("my-lib");
@@ -227,10 +256,7 @@ fn test_bad_git_scheme_rejected() {
     fs::write(project_dir.join("deal.toml"), toml_content).unwrap();
 
     let result = deal::resolver::resolve_all(&project_dir);
-    assert!(
-        result.is_err(),
-        "ftp:// scheme must be rejected (T-4-03)"
-    );
+    assert!(result.is_err(), "ftp:// scheme must be rejected (T-4-03)");
     let err_msg = format!("{:#}", result.unwrap_err());
     assert!(
         err_msg.contains("scheme") || err_msg.contains("url") || err_msg.contains("URL"),

@@ -88,10 +88,10 @@ impl LocalBundleRetriever {
         verify_sha256(&kerml_bytes, EXPECTED_KERML_SHA256, "KerML.json")?;
 
         // Parse JSON.
-        let sysml: Value = serde_json::from_slice(&sysml_bytes)
-            .with_context(|| "failed to parse SysML.json")?;
-        let kerml: Value = serde_json::from_slice(&kerml_bytes)
-            .with_context(|| "failed to parse KerML.json")?;
+        let sysml: Value =
+            serde_json::from_slice(&sysml_bytes).with_context(|| "failed to parse SysML.json")?;
+        let kerml: Value =
+            serde_json::from_slice(&kerml_bytes).with_context(|| "failed to parse KerML.json")?;
 
         // Index all $id → sub-schema mappings.
         let mut bundle = HashMap::new();
@@ -196,8 +196,8 @@ pub fn build_validator() -> anyhow::Result<Arc<Validator>> {
     let sysml_path = bundle_dir.join("SysML.json");
     let sysml_bytes = std::fs::read(&sysml_path)
         .with_context(|| format!("cannot read {}", sysml_path.display()))?;
-    let sysml_schema: Value = serde_json::from_slice(&sysml_bytes)
-        .with_context(|| "cannot parse SysML.json")?;
+    let sysml_schema: Value =
+        serde_json::from_slice(&sysml_bytes).with_context(|| "cannot parse SysML.json")?;
 
     // Build the validator using draft202012 options with our offline retriever.
     // default-features = false in Cargo.toml prevents reqwest from being pulled.
@@ -268,7 +268,9 @@ pub fn locate_schemas_dir() -> anyhow::Result<std::path::PathBuf> {
         }
         // Also try the manifest dir itself in case cwd is different.
         let candidate2 = std::path::PathBuf::from(&manifest)
-            .join("..").join("tests").join("schemas");
+            .join("..")
+            .join("tests")
+            .join("schemas");
         if candidate2.exists() {
             return Ok(candidate2.canonicalize()?);
         }
@@ -302,8 +304,16 @@ mod tests {
     #[test]
     fn schemas_dir_locatable() {
         let dir = locate_schemas_dir().expect("should locate tests/schemas/");
-        assert!(dir.join("SysML.json").exists(), "SysML.json missing in {}", dir.display());
-        assert!(dir.join("KerML.json").exists(), "KerML.json missing in {}", dir.display());
+        assert!(
+            dir.join("SysML.json").exists(),
+            "SysML.json missing in {}",
+            dir.display()
+        );
+        assert!(
+            dir.join("KerML.json").exists(),
+            "KerML.json missing in {}",
+            dir.display()
+        );
     }
 
     #[test]
@@ -335,7 +345,10 @@ mod tests {
         let retriever = LocalBundleRetriever::new(&dir).expect("build retriever");
         let uri_str = "https://example.com/not-in-bundle".to_string();
         let uri = Uri::parse(uri_str).expect("parse URI");
-        assert!(retriever.retrieve(&uri).is_err(), "unknown URI should fail offline");
+        assert!(
+            retriever.retrieve(&uri).is_err(),
+            "unknown URI should fail offline"
+        );
     }
 
     #[test]

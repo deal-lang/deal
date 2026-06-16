@@ -22,9 +22,7 @@
 
 use serde_json::Value;
 use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::{
-    GotoDefinitionParams, GotoDefinitionResponse, Location, Position, Url,
-};
+use tower_lsp::lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Position, Url};
 
 use crate::documents::Documents;
 use crate::hover; // reuse position_to_byte + node walker (re-exported below)
@@ -36,10 +34,7 @@ pub async fn handle_definition(
     index: &Index,
     params: GotoDefinitionParams,
 ) -> LspResult<Option<GotoDefinitionResponse>> {
-    let uri = &params
-        .text_document_position_params
-        .text_document
-        .uri;
+    let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
     Ok(definition_for(documents, index, uri, position)
         .await

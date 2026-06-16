@@ -152,7 +152,11 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
     for (id, node_val) in elements_map {
         let kind = node_val["kind"].as_str().unwrap_or("");
         let payload = &node_val["payload"];
-        nodes.push(IrNode { id: id.as_str(), kind, payload });
+        nodes.push(IrNode {
+            id: id.as_str(),
+            kind,
+            payload,
+        });
     }
 
     // Sort all nodes by id (D-18 deterministic order).
@@ -165,10 +169,8 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
         .collect();
 
     // Build SpecObjects from requirement/need nodes.
-    let mut spec_objects: Vec<SpecObject> = req_nodes
-        .iter()
-        .map(|n| node_to_spec_object(n))
-        .collect();
+    let mut spec_objects: Vec<SpecObject> =
+        req_nodes.iter().map(|n| node_to_spec_object(n)).collect();
 
     // Sort by identifier (D-18).
     spec_objects.sort_by(|a, b| a.identifier.cmp(&b.identifier));
@@ -181,8 +183,7 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
     // (e.g., `@trace:<<satisfies>> REQ_CAPACITY` produces dst="REQ_CAPACITY" not
     // "gold.reqif02.trace.REQ_CAPACITY"). We check both the full ID and the last
     // path component (local name) when matching against req_ids.
-    let req_ids: std::collections::HashSet<&str> =
-        req_nodes.iter().map(|n| n.id).collect();
+    let req_ids: std::collections::HashSet<&str> = req_nodes.iter().map(|n| n.id).collect();
 
     // Also build a set of local (unqualified) names for requirement nodes.
     let req_local_names: std::collections::HashSet<&str> = req_nodes
@@ -191,9 +192,7 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
         .collect();
 
     // Check if an edge endpoint matches a requirement node (qualified or unqualified).
-    let matches_req = |id: &str| -> bool {
-        req_ids.contains(id) || req_local_names.contains(id)
-    };
+    let matches_req = |id: &str| -> bool { req_ids.contains(id) || req_local_names.contains(id) };
 
     let trace_kinds = ["satisfies", "traces", "derives_from", "allocated_to"];
     let mut spec_relations: Vec<SpecRelation> = edges
@@ -209,7 +208,11 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
         // requirements guarantees referential integrity of every emitted ref.
         .filter(|e| matches_req(e.src) && matches_req(e.dst))
         .map(|e| SpecRelation {
-            identifier: format!("DEAL_REL_{}_{}", e.src.replace('.', "_"), e.dst.replace('.', "_")),
+            identifier: format!(
+                "DEAL_REL_{}_{}",
+                e.src.replace('.', "_"),
+                e.dst.replace('.', "_")
+            ),
             source_id: deal_id_to_reqif_id(e.src),
             target_id: deal_id_to_reqif_id(e.dst),
             kind: e.kind.to_string(),
@@ -222,10 +225,7 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
     // WR-01: collect the distinct relation kinds actually present, sorted for
     // deterministic SPEC-RELATION-TYPE emission order (D-18). Each kind gets its
     // own SPEC-RELATION-TYPE so the original edge semantics are preserved.
-    let mut relation_kinds: Vec<String> = spec_relations
-        .iter()
-        .map(|r| r.kind.clone())
-        .collect();
+    let mut relation_kinds: Vec<String> = spec_relations.iter().map(|r| r.kind.clone()).collect();
     relation_kinds.sort();
     relation_kinds.dedup();
 
@@ -260,7 +260,9 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
     // <REQ-IF xmlns="...">
     let mut reqif_start = BytesStart::new("REQ-IF");
     reqif_start.push_attribute(("xmlns", REQIF_NAMESPACE));
-    writer.write_event(Event::Start(reqif_start)).context("write REQ-IF start")?;
+    writer
+        .write_event(Event::Start(reqif_start))
+        .context("write REQ-IF start")?;
 
     // <THE-HEADER>
     writer
@@ -296,7 +298,9 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
         let mut sot = BytesStart::new("SPEC-OBJECT-TYPE");
         sot.push_attribute(("IDENTIFIER", sot_req_id.as_str()));
         sot.push_attribute(("LONG-NAME", "RequirementType"));
-        writer.write_event(Event::Start(sot)).context("write SPEC-OBJECT-TYPE")?;
+        writer
+            .write_event(Event::Start(sot))
+            .context("write SPEC-OBJECT-TYPE")?;
 
         writer
             .write_event(Event::Start(BytesStart::new("SPEC-ATTRIBUTES")))
@@ -396,11 +400,7 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
             .context("write VALUES")?;
 
         // ReqText value.
-        emit_attribute_value_string(
-            &mut writer,
-            &ads_text_id,
-            &so.req_text,
-        )?;
+        emit_attribute_value_string(&mut writer, &ads_text_id, &so.req_text)?;
 
         // Verification fields (only if present).
         if let Some(ref v) = so.threshold {
@@ -591,10 +591,7 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Vec<u8>> {
 ///
 /// Pitfall 3 mitigation: `ir_json_bytes` must already be cloned before the caller
 /// calls `deal_free`; this function takes `&[u8]` (already cloned).
-pub fn emit_from_bytes(
-    ir_json_bytes: &[u8],
-    output_path: &Path,
-) -> anyhow::Result<(usize, usize)> {
+pub fn emit_from_bytes(ir_json_bytes: &[u8], output_path: &Path) -> anyhow::Result<(usize, usize)> {
     let ir_value: Value = serde_json::from_slice(ir_json_bytes)
         .with_context(|| "failed to parse IR JSON from deal_ir_json output")?;
 
@@ -625,14 +622,12 @@ pub fn emit_from_bytes(
 
     // Write output file.
     if let Some(parent) = output_path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!("cannot create output directory {}", parent.display())
-        })?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("cannot create output directory {}", parent.display()))?;
     }
 
-    std::fs::write(output_path, &reqifz_bytes).with_context(|| {
-        format!("cannot write reqifz to {}", output_path.display())
-    })?;
+    std::fs::write(output_path, &reqifz_bytes)
+        .with_context(|| format!("cannot write reqifz to {}", output_path.display()))?;
 
     Ok((req_count, rel_count))
 }
@@ -667,7 +662,8 @@ fn node_to_spec_object(node: &IrNode) -> SpecObject {
     let operator = extract_string_field(node.payload, "operator");
 
     // "accepts" is an array of method strings; join them.
-    let method = node.payload
+    let method = node
+        .payload
         .get("verification")
         .and_then(|v| v.get("accepts"))
         .and_then(|v| v.as_array())
@@ -718,7 +714,11 @@ fn clean_doc_comment(raw: &str) -> String {
     s.lines()
         .map(|line| {
             let trimmed = line.trim();
-            trimmed.strip_prefix("* ").unwrap_or(trimmed).trim().to_string()
+            trimmed
+                .strip_prefix("* ")
+                .unwrap_or(trimmed)
+                .trim()
+                .to_string()
         })
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
@@ -764,7 +764,9 @@ fn emit_attribute_value_string<W: IoWrite>(
         .write_event(Event::Start(BytesStart::new("DEFINITION")))
         .context("write DEFINITION")?;
     writer
-        .write_event(Event::Start(BytesStart::new("ATTRIBUTE-DEFINITION-STRING-REF")))
+        .write_event(Event::Start(BytesStart::new(
+            "ATTRIBUTE-DEFINITION-STRING-REF",
+        )))
         .context("write ATTRIBUTE-DEFINITION-STRING-REF start")?;
     writer
         .write_event(Event::Text(BytesText::new(attr_def_id)))
@@ -924,14 +926,8 @@ mod tests {
 
     #[test]
     fn reqif_id_replaces_dots_with_underscores() {
-        assert_eq!(
-            deal_id_to_reqif_id("a.b.c.D"),
-            "DEAL_a_b_c_D"
-        );
-        assert_eq!(
-            deal_id_to_reqif_id("single"),
-            "DEAL_single"
-        );
+        assert_eq!(deal_id_to_reqif_id("a.b.c.D"), "DEAL_a_b_c_D");
+        assert_eq!(deal_id_to_reqif_id("single"), "DEAL_single");
     }
 
     #[test]
@@ -946,10 +942,7 @@ mod tests {
             xml.contains("DEAL_gold_reqif01_req_REQ_CHARGE_TIME"),
             "must contain derived DEAL ID"
         );
-        assert!(
-            xml.contains("REQ_CHARGE_TIME"),
-            "must contain LONG-NAME"
-        );
+        assert!(xml.contains("REQ_CHARGE_TIME"), "must contain LONG-NAME");
     }
 
     #[test]

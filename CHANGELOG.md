@@ -8,6 +8,42 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — LSP P1: drift closure, SysML-mapping hover, behavioral tokens
+
+Brings the language server back in step with the language and surfaces the
+SysML v2 target of every construct in the editor.
+
+- **Element-kind parity** — the four element definitions that had drifted out of
+  LSP coverage (`allocation def`, `need def`, `use case def`, `actor def`) plus
+  `calc def` are now wired across completion, hover labels, semantic tokens, and
+  the workspace-symbol icon map (`map_symbol_kind`). Completion now offers all 16
+  element keywords (was 11).
+- **SysML v2 mapping (`spec/ir/sysml-mapping.json`)** — single machine-readable
+  DEAL-node-kind → SysML v2 / KerML table, consolidating the locked behavioral
+  (`v0.1`) and expression (`v0.2`) contracts with the structural emitter arms.
+  Metaclass clauses confirmed via closure-bounded `sysml-v2-wiki` / `kerml-wiki`
+  retrieval (several stale emitter-comment clauses corrected, e.g.
+  `PartDefinition` 8.3.11.2, KerML `Function` 8.3.4.7.4).
+- **Enriched hover (`lsp/src/sysml_mapping.rs`, `hover.rs`)** — hover now appends
+  the target metaclass, governing clause, and KerML basis (plus injected control
+  nodes / `«actor»` marker / dotted qualifiedName where applicable). Embedded via
+  `include_str!` from the `spec` submodule; unmapped kinds degrade to the prior
+  signature+doc output.
+- **Behavioral semantic tokens** — `decide`/`par`/`loop`/`for`/`send`/`accept`/
+  `assign`/`bind`/`on`/`entry`·`do`·`exit`/`state`/`succession` lead keywords are
+  now tokenized; the behavioral surface no longer renders as undifferentiated
+  text.
+- **Emitter (`cli/src/sysml_v2.rs`)** — `use_case_def` → `UseCaseDefinition`
+  (8.3.25.3) and `allocation_def` → `AllocationDefinition` (8.3.15.2) now emit
+  their real metaclasses instead of the generic element fallthrough. A new drift
+  test asserts `sysml-mapping.json` agrees with the emitter for structural kinds.
+- **Grammar (`spec/grammar/deal.ebnf`)** — `UseCaseDefinition` /
+  `AllocationDefinition` normalization notes annotated with the wiki-verified
+  metaclass + clause.
+- **CI (`.github/workflows/ci.yml`)** — per-commit push/PR gate: `zig build` +
+  `cargo fmt`/`clippy`/`test` on the Rust workspace (previously the LSP was tested
+  only on release tags).
+
 ### Added — Stage 3: structured behavioral expressions (IR v0.2)
 
 Behavioral guards, assignment values, accept payloads, and loop bounds now lower

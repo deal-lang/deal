@@ -38,27 +38,16 @@ fn repo_root() -> std::path::PathBuf {
 ///      validator (the same OnceLock-cached validator used by the emitter).
 ///   4. Panic with all validation errors if schema-invalid.
 fn validate_expected_json(fixture_name: &str) {
-
     let root = repo_root();
     let expected_path = root
         .join("tests/golden/sysml-v2")
         .join(format!("{fixture_name}.expected.json"));
 
-    let json_bytes = std::fs::read(&expected_path).unwrap_or_else(|e| {
-        panic!(
-            "cannot read {}: {}",
-            expected_path.display(),
-            e
-        )
-    });
+    let json_bytes = std::fs::read(&expected_path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {}", expected_path.display(), e));
 
-    let value: Value = serde_json::from_slice(&json_bytes).unwrap_or_else(|e| {
-        panic!(
-            "cannot parse {} as JSON: {}",
-            expected_path.display(),
-            e
-        )
-    });
+    let value: Value = serde_json::from_slice(&json_bytes)
+        .unwrap_or_else(|e| panic!("cannot parse {} as JSON: {}", expected_path.display(), e));
 
     // Validate via the `deal build --validate` subprocess.
     // This reuses the schema_registry from the deal binary — offline, OnceLock-cached.
@@ -88,7 +77,8 @@ fn validate_expected_json(fixture_name: &str) {
     // structural invariants that WARNING-03 is most concerned about.
 
     // Check 1: @id is present and is a UUID-format string.
-    let at_id = value.get("@id")
+    let at_id = value
+        .get("@id")
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| panic!("{fixture_name}.expected.json: missing '@id' field"));
     assert!(
@@ -97,7 +87,8 @@ fn validate_expected_json(fixture_name: &str) {
     );
 
     // Check 2: elementId is present and equals @id.
-    let element_id = value.get("elementId")
+    let element_id = value
+        .get("elementId")
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| panic!("{fixture_name}.expected.json: missing 'elementId' field"));
     assert_eq!(
@@ -106,14 +97,28 @@ fn validate_expected_json(fixture_name: &str) {
     );
 
     // Check 3: @type is present and is a known SysML type.
-    let at_type = value.get("@type")
+    let at_type = value
+        .get("@type")
         .and_then(|v| v.as_str())
         .unwrap_or_else(|| panic!("{fixture_name}.expected.json: missing '@type' field"));
     let known_types = [
-        "Package", "PartDefinition", "PortDefinition", "PortUsage", "PartUsage",
-        "AttributeUsage", "RequirementDefinition", "ConnectionUsage", "ConnectionDefinition",
-        "InterfaceDefinition", "ItemDefinition", "Namespace", "Dependency",
-        "Specialization", "Redefinition", "Subsetting", "FeatureMembership",
+        "Package",
+        "PartDefinition",
+        "PortDefinition",
+        "PortUsage",
+        "PartUsage",
+        "AttributeUsage",
+        "RequirementDefinition",
+        "ConnectionUsage",
+        "ConnectionDefinition",
+        "InterfaceDefinition",
+        "ItemDefinition",
+        "Namespace",
+        "Dependency",
+        "Specialization",
+        "Redefinition",
+        "Subsetting",
+        "FeatureMembership",
         "ConnectorEnd",
     ];
     assert!(
@@ -147,11 +152,17 @@ fn validate_expected_json(fixture_name: &str) {
 /// Check that @id is UUID format (8-4-4-4-12 hyphenated hex).
 fn is_uuid_format(s: &str) -> bool {
     let parts: Vec<&str> = s.split('-').collect();
-    if parts.len() != 5 { return false; }
+    if parts.len() != 5 {
+        return false;
+    }
     let lengths = [8, 4, 4, 4, 12];
     for (part, &expected_len) in parts.iter().zip(&lengths) {
-        if part.len() != expected_len { return false; }
-        if !part.chars().all(|c| c.is_ascii_hexdigit()) { return false; }
+        if part.len() != expected_len {
+            return false;
+        }
+        if !part.chars().all(|c| c.is_ascii_hexdigit()) {
+            return false;
+        }
     }
     true
 }
@@ -312,5 +323,8 @@ fn all_expected_json_validate() {
         }
     }
 
-    assert_eq!(count, 13, "Expected 13 .expected.json fixtures, found {count}");
+    assert_eq!(
+        count, 13,
+        "Expected 13 .expected.json fixtures, found {count}"
+    );
 }

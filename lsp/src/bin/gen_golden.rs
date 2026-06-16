@@ -24,17 +24,10 @@ fn main() -> std::io::Result<()> {
     let input = args
         .next()
         .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from("tests/showcase/packages/vehicle/battery.deal")
-        });
-    let output = args
-        .next()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(
-                "lsp/tests/golden/semantic_tokens/BatteryPack.deal.expected.json",
-            )
-        });
+        .unwrap_or_else(|| PathBuf::from("tests/showcase/packages/vehicle/battery.deal"));
+    let output = args.next().map(PathBuf::from).unwrap_or_else(|| {
+        PathBuf::from("lsp/tests/golden/semantic_tokens/BatteryPack.deal.expected.json")
+    });
 
     let source = std::fs::read(&input)?;
     let filename = input.to_string_lossy().into_owned();
@@ -50,8 +43,7 @@ fn main() -> std::io::Result<()> {
     // ordering — SemanticTokens emits `data` then `result_id` as in
     // the LSP type definition. Add a trailing newline so the file is
     // POSIX-clean.
-    let mut json =
-        serde_json::to_string_pretty(&tokens).map_err(std::io::Error::other)?;
+    let mut json = serde_json::to_string_pretty(&tokens).map_err(std::io::Error::other)?;
     json.push('\n');
 
     if let Some(parent) = output.parent() {

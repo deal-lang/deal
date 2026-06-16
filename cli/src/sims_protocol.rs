@@ -71,8 +71,8 @@ const METADATA_SCHEMA_JSON: &str = include_str!("../../spec/sims/v0/metadata.sch
 fn build_output_validator() -> anyhow::Result<Validator> {
     let bytes = OUTPUT_SCHEMA_JSON.as_bytes();
     verify_sha256(bytes, EXPECTED_OUTPUT_SHA256, "output.schema.json")?;
-    let schema: Value = serde_json::from_slice(bytes)
-        .with_context(|| "cannot parse output.schema.json")?;
+    let schema: Value =
+        serde_json::from_slice(bytes).with_context(|| "cannot parse output.schema.json")?;
     jsonschema::options()
         .build(&schema)
         .map_err(|e| anyhow!("compile output.schema.json: {e}"))
@@ -81,8 +81,8 @@ fn build_output_validator() -> anyhow::Result<Validator> {
 fn build_input_validator() -> anyhow::Result<Validator> {
     let bytes = INPUT_SCHEMA_JSON.as_bytes();
     verify_sha256(bytes, EXPECTED_INPUT_SHA256, "input.schema.json")?;
-    let schema: Value = serde_json::from_slice(bytes)
-        .with_context(|| "cannot parse input.schema.json")?;
+    let schema: Value =
+        serde_json::from_slice(bytes).with_context(|| "cannot parse input.schema.json")?;
     jsonschema::options()
         .build(&schema)
         .map_err(|e| anyhow!("compile input.schema.json: {e}"))
@@ -91,8 +91,8 @@ fn build_input_validator() -> anyhow::Result<Validator> {
 fn build_metadata_validator() -> anyhow::Result<Validator> {
     let bytes = METADATA_SCHEMA_JSON.as_bytes();
     verify_sha256(bytes, EXPECTED_METADATA_SHA256, "metadata.schema.json")?;
-    let schema: Value = serde_json::from_slice(bytes)
-        .with_context(|| "cannot parse metadata.schema.json")?;
+    let schema: Value =
+        serde_json::from_slice(bytes).with_context(|| "cannot parse metadata.schema.json")?;
     jsonschema::options()
         .build(&schema)
         .map_err(|e| anyhow!("compile metadata.schema.json: {e}"))
@@ -115,7 +115,11 @@ pub fn validate_input(json: &Value) -> Result<(), Vec<String>> {
         .iter_errors(json)
         .map(|e| format!("{}: {}", e.instance_path(), e))
         .collect();
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Validate an `output.json` artifact against `spec/sims/v0/output.schema.json`.
@@ -127,15 +131,16 @@ pub fn validate_input(json: &Value) -> Result<(), Vec<String>> {
 pub fn validate_output(json: &Value) -> Result<(), Vec<String>> {
     // First check the protocol field (fast path for missing protocol field)
     if json.get("deal_sim_protocol").is_none() {
-        return Err(vec!["missing required 'deal_sim_protocol' field".to_string()]);
+        return Err(vec![
+            "missing required 'deal_sim_protocol' field".to_string()
+        ]);
     }
 
     // Try to get or init the validator; if schema loading fails, fall back to manual check
     let validator_result = std::panic::catch_unwind(|| {
         OUTPUT_VALIDATOR.get_or_init(|| {
-            build_output_validator().unwrap_or_else(|e| {
-                panic!("failed to load output.schema.json: {e}")
-            })
+            build_output_validator()
+                .unwrap_or_else(|e| panic!("failed to load output.schema.json: {e}"))
         })
     });
 
@@ -145,7 +150,11 @@ pub fn validate_output(json: &Value) -> Result<(), Vec<String>> {
                 .iter_errors(json)
                 .map(|e| format!("{}: {}", e.instance_path(), e))
                 .collect();
-            if errors.is_empty() { Ok(()) } else { Err(errors) }
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors)
+            }
         }
         Err(_) => {
             // Schema loading failed — fall back to structural check
@@ -169,16 +178,19 @@ fn validate_output_structural(json: &Value) -> Result<(), Vec<String>> {
     if json.get("v").and_then(|v| v.as_i64()) != Some(1) {
         errors.push("v must be 1".to_string());
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Validate a `metadata.json` artifact against `spec/sims/v0/metadata.schema.json`.
 pub fn validate_metadata(json: &Value) -> Result<(), Vec<String>> {
     let validator_result = std::panic::catch_unwind(|| {
         METADATA_VALIDATOR.get_or_init(|| {
-            build_metadata_validator().unwrap_or_else(|e| {
-                panic!("failed to load metadata.schema.json: {e}")
-            })
+            build_metadata_validator()
+                .unwrap_or_else(|e| panic!("failed to load metadata.schema.json: {e}"))
         })
     });
 
@@ -188,7 +200,11 @@ pub fn validate_metadata(json: &Value) -> Result<(), Vec<String>> {
                 .iter_errors(json)
                 .map(|e| format!("{}: {}", e.instance_path(), e))
                 .collect();
-            if errors.is_empty() { Ok(()) } else { Err(errors) }
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors)
+            }
         }
         Err(_) => {
             // Structural fallback
@@ -196,7 +212,11 @@ pub fn validate_metadata(json: &Value) -> Result<(), Vec<String>> {
             if json.get("deal_sim_protocol").is_none() {
                 errors.push("missing required 'deal_sim_protocol' field".to_string());
             }
-            if errors.is_empty() { Ok(()) } else { Err(errors) }
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors)
+            }
         }
     }
 }
@@ -236,11 +256,15 @@ mod tests {
             "v": 1
         });
         let result = validate_output(&json);
-        assert!(result.is_err(), "must reject output.json missing deal_sim_protocol");
+        assert!(
+            result.is_err(),
+            "must reject output.json missing deal_sim_protocol"
+        );
         let errors = result.unwrap_err();
         assert!(
             errors.iter().any(|e| e.contains("deal_sim_protocol")),
-            "error must mention deal_sim_protocol, got: {:?}", errors
+            "error must mention deal_sim_protocol, got: {:?}",
+            errors
         );
     }
 

@@ -169,10 +169,7 @@ impl ModelValueIndex {
                 // attribute_usage with a numeric default_value.
                 if kind == "attribute_usage" {
                     if let Some(name) = map.get("name").and_then(|v| v.as_str()) {
-                        if let Some(val) = map
-                            .get("default_value")
-                            .and_then(value_to_f64)
-                        {
+                        if let Some(val) = map.get("default_value").and_then(value_to_f64) {
                             self.index_attr(scope, name, val);
                         }
                     }
@@ -278,10 +275,11 @@ impl ModelValueIndex {
 fn value_to_f64(node: &Value) -> Option<f64> {
     let k = node.get("k").and_then(|v| v.as_str())?;
     match k {
-        "int_literal" | "float_literal" | "real_literal" | "number" | "numeric_literal" => {
-            node.get("text").and_then(|v| v.as_str()).and_then(|s| s.parse::<f64>().ok())
-                .or_else(|| node.get("value").and_then(|v| v.as_f64()))
-        }
+        "int_literal" | "float_literal" | "real_literal" | "number" | "numeric_literal" => node
+            .get("text")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<f64>().ok())
+            .or_else(|| node.get("value").and_then(|v| v.as_f64())),
         "call" => {
             // Unit call: callee is the unit symbol, single numeric arg.
             let args = node.get("args").and_then(|v| v.as_array())?;
@@ -309,7 +307,12 @@ fn parse_ast(path: &Path) -> Option<Value> {
     let bytes = std::fs::read(path).ok()?;
     let fname = path.to_string_lossy();
     let handle = unsafe {
-        ffi::deal_parse(bytes.as_ptr(), bytes.len(), fname.as_bytes().as_ptr(), fname.len())
+        ffi::deal_parse(
+            bytes.as_ptr(),
+            bytes.len(),
+            fname.as_bytes().as_ptr(),
+            fname.len(),
+        )
     };
     if handle.is_null() {
         return None;
@@ -411,6 +414,9 @@ mod tests {
         let idx = ModelValueIndex::build(&showcase_root());
         let actual = idx.resolve("EnergyStorage.battery.usableCapacity").unwrap();
         let threshold = idx.resolve("REQ_BAT_001.minCapacity").unwrap();
-        assert!(actual >= threshold, "REQ_BAT_001 criterion must be satisfiable");
+        assert!(
+            actual >= threshold,
+            "REQ_BAT_001 criterion must be satisfiable"
+        );
     }
 }

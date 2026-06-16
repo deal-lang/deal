@@ -10,8 +10,8 @@ pub mod reporter;
 pub mod reqif;
 pub mod reqif_schema;
 pub mod resolver;
-pub mod simulate;
 pub mod sims_protocol;
+pub mod simulate;
 pub mod verify;
 
 // ─── Shared CliError (used by simulate.rs, sims_protocol.rs, evidence.rs, etc.) ──

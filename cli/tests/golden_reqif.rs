@@ -36,16 +36,17 @@ fn repo_root() -> std::path::PathBuf {
 /// Returns the raw XML bytes. Panics if the archive is invalid or has no .reqif entry.
 fn extract_reqif_from_reqifz(reqifz_bytes: &[u8]) -> Vec<u8> {
     let cursor = std::io::Cursor::new(reqifz_bytes);
-    let mut archive = zip::ZipArchive::new(cursor)
-        .expect("reqifz must be a valid zip archive");
+    let mut archive = zip::ZipArchive::new(cursor).expect("reqifz must be a valid zip archive");
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i)
+        let mut entry = archive
+            .by_index(i)
             .unwrap_or_else(|e| panic!("cannot read zip entry {i}: {e}"));
         let name = entry.name().to_string();
         if name.ends_with(".reqif") {
             let mut xml_bytes = Vec::new();
-            entry.read_to_end(&mut xml_bytes)
+            entry
+                .read_to_end(&mut xml_bytes)
                 .unwrap_or_else(|e| panic!("cannot read zip entry {name}: {e}"));
             return xml_bytes;
         }
@@ -73,11 +74,8 @@ fn run_fixture_and_compare(source_filename: &str) -> String {
         .unwrap_or_else(|e| panic!("cannot read {}: {}", expected_path.display(), e));
 
     // Use a unique temp directory per test invocation to avoid parallel races.
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "deal-golden-reqif-{}-{}",
-        stem,
-        std::process::id()
-    ));
+    let tmp_dir =
+        std::env::temp_dir().join(format!("deal-golden-reqif-{}-{}", stem, std::process::id()));
     std::fs::create_dir_all(&tmp_dir)
         .unwrap_or_else(|e| panic!("cannot create temp dir {}: {}", tmp_dir.display(), e));
     let output_path = tmp_dir.join(format!("{stem}.reqifz"));
@@ -168,10 +166,7 @@ fn reqifz_is_valid_zip() {
     let root = repo_root();
     let source_path = root.join("tests/golden/reqif/01-requirement-def.deal");
 
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "deal-reqifz-zip-{}",
-        std::process::id()
-    ));
+    let tmp_dir = std::env::temp_dir().join(format!("deal-reqifz-zip-{}", std::process::id()));
     std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
     let output_path = tmp_dir.join("out.reqifz");
 
@@ -183,7 +178,12 @@ fn reqifz_is_valid_zip() {
         .output()
         .expect("run deal build");
 
-    assert_eq!(result.status.code().unwrap_or(99), 0, "build failed: {}", String::from_utf8_lossy(&result.stderr));
+    assert_eq!(
+        result.status.code().unwrap_or(99),
+        0,
+        "build failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
 
     let reqifz_bytes = std::fs::read(&output_path).expect("read reqifz");
     let archive = zip::ZipArchive::new(std::io::Cursor::new(&reqifz_bytes));
