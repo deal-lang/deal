@@ -1839,7 +1839,9 @@ pub fn emitIrJson(
         try emitIrNode(allocator, &buf, node);
     }
 
-    try buf.appendSlice(allocator, "},\"ir_version\":\"v0\",\"v\":1}");
+    // IR v0.1 (S2.5): behavioral surface is additive over v0. The v0.1 schema
+    // accepts both strings; the toolchain now emits "v0.1".
+    try buf.appendSlice(allocator, "},\"ir_version\":\"v0.1\",\"v\":1}");
 
     return try buf.toOwnedSlice(allocator);
 }

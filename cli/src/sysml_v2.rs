@@ -411,8 +411,50 @@ fn emit_transition(node: &IrNode) -> anyhow::Result<Value> {
         }));
     }
 
+    // Trigger / effect TransitionFeatureMemberships (8.3.18.8): kind is authored,
+    // transitionFeature is derived (the owned Step). Guards (kind=guard, a
+    // Boolean-valued Expression) are deferred — structured-expression emission is
+    // Stage 3 (see spec/ir/v0.1/FUTURE-structured-expressions.md).
+    if let Some(trig) = node.payload.get("trigger_ref").and_then(|v| v.as_str()) {
+        if !trig.is_empty() {
+            owned_rels.push(transition_feature_membership(node.id, "trigger", "AcceptActionUsage", trig));
+        }
+    }
+    if let Some(eff) = node.payload.get("effect_ref").and_then(|v| v.as_str()) {
+        if !eff.is_empty() {
+            owned_rels.push(transition_feature_membership(node.id, "effect", "PerformActionUsage", eff));
+        }
+    }
+
     m.insert("ownedRelationship".to_string(), json!(owned_rels));
     Ok(Value::Object(m))
+}
+
+/// A TransitionFeatureMembership (8.3.18.8) of `kind` ("trigger"/"effect")
+/// owning a named Step — an AcceptActionUsage for triggers, a PerformActionUsage
+/// for effects. `kind` and the owned feature are authored; `transitionFeature`
+/// is derived. `ref_text` is the IR trigger/effect text; its leading identifier
+/// becomes the feature's declaredName.
+fn transition_feature_membership(transition_id: &str, kind: &str, feat_type: &str, ref_text: &str) -> Value {
+    let feat_id = format!("{transition_id}--{kind}");
+    let feat_uuid = deal_id_to_uuid(&feat_id);
+    let name = ref_text.split('(').next().unwrap_or(ref_text).trim();
+    let feature = json!({
+        "@id": feat_uuid,
+        "@type": feat_type,
+        "declaredName": name,
+        "elementId": feat_uuid,
+        "ownedRelationship": [],
+        "qualifiedName": deal_id_to_qualified_name(&feat_id),
+    });
+    let fm_uuid = deal_id_to_uuid(&format!("{transition_id}--TransitionFeatureMembership--{kind}"));
+    json!({
+        "@id": fm_uuid,
+        "@type": "TransitionFeatureMembership",
+        "elementId": fm_uuid,
+        "kind": kind,
+        "ownedRelatedElement": [feature],
+    })
 }
 
 /// state_def → StateDefinition (8.3.18.5), state_usage → StateUsage (8.3.18.6).
@@ -492,9 +534,11 @@ fn emit_state<'a>(
 
 /// pin → SysML ReferenceUsage (8.3.6.3) carrying a FeatureDirectionKind
 /// `direction` (Feature::direction, inherited via Usage ▸ Feature). A pin is a
-/// directed, non-compositional parameter of an action. Per the closure,
-/// `isReference` is derived (always true) and not authored; the pin's type
-/// (a FeatureTyping) is deferred (the IR carries type_ref).
+/// directed, non-compositional parameter of an action. Per the ReferenceUsage
+/// closure, `isReference` is derived (always true) and not authored. The pin's
+/// declared type is emitted as a FeatureTyping (KerML 8.3.3.3.7): a
+/// Specialization whose `type` is the declared Type and whose `typedFeature` is
+/// the pin (both redefine general/specific; `owningFeature` is derived).
 fn emit_pin(node: &IrNode) -> anyhow::Result<Value> {
     let mut m = base_fields(node.id, "ReferenceUsage");
     let direction = node.payload["direction"].as_str().unwrap_or("none");
@@ -505,7 +549,21 @@ fn emit_pin(node: &IrNode) -> anyhow::Result<Value> {
         _ => "none",
     };
     m.insert("direction".to_string(), json!(sysml_direction));
-    m.insert("ownedRelationship".to_string(), json!([]));
+
+    let mut owned_rels: Vec<Value> = Vec::new();
+    if let Some(type_ref) = node.payload.get("type_ref").and_then(|v| v.as_str()) {
+        if !type_ref.is_empty() {
+            let ft_uuid = deal_id_to_uuid(&format!("{}--FeatureTyping--{}", node.id, type_ref));
+            owned_rels.push(json!({
+                "@id": ft_uuid,
+                "@type": "FeatureTyping",
+                "elementId": ft_uuid,
+                "type": { "@id": deal_id_to_uuid(type_ref) },
+                "typedFeature": { "@id": deal_id_to_uuid(node.id) },
+            }));
+        }
+    }
+    m.insert("ownedRelationship".to_string(), json!(owned_rels));
     Ok(Value::Object(m))
 }
 

@@ -425,7 +425,19 @@
       "declaredName": "soc",
       "direction": "in",
       "elementId": "f88d6f4b-7206-5d98-9338-e2b1423c80e4",
-      "ownedRelationship": [],
+      "ownedRelationship": [
+        {
+          "@id": "898f2cf9-b865-519e-9ac9-1941f2cfd2db",
+          "@type": "FeatureTyping",
+          "elementId": "898f2cf9-b865-519e-9ac9-1941f2cfd2db",
+          "type": {
+            "@id": "6887537a-5fc2-56ed-8263-86f77e1738a1"
+          },
+          "typedFeature": {
+            "@id": "f88d6f4b-7206-5d98-9338-e2b1423c80e4"
+          }
+        }
+      ],
       "qualifiedName": "gold11::behavior::Charge::soc"
     },
     {

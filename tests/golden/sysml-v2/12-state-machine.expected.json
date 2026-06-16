@@ -248,6 +248,22 @@
               "qualifiedName": "gold12::states::ChargingControl::transition_0--succession"
             }
           ]
+        },
+        {
+          "@id": "896ee653-7864-5d48-93df-da7aeba02f2d",
+          "@type": "TransitionFeatureMembership",
+          "elementId": "896ee653-7864-5d48-93df-da7aeba02f2d",
+          "kind": "trigger",
+          "ownedRelatedElement": [
+            {
+              "@id": "17c8d29f-3371-5fe1-926b-6d35c4fbb0ac",
+              "@type": "AcceptActionUsage",
+              "declaredName": "PlugIn",
+              "elementId": "17c8d29f-3371-5fe1-926b-6d35c4fbb0ac",
+              "ownedRelationship": [],
+              "qualifiedName": "gold12::states::ChargingControl::transition_0--trigger"
+            }
+          ]
         }
       ],
       "qualifiedName": "gold12::states::ChargingControl::transition_0"
@@ -292,6 +308,38 @@
               "elementId": "da678ff7-d45a-5408-8128-87c80168140e",
               "ownedRelationship": [],
               "qualifiedName": "gold12::states::ChargingControl::transition_1--succession"
+            }
+          ]
+        },
+        {
+          "@id": "18fad846-ea6c-5edd-9330-41a960dec817",
+          "@type": "TransitionFeatureMembership",
+          "elementId": "18fad846-ea6c-5edd-9330-41a960dec817",
+          "kind": "trigger",
+          "ownedRelatedElement": [
+            {
+              "@id": "be629d34-e311-5b01-9a29-42f64addf84c",
+              "@type": "AcceptActionUsage",
+              "declaredName": "Overheat",
+              "elementId": "be629d34-e311-5b01-9a29-42f64addf84c",
+              "ownedRelationship": [],
+              "qualifiedName": "gold12::states::ChargingControl::transition_1--trigger"
+            }
+          ]
+        },
+        {
+          "@id": "f964d257-10e1-5373-8028-290ae3e7ee0a",
+          "@type": "TransitionFeatureMembership",
+          "elementId": "f964d257-10e1-5373-8028-290ae3e7ee0a",
+          "kind": "effect",
+          "ownedRelatedElement": [
+            {
+              "@id": "172969be-804f-5cd4-ad3f-8e99068cb9b2",
+              "@type": "PerformActionUsage",
+              "declaredName": "shutdown",
+              "elementId": "172969be-804f-5cd4-ad3f-8e99068cb9b2",
+              "ownedRelationship": [],
+              "qualifiedName": "gold12::states::ChargingControl::transition_1--effect"
             }
           ]
         }
