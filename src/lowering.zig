@@ -35,6 +35,12 @@ const Lowerer = struct {
     pkg_prefix: []const u8 = "",
     /// Workspace-relative source file path for the current file.
     source_file: []const u8 = "",
+    /// Original source bytes — used to recover expression text from spans for
+    /// behavioral payloads (guard/value/iterable). Empty when unavailable.
+    source: []const u8 = "",
+    /// Monotonic counter for synthetic behavioral nodes (control/decision/
+    /// merge/fork/join/loop) so their ids are unique + deterministic (S2.5b).
+    behav_synth: u32 = 0,
 };
 
 /// Lower an AST root (deal_file or dealx_file) plus its resolved symbol table
@@ -49,6 +55,7 @@ pub fn lower(
     ast_root: *ast.Node,
     symbols: *const sema.SymbolTable,
     source_file: []const u8,
+    source: []const u8,
 ) !*ir.Document {
     var l = Lowerer{
         .arena = arena,
@@ -56,6 +63,7 @@ pub fn lower(
         .edges = .empty,
         .elements = std.StringHashMap(*ir.IrNode).init(arena),
         .source_file = source_file,
+        .source = source,
     };
 
     // Determine package prefix from the symbol table.
@@ -277,6 +285,14 @@ fn pass2LowerDef(
         });
     }
 
+    // BH-7 (S2.5b): action def / state def bodies carry the behavioral surface,
+    // which lowers to the IR v0.1 node/edge graph (with §4 desugaring) rather
+    // than the generic member recursion.
+    if (node.kind == .action_def or node.kind == .state_def) {
+        try lowerBehavioralMembers(l, elem.members, interned_id);
+        return;
+    }
+
     // Recurse into members.
     for (elem.members) |member| {
         try pass2LowerMember(l, member, interned_id);
@@ -478,6 +494,358 @@ fn pass2LowerMember(l: *Lowerer, node: *ast.Node, parent_id: []const u8) !void {
         .dst = interned_id,
         .kind = .contains,
     });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Behavioral lowering (IR v0.1, S2.5b) — ActionBody/StateBody → IR node/edge
+// graph with §4 desugaring. See spec/ir/v0.1/behavioral-mapping.md.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Entry/exit ports of a lowered flow reference. For a plain step entry==exit;
+/// for a decide block entry=decision, exit=merge; for par entry=fork, exit=join.
+const FlowEnds = struct { entry: []const u8, exit: []const u8 };
+
+fn behavAddNode(
+    l: *Lowerer,
+    id: []const u8,
+    kind: ir.NodeKind,
+    span: ast.Span,
+    payload: ir.IrPayload,
+) std.mem.Allocator.Error![]const u8 {
+    const interned = try internId(l, id);
+    const n = try l.arena.create(ir.IrNode);
+    n.* = .{
+        .id = interned,
+        .kind = kind,
+        .span = span,
+        .source_file = try l.arena.dupe(u8, l.source_file),
+        .payload = payload,
+    };
+    try l.elements.put(interned, n);
+    return interned;
+}
+
+fn behavContains(l: *Lowerer, parent: []const u8, child: []const u8) std.mem.Allocator.Error!void {
+    try l.edges.append(l.arena, .{
+        .src = try internId(l, parent),
+        .dst = try internId(l, child),
+        .kind = .contains,
+    });
+}
+
+fn behavEdge(
+    l: *Lowerer,
+    src: []const u8,
+    dst: []const u8,
+    kind: ir.EdgeKind,
+    guard: ?[]const u8,
+    flow_type: ?[]const u8,
+    subaction_kind: ?[]const u8,
+) std.mem.Allocator.Error!void {
+    try l.edges.append(l.arena, .{
+        .src = try internId(l, src),
+        .dst = try internId(l, dst),
+        .kind = kind,
+        .guard = guard,
+        .flow_type = flow_type,
+        .subaction_kind = subaction_kind,
+    });
+}
+
+fn synthId(l: *Lowerer, parent: []const u8, label: []const u8) std.mem.Allocator.Error![]const u8 {
+    const n = l.behav_synth;
+    l.behav_synth += 1;
+    return std.fmt.allocPrint(l.arena, "{s}.{s}_{d}", .{ parent, label, n });
+}
+
+/// Source text for an expression node (guard/value/iterable). Null if the
+/// source is unavailable or the span is degenerate.
+fn spanTextOpt(l: *Lowerer, node: *ast.Node) std.mem.Allocator.Error!?[]const u8 {
+    if (l.source.len == 0) return null;
+    const s = node.span.start;
+    const e = node.span.end;
+    if (e > s and e <= l.source.len) return try l.arena.dupe(u8, l.source[s..e]);
+    return null;
+}
+
+fn typeRefOf(l: *Lowerer, tn: *ast.Node) std.mem.Allocator.Error!?[]const u8 {
+    if (tn.kind == .type_annotation) {
+        const ta = tn.payload.type_annotation;
+        if (ta.name_segments.len > 0) return try std.mem.join(l.arena, ".", ta.name_segments);
+    }
+    return null;
+}
+
+fn guardOf(l: *Lowerer, g: ast.Guard) std.mem.Allocator.Error!?[]const u8 {
+    if (g.is_else) return "else";
+    if (g.expr) |e| return try spanTextOpt(l, e);
+    return null;
+}
+
+fn guardOfOpt(l: *Lowerer, g: ?ast.Guard) std.mem.Allocator.Error!?[]const u8 {
+    if (g) |gg| return try guardOf(l, gg);
+    return null;
+}
+
+/// Leftmost identifier of an identifier / member_access chain.
+fn behavHeadIdent(node: *ast.Node) ?[]const u8 {
+    var cur = node;
+    while (true) {
+        switch (cur.payload) {
+            .identifier => |id| return id.name,
+            .member_access => |ma| cur = ma.receiver,
+            else => return null,
+        }
+    }
+}
+
+/// IR id for the step a feature/flow ref denotes (head step, qualified under parent).
+fn behavHeadRefId(l: *Lowerer, parent: []const u8, node: *ast.Node) std.mem.Allocator.Error![]const u8 {
+    const h = behavHeadIdent(node) orelse "";
+    return internId(l, try qualifyId(l.arena, parent, h));
+}
+
+/// Create-or-reuse a control endpoint node (start/done → control_node;
+/// terminate → terminate_action). Deduped per body by fixed id.
+fn ensureControl(l: *Lowerer, parent: []const u8, endpoint: []const u8, span: ast.Span) std.mem.Allocator.Error![]const u8 {
+    const id = try qualifyId(l.arena, parent, endpoint);
+    const interned = try internId(l, id);
+    if (l.elements.contains(interned)) return interned;
+    var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, endpoint) };
+    const kind: ir.NodeKind = if (std.mem.eql(u8, endpoint, "terminate")) .terminate_action else .control_node;
+    if (kind == .control_node) payload.endpoint = try l.arena.dupe(u8, endpoint);
+    const nid = try behavAddNode(l, id, kind, span, payload);
+    try behavContains(l, parent, nid);
+    return nid;
+}
+
+/// Resolve a FlowRef AST node to its IR FlowEnds, creating control/decision/
+/// fork nodes as needed.
+fn flowRefId(l: *Lowerer, parent: []const u8, ref: *ast.Node) std.mem.Allocator.Error!FlowEnds {
+    switch (ref.payload) {
+        .control_ref => |cr| {
+            const ep = switch (cr.endpoint) {
+                .start => "start",
+                .done => "done",
+                .terminate => "terminate",
+            };
+            const id = try ensureControl(l, parent, ep, ref.span);
+            return .{ .entry = id, .exit = id };
+        },
+        .decide_block => return lowerDecide(l, parent, ref),
+        .par_block => return lowerPar(l, parent, ref),
+        .target_ref => |tr| {
+            if (tr.endpoint) |ep| {
+                const eps = switch (ep) {
+                    .start => "start",
+                    .done => "done",
+                    .terminate => "terminate",
+                };
+                const id = try ensureControl(l, parent, eps, ref.span);
+                return .{ .entry = id, .exit = id };
+            }
+            const name = if (tr.name_segments.len > 0) tr.name_segments[0] else "";
+            const id = try internId(l, try qualifyId(l.arena, parent, name));
+            return .{ .entry = id, .exit = id };
+        },
+        else => {
+            const id = try behavHeadRefId(l, parent, ref);
+            return .{ .entry = id, .exit = id };
+        },
+    }
+}
+
+/// decide → DecisionNode + implicit MergeNode + guarded successions (§4.1).
+fn lowerDecide(l: *Lowerer, parent: []const u8, node: *ast.Node) std.mem.Allocator.Error!FlowEnds {
+    const db = node.payload.decide_block;
+    const decision = try behavAddNode(l, try synthId(l, parent, "decision"), .decision_node, node.span, .{ .name = "decide" });
+    try behavContains(l, parent, decision);
+    const merge = try behavAddNode(l, try synthId(l, parent, "merge"), .merge_node, node.span, .{ .name = "merge", .implicit = true });
+    try behavContains(l, parent, merge);
+    for (db.branches) |br| {
+        const be = try flowRefId(l, parent, br.target);
+        try behavEdge(l, decision, be.entry, .succession, try guardOf(l, br.guard), null, null);
+        try behavEdge(l, be.exit, merge, .succession, null, null, null);
+    }
+    return .{ .entry = decision, .exit = merge };
+}
+
+/// par → ForkNode + implicit JoinNode + concurrent successions (§4.2).
+fn lowerPar(l: *Lowerer, parent: []const u8, node: *ast.Node) std.mem.Allocator.Error!FlowEnds {
+    const pb = node.payload.par_block;
+    const fork = try behavAddNode(l, try synthId(l, parent, "fork"), .fork_node, node.span, .{ .name = "par" });
+    try behavContains(l, parent, fork);
+    const join = try behavAddNode(l, try synthId(l, parent, "join"), .join_node, node.span, .{ .name = "join", .implicit = true });
+    try behavContains(l, parent, join);
+    for (pb.branches) |b| {
+        const be = try flowRefId(l, parent, b);
+        try behavEdge(l, fork, be.entry, .succession, null, null, null);
+        try behavEdge(l, be.exit, join, .succession, null, null, null);
+    }
+    var exit_id = join;
+    if (pb.exit) |ex| {
+        const be = try flowRefId(l, parent, ex);
+        try behavEdge(l, join, be.entry, .succession, null, null, null);
+        exit_id = be.exit;
+    }
+    return .{ .entry = fork, .exit = exit_id };
+}
+
+/// `a -> [g] b -> …` → succession edges between consecutive resolved steps.
+fn lowerSuccessionChain(l: *Lowerer, parent: []const u8, node: *ast.Node) std.mem.Allocator.Error!void {
+    const sc = node.payload.succession_chain;
+    if (sc.steps.len == 0) return;
+    var prev = try flowRefId(l, parent, sc.steps[0].ref);
+    var i: usize = 1;
+    while (i < sc.steps.len) : (i += 1) {
+        const st = sc.steps[i];
+        const cur = try flowRefId(l, parent, st.ref);
+        try behavEdge(l, prev.exit, cur.entry, .succession, try guardOfOpt(l, st.guard), null, null);
+        prev = cur;
+    }
+}
+
+fn lowerBehavioralMembers(l: *Lowerer, members: []*ast.Node, parent: []const u8) std.mem.Allocator.Error!void {
+    for (members) |m| try lowerBehavioralMember(l, m, parent);
+}
+
+fn lowerBehavioralMember(l: *Lowerer, node: *ast.Node, parent: []const u8) std.mem.Allocator.Error!void {
+    switch (node.payload) {
+        .visibility_wrapper => |vw| {
+            for (vw.members) |inner| try lowerBehavioralMember(l, inner, parent);
+        },
+        .pin_decl => |p| {
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, p.name), .direction = p.direction };
+            payload.type_ref = try typeRefOf(l, p.type_node);
+            const id = try behavAddNode(l, try qualifyId(l.arena, parent, p.name), .pin, node.span, payload);
+            try behavContains(l, parent, id);
+        },
+        .state_usage => {
+            const usage = elemUsageOf(node) orelse return;
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, usage.name) };
+            if (usage.type_node) |tn| payload.type_ref = try typeRefOf(l, tn);
+            const id = try behavAddNode(l, try qualifyId(l.arena, parent, usage.name), .state_usage, node.span, payload);
+            try behavContains(l, parent, id);
+            if (usage.inline_body) |ib| {
+                if (ib.payload == .inline_body) {
+                    for (ib.payload.inline_body.members) |sm| try lowerBehavioralMember(l, sm, id);
+                }
+            }
+        },
+        .escape_node => |en| {
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, en.name) };
+            if (en.type_segments.len > 0) payload.type_ref = try std.mem.join(l.arena, ".", en.type_segments);
+            const id = try behavAddNode(l, try qualifyId(l.arena, parent, en.name), .action_usage, node.span, payload);
+            try behavContains(l, parent, id);
+            if (en.body) |b| {
+                if (b.payload == .action_body) {
+                    for (b.payload.action_body.members) |bm| try lowerBehavioralMember(l, bm, id);
+                }
+            }
+        },
+        .perform_statement => |ps| {
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "perform") };
+            payload.callee_ref = try spanTextOpt(l, ps.call);
+            const id = try behavAddNode(l, try synthId(l, parent, "perform"), .perform_action, node.span, payload);
+            try behavContains(l, parent, id);
+        },
+        .send_action => |sa| {
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "send") };
+            if (sa.payload_segments.len > 0) payload.payload_ref = try std.mem.join(l.arena, ".", sa.payload_segments);
+            if (sa.target_segments) |ts| {
+                if (ts.len > 0) payload.target_ref = try std.mem.join(l.arena, ".", ts);
+            }
+            const id = try behavAddNode(l, try synthId(l, parent, "send"), .send_action, node.span, payload);
+            try behavContains(l, parent, id);
+        },
+        .accept_action => |aa| {
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "accept") };
+            if (aa.trigger_segments.len > 0) payload.trigger_ref = try std.mem.join(l.arena, ".", aa.trigger_segments);
+            if (aa.guard) |g| payload.guard_expr = try spanTextOpt(l, g);
+            const id = try behavAddNode(l, try synthId(l, parent, "accept"), .accept_action, node.span, payload);
+            try behavContains(l, parent, id);
+        },
+        .assign_action => |asg| {
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "assign") };
+            if (asg.target_segments.len > 0) payload.referent_ref = try std.mem.join(l.arena, ".", asg.target_segments);
+            payload.value_expr = try spanTextOpt(l, asg.value);
+            const id = try behavAddNode(l, try synthId(l, parent, "assign"), .assign_action, node.span, payload);
+            try behavContains(l, parent, id);
+        },
+        .loop_statement => |ls| {
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "loop") };
+            const kind: ir.NodeKind = if (ls.kind == .for_loop) .for_loop_action else .while_loop_action;
+            switch (ls.kind) {
+                .while_loop => payload.loop_kind = try l.arena.dupe(u8, "while"),
+                .until_loop => payload.loop_kind = try l.arena.dupe(u8, "until"),
+                .for_loop => {},
+            }
+            if (ls.guard) |g| payload.guard_expr = try spanTextOpt(l, g);
+            if (ls.var_name) |v| payload.loop_var = try l.arena.dupe(u8, v);
+            if (ls.iterable) |it| payload.iterable_expr = try spanTextOpt(l, it);
+            const id = try behavAddNode(l, try synthId(l, parent, "loop"), kind, node.span, payload);
+            try behavContains(l, parent, id);
+            if (ls.body.payload == .action_body) {
+                for (ls.body.payload.action_body.members) |bm| try lowerBehavioralMember(l, bm, id);
+            }
+        },
+        .decide_block => {
+            _ = try lowerDecide(l, parent, node);
+        },
+        .par_block => {
+            _ = try lowerPar(l, parent, node);
+        },
+        .succession_chain => try lowerSuccessionChain(l, parent, node),
+        .item_flow_statement => |ifs| {
+            const src = try behavHeadRefId(l, parent, ifs.source);
+            const dst = try behavHeadRefId(l, parent, ifs.target);
+            var ft: ?[]const u8 = null;
+            if (ifs.flow_type_segments) |seg| {
+                if (seg.len > 0) ft = try std.mem.join(l.arena, ".", seg);
+            }
+            try behavEdge(l, src, dst, .item_flow, null, ft, null);
+        },
+        .binding_statement => |bs| {
+            const src = try behavHeadRefId(l, parent, bs.lhs);
+            const dst = try behavHeadRefId(l, parent, bs.rhs);
+            try behavEdge(l, src, dst, .binding, null, null, null);
+        },
+        .escape_succession => |es| {
+            const src_name = if (es.source_segments.len > 0) es.source_segments[0] else "";
+            const dst_name = if (es.target_segments.len > 0) es.target_segments[0] else "";
+            const src = try internId(l, try qualifyId(l.arena, parent, src_name));
+            const dst = try internId(l, try qualifyId(l.arena, parent, dst_name));
+            try behavEdge(l, src, dst, .succession, try guardOfOpt(l, es.guard), null, null);
+        },
+        .transition_statement => |ts| {
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, "transition") };
+            if (ts.trigger_segments.len > 0) payload.trigger_ref = try std.mem.join(l.arena, ".", ts.trigger_segments);
+            if (ts.guard) |g| payload.guard_expr = try spanTextOpt(l, g);
+            if (ts.effect) |e| payload.effect_ref = try spanTextOpt(l, e);
+            payload.source_ref = try internId(l, parent);
+            const tgt = try flowRefId(l, parent, ts.target);
+            payload.target_ref = tgt.entry;
+            const id = try behavAddNode(l, try synthId(l, parent, "transition"), .transition, node.span, payload);
+            try behavContains(l, parent, id);
+        },
+        .entry_do_exit => |ed| {
+            const kind_str = switch (ed.kind) {
+                .entry => "entry",
+                .do_action => "do",
+                .exit => "exit",
+            };
+            var payload = ir.IrPayload{ .name = try l.arena.dupe(u8, kind_str) };
+            payload.callee_ref = try spanTextOpt(l, ed.behavior);
+            const id = try behavAddNode(l, try qualifyId(l.arena, parent, kind_str), .perform_action, node.span, payload);
+            try behavContains(l, parent, id);
+            try behavEdge(l, parent, id, .subaction, null, null, try l.arena.dupe(u8, kind_str));
+        },
+        .annotation => try lowerAnnotationEdge(l, node.payload.annotation, parent),
+        .doc_comment => {},
+        // All other usages (action_usage, attribute_usage, part_usage, …) reuse
+        // the generic usage lowering (correct IR kind via astUsageKindToIrKind).
+        else => try pass2LowerMember(l, node, parent),
+    }
 }
 
 fn pass2LowerCompNode(l: *Lowerer, node: *ast.Node, parent_id: []const u8) !void {
@@ -892,10 +1260,10 @@ fn astUsageKindToIrKind(kind: ast.NodeKind) ir.NodeKind {
         .part_usage => .part_usage,
         .port_usage => .port_usage,
         .attribute_usage => .attribute_usage,
-        .action_usage => .part_usage, // no action_usage in IR
+        .action_usage => .action_usage, // IR v0.1 (S2.5)
         .actor_usage => .part_usage,
         .subject_usage => .part_usage,
-        .state_usage => .state_def,
+        .state_usage => .state_usage, // IR v0.1 (S2.5)
         .item_usage => .part_usage,
         .interface_usage => .interface_def,
         .connection_usage => .connect,

@@ -44,6 +44,7 @@ comptime {
     _ = @import("sema_calc.zig");
     _ = @import("sema_behavioral.zig");
     _ = @import("determinism_lower_twice.zig");
+    _ = @import("lowering_behavioral.zig");
     _ = @import("property_ir_id_uniqueness.zig");
     _ = @import("fmt_roundtrip.zig");
 }

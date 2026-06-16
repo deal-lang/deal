@@ -761,6 +761,7 @@ pub export fn deal_ir_json(
                 ast_root,
                 sym_table,
                 h.filename,
+                h.source,
             ) catch return false;
         }
         const doc = h.ir_root orelse return false;
@@ -801,7 +802,7 @@ pub fn deal_lower_internal(
 
     const sym_table = try sema.analyze(alloc, ast_root, &diag_list, filename);
 
-    return lowering.lower(alloc, ast_root, sym_table, filename);
+    return lowering.lower(alloc, ast_root, sym_table, filename, source);
 }
 
 /// Lazy formatted-source emission (D-21). Runs the pretty-printer on the
