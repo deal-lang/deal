@@ -226,6 +226,13 @@ fn emit_node<'a>(
         "state_usage" => emit_state(node, "StateUsage", outgoing, node_map), // 8.3.18.6
         "transition" => emit_transition(node), // 8.3.18.9 (TransitionUsage)
         "pin" => emit_pin(node), // 8.3.6.3 (ReferenceUsage + FeatureDirectionKind)
+        // ── Expression surface (IR v0.2, S3.3) — KerML Expression metaclasses;
+        //    SysML inherits them. Clause cited per arm, derived slots untouched,
+        //    8.4 implied relationships injected. See expression-mapping.md §1.
+        "operator_expr" => emit_operator_expr(node, outgoing, node_map), // KerML 8.3.4.8.17 / FeatureChain 8.3.4.8.4
+        "feature_ref_expr" => emit_feature_ref_expr(node), // KerML 8.3.4.8.5 / 8.3.4.8.4
+        "literal_expr" => emit_literal_expr(node), // KerML 8.3.4.8.9/.12/.13/.14
+        "invocation_expr" => emit_invocation_expr(node, outgoing, node_map), // KerML 8.3.4.8.8 / SysML 8.3.17.17
         "use_case_def"
         | "allocation_def" | "allocate" | "annotation" | "validate" | "subsystem"
         | "system" => emit_generic_element(node),
@@ -389,10 +396,12 @@ fn make_connector(conn_id: &str, sysml_type: &str, src_id: &str, dst_id: &str) -
 /// source/target/triggerAction/guardExpression/effectAction/succession are
 /// DERIVED (computed by the receiving tool from owned features) — none are
 /// authored (rule 6). We author the non-derived backbone: the owned Succession
-/// (source→target) that the transition asserts when triggered. The trigger
-/// (AcceptActionUsage), guard (Expression), and effect (ActionUsage)
-/// TransitionFeatureMemberships are richer owned sub-trees deferred to a
-/// follow-up; the IR carries trigger_ref/guard_expr/effect_ref for them.
+/// (source→target) plus the trigger/guard/effect TransitionFeatureMemberships
+/// (8.3.18.8, `kind` authored, `transitionFeature` derived). IR v0.2 (S3.3)
+/// completes the triad: guard → a Boolean-valued Expression (the lowered
+/// guard_expr node), effect → the lowered invocation_expr node. The derived
+/// guardExpression/effectAction attributes are computed by the tool from the
+/// kind=guard / kind=effect memberships (8.3.18.9 deriveTransitionUsage*).
 fn emit_transition(node: &IrNode) -> anyhow::Result<Value> {
     let mut m = base_fields(node.id, "TransitionUsage");
     let mut owned_rels: Vec<Value> = Vec::new();
@@ -411,23 +420,49 @@ fn emit_transition(node: &IrNode) -> anyhow::Result<Value> {
         }));
     }
 
-    // Trigger / effect TransitionFeatureMemberships (8.3.18.8): kind is authored,
-    // transitionFeature is derived (the owned Step). Guards (kind=guard, a
-    // Boolean-valued Expression) are deferred — structured-expression emission is
-    // Stage 3 (see spec/ir/v0.1/FUTURE-structured-expressions.md).
+    // trigger: trigger_ref is a signal/event name → a synthesized AcceptActionUsage
+    // (8.3.18.8 validateTransitionFeatureMembershipTriggerAction).
     if let Some(trig) = node.payload.get("trigger_ref").and_then(|v| v.as_str()) {
         if !trig.is_empty() {
             owned_rels.push(transition_feature_membership(node.id, "trigger", "AcceptActionUsage", trig));
         }
     }
+    // guard: guard_expr is the id of the lowered Boolean-valued Expression node
+    // (operator/feature/literal). kind=guard TransitionFeatureMembership owning
+    // it (8.3.18.8 validateTransitionFeatureMembershipGuardExpression); the
+    // TransitionUsage.guardExpression is derived from it (8.3.18.9).
+    if let Some(g) = node.payload.get("guard_expr").and_then(|v| v.as_str()) {
+        if !g.is_empty() {
+            owned_rels.push(transition_feature_membership_ref(node.id, "guard", g));
+        }
+    }
+    // effect: effect_ref is the id of the lowered invocation_expr node. kind=effect
+    // TransitionFeatureMembership references it; effectAction is derived (8.3.18.9).
+    // (Strict effectAction=ActionUsage typing — wrapping the invocation in a
+    // PerformActionUsage — is a follow-on refinement; the invocation Expression
+    // is structurally present and owned.)
     if let Some(eff) = node.payload.get("effect_ref").and_then(|v| v.as_str()) {
         if !eff.is_empty() {
-            owned_rels.push(transition_feature_membership(node.id, "effect", "PerformActionUsage", eff));
+            owned_rels.push(transition_feature_membership_ref(node.id, "effect", eff));
         }
     }
 
     m.insert("ownedRelationship".to_string(), json!(owned_rels));
     Ok(Value::Object(m))
+}
+
+/// A TransitionFeatureMembership (8.3.18.8) of `kind` ("guard"/"effect") that
+/// references an already-emitted top-level element (the lowered expression node)
+/// by `@id`. `kind` is authored; `transitionFeature` is derived.
+fn transition_feature_membership_ref(transition_id: &str, kind: &str, ref_id: &str) -> Value {
+    let fm_uuid = deal_id_to_uuid(&format!("{transition_id}--TransitionFeatureMembership--{kind}"));
+    json!({
+        "@id": fm_uuid,
+        "@type": "TransitionFeatureMembership",
+        "elementId": fm_uuid,
+        "kind": kind,
+        "ownedRelatedElement": [{ "@id": deal_id_to_uuid(ref_id) }],
+    })
 }
 
 /// A TransitionFeatureMembership (8.3.18.8) of `kind` ("trigger"/"effect")
@@ -455,6 +490,98 @@ fn transition_feature_membership(transition_id: &str, kind: &str, feat_type: &st
         "kind": kind,
         "ownedRelatedElement": [feature],
     })
+}
+
+// ─── Expression emitters (IR v0.2, S3.3) ─────────────────────────────────────
+// Each KerML Expression metaclass; clause cited; only non-derived slots filled.
+// Operand/argument features are owned via FeatureMembership references to the
+// lowered child expression nodes; the library-function ref, result parameter,
+// and result BindingConnectors are derived/injected and never authored
+// (rule 6 / §5). See spec/ir/v0.2/expression-mapping.md.
+
+/// operator_expr → KerML OperatorExpression (8.3.4.8.17). Authored: the
+/// `operator` symbol + the operand argument features (the lowered op0/op1 child
+/// expression nodes). The instantiatedType (library Function resolved from the
+/// operator), result, and operand ParameterMemberships are derived (§5).
+fn emit_operator_expr<'a>(
+    node: &IrNode,
+    outgoing: &HashMap<&str, Vec<&IrEdge<'a>>>,
+    node_map: &HashMap<&str, &IrNode>,
+) -> anyhow::Result<Value> {
+    let mut v = emit_typed_with_members(node, "OperatorExpression", outgoing, node_map)?;
+    if let Some(op) = node.payload.get("operator").and_then(|x| x.as_str()) {
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("operator".to_string(), json!(op));
+        }
+    }
+    Ok(v)
+}
+
+/// feature_ref_expr → KerML FeatureReferenceExpression (8.3.4.8.5) for a single
+/// segment, or FeatureChainExpression (8.3.4.8.4) for a dotted path. The
+/// `referent`/`targetFeature` is derived (the first non-parameter member) and
+/// the result BindingConnector is injected — neither authored. The DEAL feature
+/// path is recorded in declaredName (resolving it to a SysML element id is a
+/// separate concern, out of scope here).
+fn emit_feature_ref_expr(node: &IrNode) -> anyhow::Result<Value> {
+    let segs: Vec<&str> = node
+        .payload
+        .get("referent_segments")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+    let sysml_type = if segs.len() >= 2 { "FeatureChainExpression" } else { "FeatureReferenceExpression" };
+    let mut m = base_fields(node.id, sysml_type);
+    if !segs.is_empty() {
+        m.insert("declaredName".to_string(), json!(segs.join(".")));
+    }
+    m.insert("ownedRelationship".to_string(), json!([]));
+    Ok(Value::Object(m))
+}
+
+/// literal_expr → KerML LiteralBoolean/Integer/Rational/String
+/// (8.3.4.8.9/.12/.13/.14). Authored: the typed `value`. The result typing
+/// (Integer/Rational/Boolean/String) is derived via checkLiteral*Specialization.
+fn emit_literal_expr(node: &IrNode) -> anyhow::Result<Value> {
+    let kind = node.payload.get("literal_kind").and_then(|v| v.as_str()).unwrap_or("string");
+    let raw = node.payload.get("literal_value").and_then(|v| v.as_str()).unwrap_or("");
+    let (sysml_type, value): (&str, Value) = match kind {
+        "integer" => (
+            "LiteralInteger",
+            raw.parse::<i64>().map(|n| json!(n)).unwrap_or_else(|_| json!(raw)),
+        ),
+        "rational" => (
+            "LiteralRational",
+            raw.parse::<f64>().map(|n| json!(n)).unwrap_or_else(|_| json!(raw)),
+        ),
+        "boolean" => ("LiteralBoolean", json!(raw == "true")),
+        _ => ("LiteralString", json!(raw)),
+    };
+    let mut m = base_fields(node.id, sysml_type);
+    m.insert("value".to_string(), value);
+    m.insert("ownedRelationship".to_string(), json!([]));
+    Ok(Value::Object(m))
+}
+
+/// call → KerML InvocationExpression (8.3.4.8.8), or SysML
+/// TriggerInvocationExpression (8.3.17.17) when a trigger `kind` (when/at/after)
+/// is present. Authored: the argument features (lowered argN child nodes) + the
+/// trigger `kind`. The instantiatedType (invoked behavior/function resolved from
+/// callee_ref), arguments, and result binding are derived (§5).
+fn emit_invocation_expr<'a>(
+    node: &IrNode,
+    outgoing: &HashMap<&str, Vec<&IrEdge<'a>>>,
+    node_map: &HashMap<&str, &IrNode>,
+) -> anyhow::Result<Value> {
+    let trigger = node.payload.get("trigger_kind").and_then(|v| v.as_str());
+    let sysml_type = if trigger.is_some() { "TriggerInvocationExpression" } else { "InvocationExpression" };
+    let mut v = emit_typed_with_members(node, sysml_type, outgoing, node_map)?;
+    if let Some(obj) = v.as_object_mut() {
+        if let Some(k) = trigger {
+            obj.insert("kind".to_string(), json!(k));
+        }
+    }
+    Ok(v)
 }
 
 /// state_def → StateDefinition (8.3.18.5), state_usage → StateUsage (8.3.18.6).
