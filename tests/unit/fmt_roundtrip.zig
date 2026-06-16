@@ -220,6 +220,68 @@ test "fmt_roundtrip.plus_minus_normalization_all_attach_points" {
     }
 }
 
+// Stage-2 S2.7b: the behavioral surface must format idempotently (the fmt
+// writers are exercised here before the showcase migration uses them).
+test "fmt_roundtrip.behavioral_idempotent" {
+    const gpa = std.testing.allocator;
+    const source =
+        \\package p;
+        \\action def Charge {
+        \\    in soc : Real;
+        \\    action negotiate;
+        \\    action deliverPower { out delivered : Real; }
+        \\    start -> negotiate -> done;
+        \\    negotiate -> decide { [soc >= 80] -> done  [else] -> negotiate };
+        \\    negotiate -> par { -> deliverPower } -> done;
+        \\    loop while [soc < 100] { deliverPower -> done; }
+        \\    for c in cells { negotiate(c); }
+        \\    accept PlugInserted;
+        \\    assign soc := soc + 1;
+        \\    send Overheat to controller;
+        \\    deliverPower.delivered ~> negotiate.x;
+        \\    bind deliverPower.delivered = negotiate.x;
+        \\    node faultMon : negotiate;
+        \\    succession faultMon -> [soc < 0] deliverPower;
+        \\}
+        \\state def S {
+        \\    in t : Real;
+        \\    state Idle;
+        \\    state Active;
+        \\    entry / startUp();
+        \\    start -> Idle;
+        \\    on PlugIn -> Active;
+        \\    on Hot [t > 5] / shutdown() -> Idle;
+        \\    Active -> done;
+        \\}
+    ;
+    const path = "behavioral_fmt.deal";
+
+    const ha = lib.deal_parse(source.ptr, source.len, path.ptr, path.len);
+    if (ha == null) return error.ParseFailed;
+    defer lib.deal_free(ha);
+    var p1: [*]const u8 = undefined;
+    var l1: usize = 0;
+    if (!lib.deal_format(ha, &p1, &l1)) return error.FormatFailed;
+    const b1 = try gpa.dupe(u8, p1[0..l1]);
+    defer gpa.free(b1);
+
+    const hb = lib.deal_parse(b1.ptr, b1.len, path.ptr, path.len);
+    if (hb == null) {
+        std.debug.print("fmt_roundtrip.behavioral: re-parse failed:\n{s}\n", .{b1});
+        return error.ReParseFailed;
+    }
+    defer lib.deal_free(hb);
+    var p2: [*]const u8 = undefined;
+    var l2: usize = 0;
+    if (!lib.deal_format(hb, &p2, &l2)) return error.FormatFailed2;
+    const b2 = p2[0..l2];
+
+    if (!std.mem.eql(u8, b1, b2)) {
+        std.debug.print("fmt_roundtrip.behavioral: NOT idempotent.\nB1:\n{s}\nB2:\n{s}\n", .{ b1, b2 });
+        try std.testing.expectEqualStrings(b1, b2);
+    }
+}
+
 /// Core idempotency test:
 ///   parse(source) → format → bytes1
 ///   parse(bytes1) → format → bytes2

@@ -840,10 +840,26 @@ fn lowerBehavioralMember(l: *Lowerer, node: *ast.Node, parent: []const u8) std.m
             try behavContains(l, parent, id);
             try behavEdge(l, parent, id, .subaction, null, null, try l.arena.dupe(u8, kind_str));
         },
+        .action_usage => {
+            // Create the action_usage node + contains edge via the generic path,
+            // then lower any inline ActionBody members (sub-action pins that item
+            // flows reference) under the action-usage id.
+            try pass2LowerMember(l, node, parent);
+            if (elemUsageOf(node)) |usage| {
+                if (usage.inline_body) |ib| {
+                    if (ib.payload == .action_body) {
+                        const aid = try internId(l, try qualifyId(l.arena, parent, usage.name));
+                        for (ib.payload.action_body.members) |bm| {
+                            try lowerBehavioralMember(l, bm, aid);
+                        }
+                    }
+                }
+            }
+        },
         .annotation => try lowerAnnotationEdge(l, node.payload.annotation, parent),
         .doc_comment => {},
-        // All other usages (action_usage, attribute_usage, part_usage, …) reuse
-        // the generic usage lowering (correct IR kind via astUsageKindToIrKind).
+        // All other usages (attribute_usage, part_usage, …) reuse the generic
+        // usage lowering (correct IR kind via astUsageKindToIrKind).
         else => try pass2LowerMember(l, node, parent),
     }
 }

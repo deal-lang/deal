@@ -180,16 +180,26 @@ const FormatContext = struct {
             .calc_body => |*p| try ctx.writeCalcBody(p, indent),
             .require_statement => |*p| try ctx.writeRequireStatement(p, indent),
 
-            // Behavioral surface (Stage-2 S2.2). The parser does not yet
-            // produce these (S2.3), so no fixture round-trips through fmt.
-            // Real writers + round-trip goldens land in S2.3; no-op here keeps
-            // the exhaustive dispatch compiling.
-            .action_body, .pin_decl, .succession_chain, .control_ref,
-            .decide_block, .par_block, .loop_statement, .send_action,
-            .accept_action, .assign_action, .perform_statement,
-            .item_flow_statement, .binding_statement, .escape_node,
-            .escape_succession, .entry_do_exit, .transition_statement,
-            .target_ref => {},
+            // Behavioral surface (Stage-2 S2.7b). Canonical, idempotent writers
+            // matching deal.ebnf §9b/§9c so the behavioral showcase round-trips.
+            .action_body => |*p| try ctx.writeActionBody(p, indent),
+            .pin_decl => |*p| try ctx.writePinDecl(p, indent),
+            .succession_chain => |*p| try ctx.writeSuccessionChain(p, indent),
+            .control_ref => |*p| try ctx.writeControlRef(p),
+            .target_ref => |*p| try ctx.writeTargetRef(p),
+            .decide_block => |*p| try ctx.writeDecideBlock(p, indent),
+            .par_block => |*p| try ctx.writeParBlock(p, indent),
+            .loop_statement => |*p| try ctx.writeLoopStatement(p, indent),
+            .send_action => |*p| try ctx.writeSendAction(p),
+            .accept_action => |*p| try ctx.writeAcceptAction(p, indent),
+            .assign_action => |*p| try ctx.writeAssignAction(p, indent),
+            .perform_statement => |*p| try ctx.writePerformStatement(p, indent),
+            .item_flow_statement => |*p| try ctx.writeItemFlowStatement(p, indent),
+            .binding_statement => |*p| try ctx.writeBindingStatement(p, indent),
+            .escape_node => |*p| try ctx.writeEscapeNode(p, indent),
+            .escape_succession => |*p| try ctx.writeEscapeSuccession(p, indent),
+            .entry_do_exit => |*p| try ctx.writeEntryDoExit(p, indent),
+            .transition_statement => |*p| try ctx.writeTransitionStatement(p, indent),
         }
     }
 
@@ -959,6 +969,259 @@ const FormatContext = struct {
         try ctx.write("${");
         try ctx.writeNode(p.expr, indent);
         try ctx.write("}");
+    }
+
+    // ─── Behavioral surface writers (Stage-2 S2.7b) ──────────────────────
+    // Canonical forms per deal.ebnf §9b/§9c; idempotent so the behavioral
+    // showcase survives the fmt round-trip gate.
+
+    /// Write `seg.seg.seg` (a dotted QualifiedName from a segment slice).
+    fn writeSegs(ctx: *FormatContext, segs: []const []const u8) !void {
+        for (segs, 0..) |seg, i| {
+            if (i > 0) try ctx.write(".");
+            try ctx.write(seg);
+        }
+    }
+
+    /// Write a Guard: `[expr]` or `[else]`.
+    fn writeGuard(ctx: *FormatContext, g: ast.Guard, indent: u32) !void {
+        try ctx.write("[");
+        if (g.is_else) {
+            try ctx.write("else");
+        } else if (g.expr) |e| {
+            try ctx.writeNode(e, indent);
+        }
+        try ctx.write("]");
+    }
+
+    fn endpointKw(e: ast.ControlEndpoint) []const u8 {
+        return switch (e) {
+            .start => "start",
+            .done => "done",
+            .terminate => "terminate",
+        };
+    }
+
+    /// ActionBody / nested body: `{ members }` (or `{}` when empty).
+    fn writeActionBody(ctx: *FormatContext, p: *const ast.ActionBody, indent: u32) !void {
+        if (p.members.len == 0) {
+            try ctx.write("{}");
+            return;
+        }
+        try ctx.write("{\n");
+        for (p.members) |m| {
+            try ctx.writeDeclarationWithComments(m, indent + 1);
+        }
+        try ctx.writeIndent(indent);
+        try ctx.write("}");
+    }
+
+    /// `<dir> name : Type [mult]? [= default]? ;`
+    fn writePinDecl(ctx: *FormatContext, p: *const ast.PinDecl, indent: u32) !void {
+        try ctx.write(directionKw(p.direction));
+        try ctx.write(" ");
+        try ctx.write(p.name);
+        try ctx.write(" : ");
+        try ctx.writeNode(p.type_node, indent);
+        if (p.multiplicity) |m| {
+            try ctx.write(" ");
+            try ctx.writeNode(m, indent);
+        }
+        if (p.default_value) |dv| {
+            try ctx.write(" = ");
+            try ctx.writeNode(dv, indent);
+        }
+        try ctx.write(";");
+    }
+
+    fn writeControlRef(ctx: *FormatContext, p: *const ast.ControlRef) !void {
+        try ctx.write(endpointKw(p.endpoint));
+    }
+
+    fn writeTargetRef(ctx: *FormatContext, p: *const ast.TargetRef) !void {
+        if (p.endpoint) |e| {
+            try ctx.write(endpointKw(e));
+            return;
+        }
+        try ctx.writeSegs(p.name_segments);
+    }
+
+    /// `ref ( -> [g]? ref )+ ;`
+    fn writeSuccessionChain(ctx: *FormatContext, p: *const ast.SuccessionChain, indent: u32) !void {
+        for (p.steps, 0..) |st, i| {
+            if (i > 0) {
+                try ctx.write(" -> ");
+                if (st.guard) |g| {
+                    try ctx.writeGuard(g, indent);
+                    try ctx.write(" ");
+                }
+            }
+            try ctx.writeNode(st.ref, indent);
+        }
+        try ctx.write(";");
+    }
+
+    /// `decide { [g] -> ref … }`
+    fn writeDecideBlock(ctx: *FormatContext, p: *const ast.DecideBlock, indent: u32) !void {
+        try ctx.write("decide {");
+        for (p.branches) |br| {
+            try ctx.write(" ");
+            try ctx.writeGuard(br.guard, indent);
+            try ctx.write(" -> ");
+            try ctx.writeNode(br.target, indent);
+        }
+        try ctx.write(" }");
+    }
+
+    /// `par { -> ref … } ( -> ref )?`
+    fn writeParBlock(ctx: *FormatContext, p: *const ast.ParBlock, indent: u32) !void {
+        try ctx.write("par {");
+        for (p.branches) |b| {
+            try ctx.write(" -> ");
+            try ctx.writeNode(b, indent);
+        }
+        try ctx.write(" }");
+        if (p.exit) |ex| {
+            try ctx.write(" -> ");
+            try ctx.writeNode(ex, indent);
+        }
+    }
+
+    /// `loop while/until [g] body` | `for v in expr body`
+    fn writeLoopStatement(ctx: *FormatContext, p: *const ast.LoopStatement, indent: u32) !void {
+        switch (p.kind) {
+            .while_loop, .until_loop => {
+                try ctx.write("loop ");
+                try ctx.write(if (p.kind == .until_loop) "until " else "while ");
+                try ctx.write("[");
+                if (p.guard) |g| try ctx.writeNode(g, indent);
+                try ctx.write("] ");
+                try ctx.writeNode(p.body, indent);
+            },
+            .for_loop => {
+                try ctx.write("for ");
+                if (p.var_name) |v| try ctx.write(v);
+                try ctx.write(" in ");
+                if (p.iterable) |it| try ctx.writeNode(it, indent);
+                try ctx.write(" ");
+                try ctx.writeNode(p.body, indent);
+            },
+        }
+    }
+
+    /// `send Payload ( to Target )? ;`
+    fn writeSendAction(ctx: *FormatContext, p: *const ast.SendAction) !void {
+        try ctx.write("send ");
+        try ctx.writeSegs(p.payload_segments);
+        if (p.target_segments) |t| {
+            try ctx.write(" to ");
+            try ctx.writeSegs(t);
+        }
+        try ctx.write(";");
+    }
+
+    /// `accept Trigger ( [expr] )? ;`
+    fn writeAcceptAction(ctx: *FormatContext, p: *const ast.AcceptAction, indent: u32) !void {
+        try ctx.write("accept ");
+        try ctx.writeSegs(p.trigger_segments);
+        if (p.guard) |g| {
+            try ctx.write(" [");
+            try ctx.writeNode(g, indent);
+            try ctx.write("]");
+        }
+        try ctx.write(";");
+    }
+
+    /// `assign Target := value ;`
+    fn writeAssignAction(ctx: *FormatContext, p: *const ast.AssignAction, indent: u32) !void {
+        try ctx.write("assign ");
+        try ctx.writeSegs(p.target_segments);
+        try ctx.write(" := ");
+        try ctx.writeNode(p.value, indent);
+        try ctx.write(";");
+    }
+
+    /// `call(args) ;`
+    fn writePerformStatement(ctx: *FormatContext, p: *const ast.PerformStatement, indent: u32) !void {
+        try ctx.writeNode(p.call, indent);
+        try ctx.write(";");
+    }
+
+    /// `source ~> target ( : FlowType )? ;`
+    fn writeItemFlowStatement(ctx: *FormatContext, p: *const ast.ItemFlowStatement, indent: u32) !void {
+        try ctx.writeNode(p.source, indent);
+        try ctx.write(" ~> ");
+        try ctx.writeNode(p.target, indent);
+        if (p.flow_type_segments) |ft| {
+            try ctx.write(" : ");
+            try ctx.writeSegs(ft);
+        }
+        try ctx.write(";");
+    }
+
+    /// `bind lhs = rhs ;`
+    fn writeBindingStatement(ctx: *FormatContext, p: *const ast.BindingStatement, indent: u32) !void {
+        try ctx.write("bind ");
+        try ctx.writeNode(p.lhs, indent);
+        try ctx.write(" = ");
+        try ctx.writeNode(p.rhs, indent);
+        try ctx.write(";");
+    }
+
+    /// `node Name : Type body? ;`
+    fn writeEscapeNode(ctx: *FormatContext, p: *const ast.EscapeNode, indent: u32) !void {
+        try ctx.write("node ");
+        try ctx.write(p.name);
+        try ctx.write(" : ");
+        try ctx.writeSegs(p.type_segments);
+        if (p.body) |b| {
+            try ctx.write(" ");
+            try ctx.writeNode(b, indent);
+        }
+        try ctx.write(";");
+    }
+
+    /// `succession src -> [g]? tgt ;`
+    fn writeEscapeSuccession(ctx: *FormatContext, p: *const ast.EscapeSuccession, indent: u32) !void {
+        try ctx.write("succession ");
+        try ctx.writeSegs(p.source_segments);
+        try ctx.write(" -> ");
+        if (p.guard) |g| {
+            try ctx.writeGuard(g, indent);
+            try ctx.write(" ");
+        }
+        try ctx.writeSegs(p.target_segments);
+        try ctx.write(";");
+    }
+
+    /// `entry|do|exit / behavior ;`
+    fn writeEntryDoExit(ctx: *FormatContext, p: *const ast.EntryDoExit, indent: u32) !void {
+        try ctx.write(switch (p.kind) {
+            .entry => "entry",
+            .do_action => "do",
+            .exit => "exit",
+        });
+        try ctx.write(" / ");
+        try ctx.writeNode(p.behavior, indent);
+        try ctx.write(";");
+    }
+
+    /// `on Trigger ( [g] )? ( / effect )? -> Target ;`
+    fn writeTransitionStatement(ctx: *FormatContext, p: *const ast.TransitionStatement, indent: u32) !void {
+        try ctx.write("on ");
+        try ctx.writeSegs(p.trigger_segments);
+        if (p.guard) |g| {
+            try ctx.write(" [");
+            try ctx.writeNode(g, indent);
+            try ctx.write("]");
+        }
+        if (p.effect) |e| {
+            try ctx.write(" / ");
+            try ctx.writeNode(e, indent);
+        }
+        try ctx.write(" -> ");
+        try ctx.writeNode(p.target, indent);
+        try ctx.write(";");
     }
 
     // ─── Composition (.dealx) writers ─────────────────────────────────────
