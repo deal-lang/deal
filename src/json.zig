@@ -1839,9 +1839,10 @@ pub fn emitIrJson(
         try emitIrNode(allocator, &buf, node);
     }
 
-    // IR v0.1 (S2.5): behavioral surface is additive over v0. The v0.1 schema
-    // accepts both strings; the toolchain now emits "v0.1".
-    try buf.appendSlice(allocator, "},\"ir_version\":\"v0.1\",\"v\":1}");
+    // IR v0.2 (S3.1): structured behavioral expressions are additive over v0.1
+    // (and v0). The schema accepts the prior strings; the toolchain now emits
+    // "v0.2". See spec/ir/v0.2/ADR-0002-ir-v0_2-structured-expressions.md.
+    try buf.appendSlice(allocator, "},\"ir_version\":\"v0.2\",\"v\":1}");
 
     return try buf.toOwnedSlice(allocator);
 }
@@ -1960,10 +1961,21 @@ fn emitIrPayload(
         }
     }
 
-    // iterable_expr, loop_kind, loop_var (behavioral; alphabetical)
+    // iterable_expr, literal_kind, literal_value, loop_kind, loop_var
+    // (behavioral / expression; alphabetical)
     if (payload.iterable_expr) |v| {
         try emitComma(allocator, buf, &first);
         try buf.appendSlice(allocator, "\"iterable_expr\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.literal_kind) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"literal_kind\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.literal_value) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"literal_value\":");
         try writeStr(allocator, buf, v);
     }
     if (payload.loop_kind) |v| {
@@ -1995,6 +2007,13 @@ fn emitIrPayload(
         try emitComma(allocator, buf, &first);
         try buf.appendSlice(allocator, "\"name\":");
         try writeStr(allocator, buf, payload.name);
+    }
+
+    // operator (expression; alphabetical: after name, before params)
+    if (payload.operator) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"operator\":");
+        try writeStr(allocator, buf, v);
     }
 
     // params (calc_def only; alphabetical: after name, before precision)
@@ -2036,11 +2055,24 @@ fn emitIrPayload(
         }
     }
 
-    // referent_ref (behavioral; alphabetical: after precision, before requirement_ref)
+    // referent_ref (behavioral; alphabetical: after precision, before referent_segments)
     if (payload.referent_ref) |v| {
         try emitComma(allocator, buf, &first);
         try buf.appendSlice(allocator, "\"referent_ref\":");
         try writeStr(allocator, buf, v);
+    }
+
+    // referent_segments (expression; alphabetical: after referent_ref, before requirement_ref)
+    if (payload.referent_segments.len > 0) {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"referent_segments\":[");
+        for (payload.referent_segments, 0..) |seg, i| {
+            if (i > 0) try buf.append(allocator, ',');
+            try buf.append(allocator, '"');
+            try appendJsonStringEscaped(allocator, buf, seg);
+            try buf.append(allocator, '"');
+        }
+        try buf.append(allocator, ']');
     }
 
     // requirement_ref
@@ -2079,6 +2111,11 @@ fn emitIrPayload(
     if (payload.target_ref) |v| {
         try emitComma(allocator, buf, &first);
         try buf.appendSlice(allocator, "\"target_ref\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.trigger_kind) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"trigger_kind\":");
         try writeStr(allocator, buf, v);
     }
     if (payload.trigger_ref) |v| {
@@ -2277,7 +2314,65 @@ fn irNodeKindName(kind: ir.NodeKind) []const u8 {
         .state_usage => "state_usage",
         .transition => "transition",
         .pin => "pin",
+        // Expression surface (IR v0.2, S3.1)
+        .operator_expr => "operator_expr",
+        .feature_ref_expr => "feature_ref_expr",
+        .literal_expr => "literal_expr",
+        .invocation_expr => "invocation_expr",
     };
+}
+
+// ─── Tests: expression surface (IR v0.2, S3.1) ──────────────────────────────
+
+test "ir v0.2: expression NodeKinds serialize to their names" {
+    try std.testing.expectEqualStrings("operator_expr", irNodeKindName(.operator_expr));
+    try std.testing.expectEqualStrings("feature_ref_expr", irNodeKindName(.feature_ref_expr));
+    try std.testing.expectEqualStrings("literal_expr", irNodeKindName(.literal_expr));
+    try std.testing.expectEqualStrings("invocation_expr", irNodeKindName(.invocation_expr));
+}
+
+test "ir v0.2: operator_expr payload emits operator symbol" {
+    const a = std.testing.allocator;
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(a);
+    const p = ir.IrPayload{ .name = "charging.guard.expr", .operator = ">=" };
+    try emitIrPayload(a, &buf, &p);
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "\"operator\":\">=\"") != null);
+    // alphabetical: name before operator
+    const i_name = std.mem.indexOf(u8, buf.items, "\"name\"").?;
+    const i_op = std.mem.indexOf(u8, buf.items, "\"operator\"").?;
+    try std.testing.expect(i_name < i_op);
+}
+
+test "ir v0.2: literal_expr payload emits literal_kind and literal_value" {
+    const a = std.testing.allocator;
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(a);
+    const p = ir.IrPayload{ .literal_kind = "integer", .literal_value = "80" };
+    try emitIrPayload(a, &buf, &p);
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "\"literal_kind\":\"integer\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "\"literal_value\":\"80\"") != null);
+}
+
+test "ir v0.2: feature_ref_expr payload emits referent_segments array" {
+    const a = std.testing.allocator;
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(a);
+    const segs = [_][]const u8{ "battery", "soc" };
+    const p = ir.IrPayload{ .referent_segments = &segs };
+    try emitIrPayload(a, &buf, &p);
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "\"referent_segments\":[\"battery\",\"soc\"]") != null);
+}
+
+test "ir v0.2: invocation_expr (trigger) payload emits callee_ref and trigger_kind" {
+    const a = std.testing.allocator;
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(a);
+    const p = ir.IrPayload{ .callee_ref = "kg", .trigger_kind = "after" };
+    try emitIrPayload(a, &buf, &p);
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "\"callee_ref\":\"kg\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buf.items, "\"trigger_kind\":\"after\"") != null);
+    // alphabetical: trigger_kind before trigger_ref position (no trigger_ref here)
 }
 
 

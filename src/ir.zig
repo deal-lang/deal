@@ -75,6 +75,17 @@ pub const NodeKind = enum {
     state_usage, // StateUsage (8.3.18.6)
     transition, // TransitionUsage (8.3.18.9)
     pin, // directed parameter Feature (8.3.3.1.5)
+
+    // ─── Expression surface (IR v0.2, S3.1) ─────────────────────────────────
+    // Structured behavioral expressions — guards, assignment values, accept
+    // payloads, loop bounds, perform/effect calls — lifted from opaque text to
+    // first-class nodes owned via `contains` and referenced by id from the
+    // owning slot. Each maps to exactly one KerML/SysML metaclass; see
+    // spec/ir/v0.2/expression-mapping.md §1.
+    operator_expr, // OperatorExpression (KerML 8.3.4.8.17) / FeatureChainExpression (8.3.4.8.4)
+    feature_ref_expr, // FeatureReferenceExpression (KerML 8.3.4.8.5) / FeatureChainExpression (8.3.4.8.4)
+    literal_expr, // Literal{Boolean,Integer,Rational,String} (KerML 8.3.4.8.9/.12/.13/.14)
+    invocation_expr, // InvocationExpression (KerML 8.3.4.8.8) / TriggerInvocationExpression (SysML 8.3.17.17)
 };
 
 // ─── EdgeKind ──────────────────────────────────────────────────────────────
@@ -113,7 +124,9 @@ pub const Edge = struct {
 
     // ─── Behavioral edge payload (IR v0.1, S2.5) ────────────────────────────
     // All optional; populated only for the corresponding behavioral EdgeKind.
-    /// succession: guard expression text, or "else" for a decision default branch.
+    /// succession: guard. IR v0.2 — id of the lowered guard expr node, or
+    /// "else" for a decision default branch (sentinel kept; §6). Was source
+    /// text in v0.1.
     guard: ?[]const u8 = null,
     /// item_flow: flow-def id typing the flow, when written as `~> … : FlowType`.
     flow_type: ?[]const u8 = null,
@@ -247,18 +260,41 @@ pub const IrPayload = struct {
     effect_ref: ?[]const u8 = null,
     /// assign_action: referent (assigned feature) reference.
     referent_ref: ?[]const u8 = null,
-    /// assign_action: value expression text.
+    /// assign_action: value. IR v0.2 — id of the lowered value expr node
+    /// (was source text in v0.1); see spec/ir/v0.2/expression-mapping.md §3.1.
     value_expr: ?[]const u8 = null,
     /// send_action: payload (signal) reference.
     payload_ref: ?[]const u8 = null,
-    /// perform_action: callee (invoked behavior) reference.
+    /// perform_action / entry-do-exit behavior: callee. IR v0.2 — id of the
+    /// lowered invocation_expr node (was source text in v0.1).
     callee_ref: ?[]const u8 = null,
-    /// accept_action / transition: guard expression text.
+    /// accept_action / transition: guard. IR v0.2 — id of the lowered guard
+    /// expr node (was source text in v0.1).
     guard_expr: ?[]const u8 = null,
-    /// for_loop_action: iterable expression text.
+    /// for_loop_action: iterable. IR v0.2 — id of the lowered iterable expr
+    /// node (was source text in v0.1).
     iterable_expr: ?[]const u8 = null,
     /// for_loop_action: iteration variable name.
     loop_var: ?[]const u8 = null,
+
+    // ─── Expression payload (IR v0.2, S3.1) ─────────────────────────────────
+    // Populated only for the expression node kinds; see
+    // spec/ir/v0.2/expression-mapping.md §3. Operands (operator_expr) and
+    // arguments (invocation_expr) are carried as ordered child expression nodes
+    // via `contains` edges (synthetic ids …expr.op0/.op1/.arg0 encode order).
+    /// operator_expr: KerML operator symbol (e.g. "+", ">=", "and", ".").
+    operator: ?[]const u8 = null,
+    /// literal_expr: "boolean" | "integer" | "rational" | "string".
+    literal_kind: ?[]const u8 = null,
+    /// literal_expr: serialized literal value (e.g. "80", "true", "0.5").
+    literal_value: ?[]const u8 = null,
+    /// feature_ref_expr: dotted feature path segments. 1 segment ⇒
+    /// FeatureReferenceExpression; ≥2 ⇒ FeatureChainExpression.
+    referent_segments: []const []const u8 = &.{},
+    /// invocation_expr: trigger kind for accept payloads — "when" | "at" |
+    /// "after". Null for plain calls (TriggerInvocationExpression vs
+    /// InvocationExpression, §1).
+    trigger_kind: ?[]const u8 = null,
 };
 
 // ─── IrNode ────────────────────────────────────────────────────────────────
