@@ -1,0 +1,29 @@
+// Golden fixture 13: structured behavioral expressions (IR v0.2, S3.4).
+// Guard-focused — proves DEAL behavioral guards, assignment values, loop
+// bounds, and transition guard+effect emit as KerML/SysML v2 Expression trees:
+//   OperatorExpression (8.3.4.8.17), FeatureReferenceExpression (8.3.4.8.5),
+//   FeatureChainExpression (8.3.4.8.4), LiteralInteger (8.3.4.8.12),
+//   InvocationExpression (8.3.4.8.8), TransitionUsage guard/effect triad
+//   (TransitionFeatureMembership kind=guard/effect, 8.3.18.8/.9).
+package gold13.guards;
+
+action def MonitorCharge {
+    in soc : Real;
+    action sample;
+    action throttle;
+    // decision guard: comparison over a feature ref and an integer literal
+    sample -> decide { [soc >= 80] -> done  [else] -> throttle };
+    // assignment value: arithmetic OperatorExpression over feature ref + literal
+    assign soc := soc + 5;
+    // loop bound: comparison guard
+    loop while [soc < 100] { sample -> done; }
+}
+
+state def ThermalGuard {
+    state Nominal;
+    state Limp;
+    start -> Nominal;
+    // transition guard: FeatureChainExpression (pack.temp) compared to a literal;
+    // effect is an invocation.
+    on Overheat [pack.temp > 60] / derate() -> Limp;
+}

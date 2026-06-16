@@ -214,3 +214,11 @@ fn golden_12_state_machine() {
     let actual = run_fixture_and_compare("12-state-machine.deal");
     assert_schema_valid(&actual, "12-state-machine");
 }
+
+// ─── Fixture 13: structured behavioral expressions (IR v0.2, S3.4) ───────────
+
+#[test]
+fn golden_13_structured_guards() {
+    let actual = run_fixture_and_compare("13-structured-guards.deal");
+    assert_schema_valid(&actual, "13-structured-guards");
+}

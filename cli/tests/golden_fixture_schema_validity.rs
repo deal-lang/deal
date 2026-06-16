@@ -282,6 +282,11 @@ fn fixture_schema_validity_12_state_machine() {
     validate_expected_json("12-state-machine");
 }
 
+#[test]
+fn fixture_schema_validity_13_structured_guards() {
+    validate_expected_json("13-structured-guards");
+}
+
 // ─── Rolled-up test: all expected.json files ─────────────────────────────────
 
 /// Rolled-up test: iterate all *.expected.json files and validate each.
@@ -307,5 +312,5 @@ fn all_expected_json_validate() {
         }
     }
 
-    assert_eq!(count, 12, "Expected 12 .expected.json fixtures, found {count}");
+    assert_eq!(count, 13, "Expected 13 .expected.json fixtures, found {count}");
 }

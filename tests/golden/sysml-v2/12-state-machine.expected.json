@@ -175,9 +175,33 @@
       "@type": "PerformActionUsage",
       "declaredName": "do",
       "elementId": "270290ee-838a-5380-9abb-7f884da2c0c8",
+      "ownedMembership": [
+        {
+          "@id": "62e8a46f-bf5b-5c46-807c-136df67fad2c"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "11ce159f-21fb-52f1-9803-b32d66140f1b",
+          "@type": "FeatureMembership",
+          "elementId": "11ce159f-21fb-52f1-9803-b32d66140f1b",
+          "ownedRelatedElement": [
+            {
+              "@id": "62e8a46f-bf5b-5c46-807c-136df67fad2c"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold12::states::ChargingControl::do"
+    },
+    {
+      "@id": "62e8a46f-bf5b-5c46-807c-136df67fad2c",
+      "@type": "InvocationExpression",
+      "declaredName": "behavior",
+      "elementId": "62e8a46f-bf5b-5c46-807c-136df67fad2c",
       "ownedMembership": [],
       "ownedRelationship": [],
-      "qualifiedName": "gold12::states::ChargingControl::do"
+      "qualifiedName": "gold12::states::ChargingControl::do::behavior"
     },
     {
       "@id": "0a2dbe59-3a41-5ac8-8f27-34675981a302",
@@ -193,9 +217,33 @@
       "@type": "PerformActionUsage",
       "declaredName": "entry",
       "elementId": "538db4e2-c681-5820-a847-7e41ef0be442",
+      "ownedMembership": [
+        {
+          "@id": "01179cda-6093-5fcc-8ebb-28ebe52106b3"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "f82057c3-52bb-58d5-b580-a90017a01ee1",
+          "@type": "FeatureMembership",
+          "elementId": "f82057c3-52bb-58d5-b580-a90017a01ee1",
+          "ownedRelatedElement": [
+            {
+              "@id": "01179cda-6093-5fcc-8ebb-28ebe52106b3"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold12::states::ChargingControl::entry"
+    },
+    {
+      "@id": "01179cda-6093-5fcc-8ebb-28ebe52106b3",
+      "@type": "InvocationExpression",
+      "declaredName": "behavior",
+      "elementId": "01179cda-6093-5fcc-8ebb-28ebe52106b3",
       "ownedMembership": [],
       "ownedRelationship": [],
-      "qualifiedName": "gold12::states::ChargingControl::entry"
+      "qualifiedName": "gold12::states::ChargingControl::entry::behavior"
     },
     {
       "@id": "888025fd-7b5c-5c53-b28c-c2fde7ce543c",
@@ -328,23 +376,93 @@
           ]
         },
         {
+          "@id": "436391d2-dc81-525a-b8cd-0a23a5ec48c0",
+          "@type": "TransitionFeatureMembership",
+          "elementId": "436391d2-dc81-525a-b8cd-0a23a5ec48c0",
+          "kind": "guard",
+          "ownedRelatedElement": [
+            {
+              "@id": "b81f0159-938a-52d6-9722-5471c5489ff2"
+            }
+          ]
+        },
+        {
           "@id": "f964d257-10e1-5373-8028-290ae3e7ee0a",
           "@type": "TransitionFeatureMembership",
           "elementId": "f964d257-10e1-5373-8028-290ae3e7ee0a",
           "kind": "effect",
           "ownedRelatedElement": [
             {
-              "@id": "172969be-804f-5cd4-ad3f-8e99068cb9b2",
-              "@type": "PerformActionUsage",
-              "declaredName": "shutdown",
-              "elementId": "172969be-804f-5cd4-ad3f-8e99068cb9b2",
-              "ownedRelationship": [],
-              "qualifiedName": "gold12::states::ChargingControl::transition_1--effect"
+              "@id": "86b3e551-bf0e-5d6d-a0f4-abd7f458c4b5"
             }
           ]
         }
       ],
       "qualifiedName": "gold12::states::ChargingControl::transition_1"
+    },
+    {
+      "@id": "86b3e551-bf0e-5d6d-a0f4-abd7f458c4b5",
+      "@type": "InvocationExpression",
+      "declaredName": "effect",
+      "elementId": "86b3e551-bf0e-5d6d-a0f4-abd7f458c4b5",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::transition_1::effect"
+    },
+    {
+      "@id": "b81f0159-938a-52d6-9722-5471c5489ff2",
+      "@type": "OperatorExpression",
+      "declaredName": "guard",
+      "elementId": "b81f0159-938a-52d6-9722-5471c5489ff2",
+      "operator": ">",
+      "ownedMembership": [
+        {
+          "@id": "88c59538-8cab-536d-a1c1-aaaa2f14f740"
+        },
+        {
+          "@id": "098febb9-b24f-5d36-8cc2-cfba3f4b6d6a"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "98194f22-fc3e-58d7-9b7d-56a35a90d80c",
+          "@type": "FeatureMembership",
+          "elementId": "98194f22-fc3e-58d7-9b7d-56a35a90d80c",
+          "ownedRelatedElement": [
+            {
+              "@id": "88c59538-8cab-536d-a1c1-aaaa2f14f740"
+            }
+          ]
+        },
+        {
+          "@id": "82eb5048-0d61-5e28-a8a2-356046694956",
+          "@type": "FeatureMembership",
+          "elementId": "82eb5048-0d61-5e28-a8a2-356046694956",
+          "ownedRelatedElement": [
+            {
+              "@id": "098febb9-b24f-5d36-8cc2-cfba3f4b6d6a"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold12::states::ChargingControl::transition_1::guard"
+    },
+    {
+      "@id": "88c59538-8cab-536d-a1c1-aaaa2f14f740",
+      "@type": "FeatureReferenceExpression",
+      "declaredName": "temp",
+      "elementId": "88c59538-8cab-536d-a1c1-aaaa2f14f740",
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::transition_1::guard::op0"
+    },
+    {
+      "@id": "098febb9-b24f-5d36-8cc2-cfba3f4b6d6a",
+      "@type": "LiteralInteger",
+      "declaredName": "op1",
+      "elementId": "098febb9-b24f-5d36-8cc2-cfba3f4b6d6a",
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::transition_1::guard::op1",
+      "value": 50
     },
     {
       "@id": "ac17ff77-d113-5145-a28f-ff36d8e7780a",

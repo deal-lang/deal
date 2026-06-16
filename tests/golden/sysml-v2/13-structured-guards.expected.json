@@ -1,0 +1,897 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "bd515993-602b-5d2e-9047-0ace43633e57",
+      "@type": "Package",
+      "declaredName": "guards",
+      "elementId": "bd515993-602b-5d2e-9047-0ace43633e57",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards"
+    },
+    {
+      "@id": "43302e34-bdf7-54c6-a11d-a62e71cf0597",
+      "@type": "ActionDefinition",
+      "declaredName": "MonitorCharge",
+      "elementId": "43302e34-bdf7-54c6-a11d-a62e71cf0597",
+      "ownedMembership": [
+        {
+          "@id": "ecaa5e20-25ae-50f0-93c0-e2dc1489e723"
+        },
+        {
+          "@id": "3f2198d0-17a9-58e8-b6ad-dba26d71ed8f"
+        },
+        {
+          "@id": "e7d7aa18-a790-579b-8481-88d57f18826c"
+        },
+        {
+          "@id": "33d665e9-b09e-5f46-8812-16c784d94cbf"
+        },
+        {
+          "@id": "a28421f5-b386-53dd-9d9c-3f7b84837f40"
+        },
+        {
+          "@id": "048126f0-eb10-5ded-a450-779d014ddb3e"
+        },
+        {
+          "@id": "c16e8171-72fe-5de7-b984-4b35b2e9da40"
+        },
+        {
+          "@id": "b5afceb1-2b3f-5fcb-a172-526c216dd45f"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "172a9425-615f-593e-afc4-38862ab60b64",
+          "@type": "FeatureMembership",
+          "elementId": "172a9425-615f-593e-afc4-38862ab60b64",
+          "ownedRelatedElement": [
+            {
+              "@id": "ecaa5e20-25ae-50f0-93c0-e2dc1489e723"
+            }
+          ]
+        },
+        {
+          "@id": "5a389631-6ace-50ce-9edb-e8bc9e2439f0",
+          "@type": "FeatureMembership",
+          "elementId": "5a389631-6ace-50ce-9edb-e8bc9e2439f0",
+          "ownedRelatedElement": [
+            {
+              "@id": "3f2198d0-17a9-58e8-b6ad-dba26d71ed8f"
+            }
+          ]
+        },
+        {
+          "@id": "2da87763-f036-5394-b847-78c280f03cea",
+          "@type": "FeatureMembership",
+          "elementId": "2da87763-f036-5394-b847-78c280f03cea",
+          "ownedRelatedElement": [
+            {
+              "@id": "e7d7aa18-a790-579b-8481-88d57f18826c"
+            }
+          ]
+        },
+        {
+          "@id": "ba0fb705-7da4-54e3-92ef-b6c2d6731984",
+          "@type": "FeatureMembership",
+          "elementId": "ba0fb705-7da4-54e3-92ef-b6c2d6731984",
+          "ownedRelatedElement": [
+            {
+              "@id": "33d665e9-b09e-5f46-8812-16c784d94cbf"
+            }
+          ]
+        },
+        {
+          "@id": "11c7c8fd-25ff-57ca-8361-0f4e47f9e019",
+          "@type": "FeatureMembership",
+          "elementId": "11c7c8fd-25ff-57ca-8361-0f4e47f9e019",
+          "ownedRelatedElement": [
+            {
+              "@id": "a28421f5-b386-53dd-9d9c-3f7b84837f40"
+            }
+          ]
+        },
+        {
+          "@id": "2a7a79c6-43c9-5bd9-8a1e-3f49c1fefcdd",
+          "@type": "FeatureMembership",
+          "elementId": "2a7a79c6-43c9-5bd9-8a1e-3f49c1fefcdd",
+          "ownedRelatedElement": [
+            {
+              "@id": "048126f0-eb10-5ded-a450-779d014ddb3e"
+            }
+          ]
+        },
+        {
+          "@id": "175622ae-ab4e-537c-9b4b-8580fd26bfed",
+          "@type": "FeatureMembership",
+          "elementId": "175622ae-ab4e-537c-9b4b-8580fd26bfed",
+          "ownedRelatedElement": [
+            {
+              "@id": "c16e8171-72fe-5de7-b984-4b35b2e9da40"
+            }
+          ]
+        },
+        {
+          "@id": "3d08e50f-dd57-5e0e-91bf-039a9b74c883",
+          "@type": "FeatureMembership",
+          "elementId": "3d08e50f-dd57-5e0e-91bf-039a9b74c883",
+          "ownedRelatedElement": [
+            {
+              "@id": "b5afceb1-2b3f-5fcb-a172-526c216dd45f"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::MonitorCharge"
+    },
+    {
+      "@id": "ecaa5e20-25ae-50f0-93c0-e2dc1489e723",
+      "@type": "AssignmentActionUsage",
+      "declaredName": "assign_3",
+      "elementId": "ecaa5e20-25ae-50f0-93c0-e2dc1489e723",
+      "ownedMembership": [
+        {
+          "@id": "e630d6de-0313-5520-8cb0-b67307f1ff70"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "4b58fcb1-45f8-55f3-bc33-ae43e1d7494f",
+          "@type": "FeatureMembership",
+          "elementId": "4b58fcb1-45f8-55f3-bc33-ae43e1d7494f",
+          "ownedRelatedElement": [
+            {
+              "@id": "e630d6de-0313-5520-8cb0-b67307f1ff70"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::MonitorCharge::assign_3"
+    },
+    {
+      "@id": "e630d6de-0313-5520-8cb0-b67307f1ff70",
+      "@type": "OperatorExpression",
+      "declaredName": "value",
+      "elementId": "e630d6de-0313-5520-8cb0-b67307f1ff70",
+      "operator": "+",
+      "ownedMembership": [
+        {
+          "@id": "592ca60a-92b1-5f6e-b85f-eeecc1a5977a"
+        },
+        {
+          "@id": "c7c83a1f-2ee9-54a2-a987-379593cad5d9"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "6fa07f2a-9df2-5f2d-81f3-4553b54859cd",
+          "@type": "FeatureMembership",
+          "elementId": "6fa07f2a-9df2-5f2d-81f3-4553b54859cd",
+          "ownedRelatedElement": [
+            {
+              "@id": "592ca60a-92b1-5f6e-b85f-eeecc1a5977a"
+            }
+          ]
+        },
+        {
+          "@id": "76993dd8-79c5-5449-aa18-38a8b4f83eb2",
+          "@type": "FeatureMembership",
+          "elementId": "76993dd8-79c5-5449-aa18-38a8b4f83eb2",
+          "ownedRelatedElement": [
+            {
+              "@id": "c7c83a1f-2ee9-54a2-a987-379593cad5d9"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::MonitorCharge::assign_3::value"
+    },
+    {
+      "@id": "592ca60a-92b1-5f6e-b85f-eeecc1a5977a",
+      "@type": "FeatureReferenceExpression",
+      "declaredName": "soc",
+      "elementId": "592ca60a-92b1-5f6e-b85f-eeecc1a5977a",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::assign_3::value::op0"
+    },
+    {
+      "@id": "c7c83a1f-2ee9-54a2-a987-379593cad5d9",
+      "@type": "LiteralInteger",
+      "declaredName": "op1",
+      "elementId": "c7c83a1f-2ee9-54a2-a987-379593cad5d9",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::assign_3::value::op1",
+      "value": 5
+    },
+    {
+      "@id": "3f2198d0-17a9-58e8-b6ad-dba26d71ed8f",
+      "@type": "DecisionNode",
+      "declaredName": "decision_0",
+      "elementId": "3f2198d0-17a9-58e8-b6ad-dba26d71ed8f",
+      "ownedMembership": [
+        {
+          "@id": "3f2d2170-8454-5184-86df-475948110b6c"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "61c97aec-1418-541c-b7b3-f914dc9b9363",
+          "@type": "FeatureMembership",
+          "elementId": "61c97aec-1418-541c-b7b3-f914dc9b9363",
+          "ownedRelatedElement": [
+            {
+              "@id": "3f2d2170-8454-5184-86df-475948110b6c"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::MonitorCharge::decision_0"
+    },
+    {
+      "@id": "3f2d2170-8454-5184-86df-475948110b6c",
+      "@type": "OperatorExpression",
+      "declaredName": "guard_2",
+      "elementId": "3f2d2170-8454-5184-86df-475948110b6c",
+      "operator": ">=",
+      "ownedMembership": [
+        {
+          "@id": "bead0093-040f-58f1-aa87-ee042e37167c"
+        },
+        {
+          "@id": "bf3afe1e-8120-5857-b041-d2fd02516314"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "3975f212-e0c1-5f70-ab71-0165f1673c03",
+          "@type": "FeatureMembership",
+          "elementId": "3975f212-e0c1-5f70-ab71-0165f1673c03",
+          "ownedRelatedElement": [
+            {
+              "@id": "bead0093-040f-58f1-aa87-ee042e37167c"
+            }
+          ]
+        },
+        {
+          "@id": "ad3aebbe-dc76-5742-a241-e4a399a70ede",
+          "@type": "FeatureMembership",
+          "elementId": "ad3aebbe-dc76-5742-a241-e4a399a70ede",
+          "ownedRelatedElement": [
+            {
+              "@id": "bf3afe1e-8120-5857-b041-d2fd02516314"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::MonitorCharge::decision_0::guard_2"
+    },
+    {
+      "@id": "bead0093-040f-58f1-aa87-ee042e37167c",
+      "@type": "FeatureReferenceExpression",
+      "declaredName": "soc",
+      "elementId": "bead0093-040f-58f1-aa87-ee042e37167c",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::decision_0::guard_2::op0"
+    },
+    {
+      "@id": "bf3afe1e-8120-5857-b041-d2fd02516314",
+      "@type": "LiteralInteger",
+      "declaredName": "op1",
+      "elementId": "bf3afe1e-8120-5857-b041-d2fd02516314",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::decision_0::guard_2::op1",
+      "value": 80
+    },
+    {
+      "@id": "e7d7aa18-a790-579b-8481-88d57f18826c",
+      "@type": "ActionUsage",
+      "declaredName": "done",
+      "elementId": "e7d7aa18-a790-579b-8481-88d57f18826c",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::done"
+    },
+    {
+      "@id": "33d665e9-b09e-5f46-8812-16c784d94cbf",
+      "@type": "WhileLoopActionUsage",
+      "declaredName": "loop_4",
+      "elementId": "33d665e9-b09e-5f46-8812-16c784d94cbf",
+      "ownedMembership": [
+        {
+          "@id": "e417a904-9f3d-5ffd-adb8-49297c67d228"
+        },
+        {
+          "@id": "aa277e2b-2fed-5ade-baf1-3aeca5a06e82"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "b5fbe2ab-dd58-5f6c-9c03-3984ef0267fa",
+          "@type": "FeatureMembership",
+          "elementId": "b5fbe2ab-dd58-5f6c-9c03-3984ef0267fa",
+          "ownedRelatedElement": [
+            {
+              "@id": "e417a904-9f3d-5ffd-adb8-49297c67d228"
+            }
+          ]
+        },
+        {
+          "@id": "54bb7f0d-fd30-5ec9-9d3f-7e5834512941",
+          "@type": "FeatureMembership",
+          "elementId": "54bb7f0d-fd30-5ec9-9d3f-7e5834512941",
+          "ownedRelatedElement": [
+            {
+              "@id": "aa277e2b-2fed-5ade-baf1-3aeca5a06e82"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::MonitorCharge::loop_4"
+    },
+    {
+      "@id": "e417a904-9f3d-5ffd-adb8-49297c67d228",
+      "@type": "ActionUsage",
+      "declaredName": "done",
+      "elementId": "e417a904-9f3d-5ffd-adb8-49297c67d228",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::loop_4::done"
+    },
+    {
+      "@id": "aa277e2b-2fed-5ade-baf1-3aeca5a06e82",
+      "@type": "OperatorExpression",
+      "declaredName": "guard",
+      "elementId": "aa277e2b-2fed-5ade-baf1-3aeca5a06e82",
+      "operator": "<",
+      "ownedMembership": [
+        {
+          "@id": "c1631a68-9151-57f8-8b34-276922d03238"
+        },
+        {
+          "@id": "d906349f-bda0-5bf6-a750-727491942307"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "bbf5729d-41d5-54c5-838a-db4f0e265fb6",
+          "@type": "FeatureMembership",
+          "elementId": "bbf5729d-41d5-54c5-838a-db4f0e265fb6",
+          "ownedRelatedElement": [
+            {
+              "@id": "c1631a68-9151-57f8-8b34-276922d03238"
+            }
+          ]
+        },
+        {
+          "@id": "83ca1ba2-b82e-57ba-96fb-b38f91a2b036",
+          "@type": "FeatureMembership",
+          "elementId": "83ca1ba2-b82e-57ba-96fb-b38f91a2b036",
+          "ownedRelatedElement": [
+            {
+              "@id": "d906349f-bda0-5bf6-a750-727491942307"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::MonitorCharge::loop_4::guard"
+    },
+    {
+      "@id": "c1631a68-9151-57f8-8b34-276922d03238",
+      "@type": "FeatureReferenceExpression",
+      "declaredName": "soc",
+      "elementId": "c1631a68-9151-57f8-8b34-276922d03238",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::loop_4::guard::op0"
+    },
+    {
+      "@id": "d906349f-bda0-5bf6-a750-727491942307",
+      "@type": "LiteralInteger",
+      "declaredName": "op1",
+      "elementId": "d906349f-bda0-5bf6-a750-727491942307",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::loop_4::guard::op1",
+      "value": 100
+    },
+    {
+      "@id": "a28421f5-b386-53dd-9d9c-3f7b84837f40",
+      "@type": "MergeNode",
+      "declaredName": "merge_1",
+      "elementId": "a28421f5-b386-53dd-9d9c-3f7b84837f40",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::merge_1"
+    },
+    {
+      "@id": "048126f0-eb10-5ded-a450-779d014ddb3e",
+      "@type": "ActionUsage",
+      "declaredName": "sample",
+      "elementId": "048126f0-eb10-5ded-a450-779d014ddb3e",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::sample"
+    },
+    {
+      "@id": "c16e8171-72fe-5de7-b984-4b35b2e9da40",
+      "@type": "ReferenceUsage",
+      "declaredName": "soc",
+      "direction": "in",
+      "elementId": "c16e8171-72fe-5de7-b984-4b35b2e9da40",
+      "ownedRelationship": [
+        {
+          "@id": "717a9993-8bd6-5d40-a38e-e3391c532687",
+          "@type": "FeatureTyping",
+          "elementId": "717a9993-8bd6-5d40-a38e-e3391c532687",
+          "type": {
+            "@id": "6887537a-5fc2-56ed-8263-86f77e1738a1"
+          },
+          "typedFeature": {
+            "@id": "c16e8171-72fe-5de7-b984-4b35b2e9da40"
+          }
+        }
+      ],
+      "qualifiedName": "gold13::guards::MonitorCharge::soc"
+    },
+    {
+      "@id": "b5afceb1-2b3f-5fcb-a172-526c216dd45f",
+      "@type": "ActionUsage",
+      "declaredName": "throttle",
+      "elementId": "b5afceb1-2b3f-5fcb-a172-526c216dd45f",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::throttle"
+    },
+    {
+      "@id": "0b30997a-f80d-504f-b7bc-e9931aad3296",
+      "@type": "StateDefinition",
+      "declaredName": "ThermalGuard",
+      "elementId": "0b30997a-f80d-504f-b7bc-e9931aad3296",
+      "ownedMembership": [
+        {
+          "@id": "e68fe937-6ea1-52c7-860f-60b0705df2cd"
+        },
+        {
+          "@id": "7c992afb-d18c-5d94-89cc-1c2fdeb19aad"
+        },
+        {
+          "@id": "5a04d914-cc6a-5e35-ad4f-f641051fabc9"
+        },
+        {
+          "@id": "c1b4ac04-6872-5407-be22-da6423c781e6"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "10d64f7a-2e88-5af4-8c9a-6322610578aa",
+          "@type": "FeatureMembership",
+          "elementId": "10d64f7a-2e88-5af4-8c9a-6322610578aa",
+          "ownedRelatedElement": [
+            {
+              "@id": "e68fe937-6ea1-52c7-860f-60b0705df2cd"
+            }
+          ]
+        },
+        {
+          "@id": "d3e96f71-0cda-5e87-9a2e-b99dc829729d",
+          "@type": "FeatureMembership",
+          "elementId": "d3e96f71-0cda-5e87-9a2e-b99dc829729d",
+          "ownedRelatedElement": [
+            {
+              "@id": "7c992afb-d18c-5d94-89cc-1c2fdeb19aad"
+            }
+          ]
+        },
+        {
+          "@id": "522ab188-7033-5eb7-b412-8967e7ea9b54",
+          "@type": "FeatureMembership",
+          "elementId": "522ab188-7033-5eb7-b412-8967e7ea9b54",
+          "ownedRelatedElement": [
+            {
+              "@id": "5a04d914-cc6a-5e35-ad4f-f641051fabc9"
+            }
+          ]
+        },
+        {
+          "@id": "780f4078-c8c8-5865-824b-0ab969217b05",
+          "@type": "FeatureMembership",
+          "elementId": "780f4078-c8c8-5865-824b-0ab969217b05",
+          "ownedRelatedElement": [
+            {
+              "@id": "c1b4ac04-6872-5407-be22-da6423c781e6"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::ThermalGuard"
+    },
+    {
+      "@id": "e68fe937-6ea1-52c7-860f-60b0705df2cd",
+      "@type": "StateUsage",
+      "declaredName": "Limp",
+      "elementId": "e68fe937-6ea1-52c7-860f-60b0705df2cd",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::ThermalGuard::Limp"
+    },
+    {
+      "@id": "7c992afb-d18c-5d94-89cc-1c2fdeb19aad",
+      "@type": "StateUsage",
+      "declaredName": "Nominal",
+      "elementId": "7c992afb-d18c-5d94-89cc-1c2fdeb19aad",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::ThermalGuard::Nominal"
+    },
+    {
+      "@id": "5a04d914-cc6a-5e35-ad4f-f641051fabc9",
+      "@type": "ActionUsage",
+      "declaredName": "start",
+      "elementId": "5a04d914-cc6a-5e35-ad4f-f641051fabc9",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::ThermalGuard::start"
+    },
+    {
+      "@id": "c1b4ac04-6872-5407-be22-da6423c781e6",
+      "@type": "TransitionUsage",
+      "declaredName": "transition_5",
+      "elementId": "c1b4ac04-6872-5407-be22-da6423c781e6",
+      "ownedRelationship": [
+        {
+          "@id": "c715ef58-ab93-5c6d-a87c-9956437b4902",
+          "@type": "FeatureMembership",
+          "elementId": "c715ef58-ab93-5c6d-a87c-9956437b4902",
+          "ownedRelatedElement": [
+            {
+              "@id": "feec3973-25c3-5f37-8143-98db14b4694d",
+              "@type": "SuccessionAsUsage",
+              "connectorEnd": [
+                {
+                  "@id": "5f7ff26f-4041-5150-8058-98fab3bac80b",
+                  "@type": "ConnectorEnd",
+                  "elementId": "5f7ff26f-4041-5150-8058-98fab3bac80b",
+                  "reference": [
+                    {
+                      "@id": "0b30997a-f80d-504f-b7bc-e9931aad3296"
+                    }
+                  ]
+                },
+                {
+                  "@id": "b5f08f26-6935-57d5-8d61-2261eb9407a3",
+                  "@type": "ConnectorEnd",
+                  "elementId": "b5f08f26-6935-57d5-8d61-2261eb9407a3",
+                  "reference": [
+                    {
+                      "@id": "e68fe937-6ea1-52c7-860f-60b0705df2cd"
+                    }
+                  ]
+                }
+              ],
+              "declaredName": "transition_5--succession",
+              "elementId": "feec3973-25c3-5f37-8143-98db14b4694d",
+              "ownedRelationship": [],
+              "qualifiedName": "gold13::guards::ThermalGuard::transition_5--succession"
+            }
+          ]
+        },
+        {
+          "@id": "7506d1ad-ade4-50ae-924d-6ae9b35a66fc",
+          "@type": "TransitionFeatureMembership",
+          "elementId": "7506d1ad-ade4-50ae-924d-6ae9b35a66fc",
+          "kind": "trigger",
+          "ownedRelatedElement": [
+            {
+              "@id": "12e37f9c-88b7-5711-9f41-c0939b132a53",
+              "@type": "AcceptActionUsage",
+              "declaredName": "Overheat",
+              "elementId": "12e37f9c-88b7-5711-9f41-c0939b132a53",
+              "ownedRelationship": [],
+              "qualifiedName": "gold13::guards::ThermalGuard::transition_5--trigger"
+            }
+          ]
+        },
+        {
+          "@id": "78d1e50c-5aa0-5b41-855c-a2dec6bcd2df",
+          "@type": "TransitionFeatureMembership",
+          "elementId": "78d1e50c-5aa0-5b41-855c-a2dec6bcd2df",
+          "kind": "guard",
+          "ownedRelatedElement": [
+            {
+              "@id": "6dec3a65-5243-5b5e-b74b-59fc93f533b4"
+            }
+          ]
+        },
+        {
+          "@id": "d31aeec1-4501-5a9e-88f8-03e7ff666e9d",
+          "@type": "TransitionFeatureMembership",
+          "elementId": "d31aeec1-4501-5a9e-88f8-03e7ff666e9d",
+          "kind": "effect",
+          "ownedRelatedElement": [
+            {
+              "@id": "c5d601a8-d288-5519-a245-a09659ab8a34"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::ThermalGuard::transition_5"
+    },
+    {
+      "@id": "c5d601a8-d288-5519-a245-a09659ab8a34",
+      "@type": "InvocationExpression",
+      "declaredName": "effect",
+      "elementId": "c5d601a8-d288-5519-a245-a09659ab8a34",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::ThermalGuard::transition_5::effect"
+    },
+    {
+      "@id": "6dec3a65-5243-5b5e-b74b-59fc93f533b4",
+      "@type": "OperatorExpression",
+      "declaredName": "guard",
+      "elementId": "6dec3a65-5243-5b5e-b74b-59fc93f533b4",
+      "operator": ">",
+      "ownedMembership": [
+        {
+          "@id": "e627f627-6a74-5254-b889-300180ac3887"
+        },
+        {
+          "@id": "e2b7cc07-de76-58c7-ae38-51bdbdfae9b5"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "34dd7219-fe7b-5a23-ba9b-27fb753627f4",
+          "@type": "FeatureMembership",
+          "elementId": "34dd7219-fe7b-5a23-ba9b-27fb753627f4",
+          "ownedRelatedElement": [
+            {
+              "@id": "e627f627-6a74-5254-b889-300180ac3887"
+            }
+          ]
+        },
+        {
+          "@id": "892f615c-bc51-5aeb-92c5-386e4bb80017",
+          "@type": "FeatureMembership",
+          "elementId": "892f615c-bc51-5aeb-92c5-386e4bb80017",
+          "ownedRelatedElement": [
+            {
+              "@id": "e2b7cc07-de76-58c7-ae38-51bdbdfae9b5"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold13::guards::ThermalGuard::transition_5::guard"
+    },
+    {
+      "@id": "e627f627-6a74-5254-b889-300180ac3887",
+      "@type": "FeatureChainExpression",
+      "declaredName": "pack.temp",
+      "elementId": "e627f627-6a74-5254-b889-300180ac3887",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::ThermalGuard::transition_5::guard::op0"
+    },
+    {
+      "@id": "e2b7cc07-de76-58c7-ae38-51bdbdfae9b5",
+      "@type": "LiteralInteger",
+      "declaredName": "op1",
+      "elementId": "e2b7cc07-de76-58c7-ae38-51bdbdfae9b5",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::ThermalGuard::transition_5::guard::op1",
+      "value": 60
+    },
+    {
+      "@id": "38d1b602-87a6-5444-aad5-420283e0a18a",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "8d7dcbfb-5cc1-510b-ad99-9dc6c235f411",
+          "@type": "ConnectorEnd",
+          "elementId": "8d7dcbfb-5cc1-510b-ad99-9dc6c235f411",
+          "reference": [
+            {
+              "@id": "3f2198d0-17a9-58e8-b6ad-dba26d71ed8f"
+            }
+          ]
+        },
+        {
+          "@id": "b17b3f04-690b-5485-a699-67b335a4032b",
+          "@type": "ConnectorEnd",
+          "elementId": "b17b3f04-690b-5485-a699-67b335a4032b",
+          "reference": [
+            {
+              "@id": "e7d7aa18-a790-579b-8481-88d57f18826c"
+            }
+          ]
+        }
+      ],
+      "declaredName": "done",
+      "elementId": "38d1b602-87a6-5444-aad5-420283e0a18a",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::decision_0--succession--gold13::guards::MonitorCharge::done"
+    },
+    {
+      "@id": "1f40a28e-e91b-5262-abb7-ed4e02eea100",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "ede0a003-c7dd-5702-ad46-d5c6c9b83950",
+          "@type": "ConnectorEnd",
+          "elementId": "ede0a003-c7dd-5702-ad46-d5c6c9b83950",
+          "reference": [
+            {
+              "@id": "3f2198d0-17a9-58e8-b6ad-dba26d71ed8f"
+            }
+          ]
+        },
+        {
+          "@id": "1da8ebcc-1ecf-5c21-8431-148dff85fda5",
+          "@type": "ConnectorEnd",
+          "elementId": "1da8ebcc-1ecf-5c21-8431-148dff85fda5",
+          "reference": [
+            {
+              "@id": "b5afceb1-2b3f-5fcb-a172-526c216dd45f"
+            }
+          ]
+        }
+      ],
+      "declaredName": "throttle",
+      "elementId": "1f40a28e-e91b-5262-abb7-ed4e02eea100",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::decision_0--succession--gold13::guards::MonitorCharge::throttle"
+    },
+    {
+      "@id": "3f9f3e94-b1bc-50ac-a57b-552659c01bfb",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "c0a988c9-b63a-5ebd-af90-4d75835ac16e",
+          "@type": "ConnectorEnd",
+          "elementId": "c0a988c9-b63a-5ebd-af90-4d75835ac16e",
+          "reference": [
+            {
+              "@id": "e7d7aa18-a790-579b-8481-88d57f18826c"
+            }
+          ]
+        },
+        {
+          "@id": "ccf00c1e-c821-5eb7-84e8-66f7a96caa34",
+          "@type": "ConnectorEnd",
+          "elementId": "ccf00c1e-c821-5eb7-84e8-66f7a96caa34",
+          "reference": [
+            {
+              "@id": "a28421f5-b386-53dd-9d9c-3f7b84837f40"
+            }
+          ]
+        }
+      ],
+      "declaredName": "merge_1",
+      "elementId": "3f9f3e94-b1bc-50ac-a57b-552659c01bfb",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::done--succession--gold13::guards::MonitorCharge::merge_1"
+    },
+    {
+      "@id": "df59e786-e53b-5106-9733-5e3b5573f485",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "3f5f5ba5-a56b-52dd-8374-9ac2dbaa6517",
+          "@type": "ConnectorEnd",
+          "elementId": "3f5f5ba5-a56b-52dd-8374-9ac2dbaa6517",
+          "reference": [
+            {
+              "@id": "32b29aff-153d-56d6-a4f2-850ff682689a"
+            }
+          ]
+        },
+        {
+          "@id": "a2979eb2-0997-56a6-aadc-cada93dd076b",
+          "@type": "ConnectorEnd",
+          "elementId": "a2979eb2-0997-56a6-aadc-cada93dd076b",
+          "reference": [
+            {
+              "@id": "e417a904-9f3d-5ffd-adb8-49297c67d228"
+            }
+          ]
+        }
+      ],
+      "declaredName": "done",
+      "elementId": "df59e786-e53b-5106-9733-5e3b5573f485",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::loop_4::sample--succession--gold13::guards::MonitorCharge::loop_4::done"
+    },
+    {
+      "@id": "eda1cef3-8778-5f54-b641-0e9368edef34",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "542b367e-1edb-584e-83da-3798a70f7850",
+          "@type": "ConnectorEnd",
+          "elementId": "542b367e-1edb-584e-83da-3798a70f7850",
+          "reference": [
+            {
+              "@id": "048126f0-eb10-5ded-a450-779d014ddb3e"
+            }
+          ]
+        },
+        {
+          "@id": "6325dcc7-b66d-58fb-84f6-53b8915b44cc",
+          "@type": "ConnectorEnd",
+          "elementId": "6325dcc7-b66d-58fb-84f6-53b8915b44cc",
+          "reference": [
+            {
+              "@id": "3f2198d0-17a9-58e8-b6ad-dba26d71ed8f"
+            }
+          ]
+        }
+      ],
+      "declaredName": "decision_0",
+      "elementId": "eda1cef3-8778-5f54-b641-0e9368edef34",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::sample--succession--gold13::guards::MonitorCharge::decision_0"
+    },
+    {
+      "@id": "961b1dfd-d081-564f-bd90-91d928df64d4",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "b13821be-3685-587a-ab30-e9d43976161a",
+          "@type": "ConnectorEnd",
+          "elementId": "b13821be-3685-587a-ab30-e9d43976161a",
+          "reference": [
+            {
+              "@id": "b5afceb1-2b3f-5fcb-a172-526c216dd45f"
+            }
+          ]
+        },
+        {
+          "@id": "48c858dc-c040-5cdf-9014-a6aa7e8d5dd8",
+          "@type": "ConnectorEnd",
+          "elementId": "48c858dc-c040-5cdf-9014-a6aa7e8d5dd8",
+          "reference": [
+            {
+              "@id": "a28421f5-b386-53dd-9d9c-3f7b84837f40"
+            }
+          ]
+        }
+      ],
+      "declaredName": "merge_1",
+      "elementId": "961b1dfd-d081-564f-bd90-91d928df64d4",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::MonitorCharge::throttle--succession--gold13::guards::MonitorCharge::merge_1"
+    },
+    {
+      "@id": "2f77b5dd-c7c7-5007-a92f-cecd1b2544ba",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "86781ab3-6808-5828-904d-9b45865b968e",
+          "@type": "ConnectorEnd",
+          "elementId": "86781ab3-6808-5828-904d-9b45865b968e",
+          "reference": [
+            {
+              "@id": "5a04d914-cc6a-5e35-ad4f-f641051fabc9"
+            }
+          ]
+        },
+        {
+          "@id": "73376376-83a8-5155-98e8-13f5d7316e9b",
+          "@type": "ConnectorEnd",
+          "elementId": "73376376-83a8-5155-98e8-13f5d7316e9b",
+          "reference": [
+            {
+              "@id": "7c992afb-d18c-5d94-89cc-1c2fdeb19aad"
+            }
+          ]
+        }
+      ],
+      "declaredName": "Nominal",
+      "elementId": "2f77b5dd-c7c7-5007-a92f-cecd1b2544ba",
+      "ownedRelationship": [],
+      "qualifiedName": "gold13::guards::ThermalGuard::start--succession--gold13::guards::ThermalGuard::Nominal"
+    }
+  ],
+  "qualifiedName": "Workspace"
+}
