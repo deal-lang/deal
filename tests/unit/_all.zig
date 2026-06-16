@@ -41,6 +41,7 @@ comptime {
     _ = @import("c_abi_no_leaks.zig");
     _ = @import("sema_corpus.zig");
     _ = @import("sema_dimensional.zig");
+    _ = @import("sema_resolution.zig");
     _ = @import("sema_calc.zig");
     _ = @import("sema_behavioral.zig");
     _ = @import("determinism_lower_twice.zig");

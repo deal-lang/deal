@@ -169,6 +169,7 @@ test "sema.dimensional.regression_pins" {
             source,
             pin.name,
             stdlib_srcs,
+            false, // dim/unit seeding only (Check #7)
         );
         defer lib.deal_free_internal(handle);
 
@@ -226,6 +227,7 @@ test "sema.dimensional.showcase_clean" {
             source,
             path,
             stdlib_srcs,
+            false, // dim/unit seeding only (Check #7)
         );
         defer lib.deal_free_internal(handle);
 

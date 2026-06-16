@@ -339,6 +339,7 @@ fn mergeStdlibSourceInto(
     alloc: std.mem.Allocator,
     source: []const u8,
     filename: []const u8,
+    all_decls: bool,
 ) void {
     if (source.len == 0) return;
     if (!std.unicode.utf8ValidateSlice(source)) return;
@@ -354,11 +355,18 @@ fn mergeStdlibSourceInto(
     var it = sub_table.entries.iterator();
     while (it.next()) |kv| {
         const entry = kv.value_ptr.*;
-        if (entry.kind == .dimension_def or entry.kind == .unit_def) {
-            if (!merged.entries.contains(kv.key_ptr.*)) {
-                const key_copy = alloc.dupe(u8, kv.key_ptr.*) catch continue;
-                merged.entries.put(key_copy, entry) catch continue;
-            }
+        // Dim/unit-only seeding (Check #7) vs. ADR-0003 workspace resolution,
+        // which needs every declaration. For `all_decls` we copy only the
+        // qualified-id key (skip bare-name aliases and imported entries) so the
+        // external table is the clean set of workspace declarations.
+        const want = if (all_decls)
+            (entry.kind != .imported and entry.kind != .imported_wildcard_pkg and
+                std.mem.eql(u8, kv.key_ptr.*, entry.id))
+        else
+            (entry.kind == .dimension_def or entry.kind == .unit_def);
+        if (want and !merged.entries.contains(kv.key_ptr.*)) {
+            const key_copy = alloc.dupe(u8, kv.key_ptr.*) catch continue;
+            merged.entries.put(key_copy, entry) catch continue;
         }
     }
 }
@@ -382,6 +390,9 @@ pub fn deal_parse_internal_with_stdlib(
     source: []const u8,
     filename: []const u8,
     stdlib_sources: []const StdlibSource,
+    /// ADR-0003: when true, the external table carries ALL workspace
+    /// declarations (cross-file name resolution), not just dim/unit (Check #7).
+    all_decls: bool,
 ) !*DealHandle {
     if (source.len > 0 and @intFromPtr(source.ptr) == 0) return error.InvalidArgument;
     if (filename.len > 0 and @intFromPtr(filename.ptr) == 0) return error.InvalidArgument;
@@ -404,7 +415,7 @@ pub fn deal_parse_internal_with_stdlib(
     };
 
     for (stdlib_sources) |src| {
-        mergeStdlibSourceInto(merged, stdlib_alloc, src.source, src.filename);
+        mergeStdlibSourceInto(merged, stdlib_alloc, src.source, src.filename, all_decls);
     }
 
     // ── Phase 2: Analyze the target file with stdlib seeding ──────────────
@@ -622,7 +633,7 @@ pub export fn deal_check_with_stdlib(
                     "stdlib_{d}.deal",
                     .{file_idx},
                 ) catch "stdlib.deal";
-                mergeStdlibSourceInto(merged, stdlib_alloc, chunk, fname);
+                mergeStdlibSourceInto(merged, stdlib_alloc, chunk, fname, false);
                 file_idx += 1;
             }
         }
