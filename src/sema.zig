@@ -196,6 +196,21 @@ pub const SymbolEntry = struct {
     dim_meta: ?DimMeta = null,
 };
 
+/// P2 WS-A: a resolved reference binding. Each reference site (a
+/// `<<specializes>>` target, a type annotation, a `@trace` target, …) that
+/// Pass B resolves to a declaration records one of these so the LSP can build
+/// an exact reverse index (find-references / rename) from the compiler's own
+/// resolution, rather than re-deriving it heuristically.
+pub const Binding = struct {
+    /// Span of the reference site in the source buffer.
+    from_span: ast.Span,
+    /// Fully-qualified id the reference resolved to (D-23 `.` separator), or the
+    /// name as written when no canonical entry is available in this file's scope.
+    resolved_path: []const u8,
+    /// What kind of reference this is: "specializes", "type_ref", "trace", …
+    ref_kind: []const u8,
+};
+
 /// Import edge in the imports graph.
 pub const ImportEdge = struct {
     from_file: []const u8,
@@ -216,6 +231,9 @@ pub const SymbolTable = struct {
     imports_graph: []ImportEdge,
     /// The package declared in the file (may be empty if no package decl).
     package_segments: [][]const u8,
+    /// P2 WS-A: resolved reference bindings, in Pass-B walk order. Arena-owned;
+    /// emitted in the index envelope as `references[]`.
+    bindings: std.ArrayList(Binding),
 };
 
 /// Internal analyzer state — not exposed.
@@ -243,6 +261,11 @@ const Analyzer = struct {
     /// states). Non-null only while inside an action_def / state_def body;
     /// succession / transition / control-block targets resolve against it.
     current_steps: ?*const std.StringHashMap(void) = null,
+    /// P2 WS-A / ADR-0003: the workspace-merged declaration table used for
+    /// cross-file name resolution. When present, `resolveName` resolves bare
+    /// imported names to the unique declaration in the imported package's
+    /// subtree. Null in single-file analysis (then only local names resolve).
+    external: ?*const SymbolTable = null,
 };
 
 /// Run all 7 blocking semantic checks against the AST.
@@ -285,6 +308,7 @@ pub fn analyzeWithExternalTable(
         .imported_packages = std.StringHashMap(void).init(arena),
         .imports_graph = &.{},
         .package_segments = &.{},
+        .bindings = .empty,
     };
 
     // Seed from external table (stdlib) if provided.
@@ -315,6 +339,9 @@ pub fn analyzeWithExternalTable(
         .source_file = source_file,
         .specializes_map = std.StringHashMap([]const u8).init(arena),
         .constraint_chain_map = std.StringHashMap([]const u8).init(arena),
+        // ADR-0003: the seed table doubles as the workspace declaration set for
+        // cross-file resolution. Null in pure single-file analysis.
+        .external = external_table,
     };
 
     if (root) |r| {
@@ -795,6 +822,129 @@ fn collectCompositionNode(a: *Analyzer, node: *ast.Node) !void {
 
 // ─── Pass B: Reference resolution ──────────────────────────────────────────
 
+/// ADR-0003 name-resolution outcome.
+const NameResolution = union(enum) {
+    /// Bound to the unique declaration; payload is its canonical FQ id.
+    found: []const u8,
+    /// No declaration in scope (an `E2000` condition).
+    not_found,
+    /// More than one declaration matched (an `E2001` condition).
+    ambiguous,
+};
+
+/// Split a fully-qualified id into `(package, terminal)`:
+/// `vehicle.battery.Cell` → (`vehicle.battery`, `Cell`); bare `Cell` → (``, `Cell`).
+fn splitId(id: []const u8) struct { pkg: []const u8, terminal: []const u8 } {
+    if (std.mem.lastIndexOfScalar(u8, id, '.')) |dot| {
+        return .{ .pkg = id[0..dot], .terminal = id[dot + 1 ..] };
+    }
+    return .{ .pkg = "", .terminal = id };
+}
+
+/// True iff `pkg` equals `prefix` or is a dotted sub-package of it
+/// (`interfaces.thermal` ⊆ `interfaces`; `interfacesX` is NOT — the boundary
+/// must fall on a `.`).
+fn isDottedPrefix(prefix: []const u8, pkg: []const u8) bool {
+    if (std.mem.eql(u8, pkg, prefix)) return true;
+    return pkg.len > prefix.len and
+        std.mem.startsWith(u8, pkg, prefix) and
+        pkg[prefix.len] == '.';
+}
+
+/// Collect every workspace declaration whose terminal name is `terminal` and
+/// whose package is within the `prefix` subtree, deduped by FQ id into `out`.
+fn collectSubtreeMatches(
+    ext: *const SymbolTable,
+    prefix: []const u8,
+    terminal: []const u8,
+    out: *std.StringHashMap(void),
+) void {
+    var it = ext.entries.iterator();
+    while (it.next()) |kv| {
+        const e = kv.value_ptr.*;
+        if (e.kind == .imported or e.kind == .imported_wildcard_pkg) continue;
+        const parts = splitId(e.id);
+        if (!std.mem.eql(u8, parts.terminal, terminal)) continue;
+        if (!isDottedPrefix(prefix, parts.pkg)) continue;
+        out.put(e.id, {}) catch {};
+    }
+}
+
+/// ADR-0003 cross-file name resolution. A referenced name binds to:
+///   1. a locally-declared (non-imported) symbol → its `entry.id`; otherwise
+///   2. the UNIQUE workspace declaration whose terminal name matches and whose
+///      package lies within an import prefix that brought the name into scope
+///      (named import `P.{N}` or wildcard `P.*`). Zero matches → not_found
+///      (E2000); two or more → ambiguous (E2001).
+/// Requires `a.external` (the workspace-merged declaration table) for tier 2;
+/// without it only local names resolve.
+fn resolveNameResult(a: *Analyzer, name: []const u8, segments: [][]const u8) NameResolution {
+    // Tier 1: local, non-imported declaration wins outright.
+    if (a.table.entries.get(name)) |e| {
+        if (e.kind != .imported and e.kind != .imported_wildcard_pkg) {
+            return .{ .found = e.id };
+        }
+    }
+    const ext = a.external orelse return .not_found;
+    const terminal = segments[segments.len - 1];
+
+    var matches = std.StringHashMap(void).init(a.arena);
+
+    if (segments.len > 1) {
+        // Already qualified: the written prefix is the search root.
+        const written = std.mem.join(a.arena, ".", segments[0 .. segments.len - 1]) catch
+            return .not_found;
+        collectSubtreeMatches(ext, written, terminal, &matches);
+    } else {
+        // Bare name: candidate prefixes are the import paths that brought it in.
+        // Named imports register a qualified `P.terminal` entry (kind .imported).
+        var nit = a.table.entries.iterator();
+        while (nit.next()) |kv| {
+            const e = kv.value_ptr.*;
+            if (e.kind != .imported) continue;
+            const parts = splitId(kv.key_ptr.*);
+            if (parts.pkg.len == 0) continue;
+            if (!std.mem.eql(u8, parts.terminal, terminal)) continue;
+            collectSubtreeMatches(ext, parts.pkg, terminal, &matches);
+        }
+        // Wildcard imports contribute every imported package as a prefix.
+        var wit = a.table.imported_packages.iterator();
+        while (wit.next()) |kv| {
+            collectSubtreeMatches(ext, kv.key_ptr.*, terminal, &matches);
+        }
+    }
+
+    const n = matches.count();
+    if (n == 0) return .not_found;
+    if (n > 1) return .ambiguous;
+    var kit = matches.keyIterator();
+    return .{ .found = kit.next().?.* };
+}
+
+/// P2 WS-A: resolve a referenced name to its canonical fully-qualified id for
+/// the reverse index, or null when unresolved OR ambiguous. (Ambiguity will
+/// additionally emit `E2001` once wired into the reference checks; for binding
+/// capture we conservatively record nothing, so rename never acts on an
+/// ambiguous symbol.)
+fn resolveName(a: *Analyzer, name: []const u8, segments: [][]const u8) ?[]const u8 {
+    return switch (resolveNameResult(a, name, segments)) {
+        .found => |id| id,
+        .not_found, .ambiguous => null,
+    };
+}
+
+/// P2 WS-A: record a resolved reference binding. `resolved_path` should be the
+/// canonical fully-qualified id when an entry is known; callers pass the
+/// best-available name otherwise. Appended in Pass-B walk order; the index
+/// emitter sorts for deterministic output.
+fn recordBinding(a: *Analyzer, span: ast.Span, resolved_path: []const u8, ref_kind: []const u8) !void {
+    try a.table.bindings.append(a.arena, .{
+        .from_span = span,
+        .resolved_path = resolved_path,
+        .ref_kind = ref_kind,
+    });
+}
+
 fn passB(a: *Analyzer, root: *ast.Node) !void {
     switch (root.payload) {
         .deal_file => |f| {
@@ -938,6 +1088,11 @@ fn checkDefinition(a: *Analyzer, node: *ast.Node) !void {
                 .{target_name},
             );
         } else {
+            // P2 WS-A: record the resolved binding for this <<specializes>>
+            // target, canonicalized to the declaring file's FQ id so cross-file
+            // references match (imported names → their qualified sibling).
+            const resolved_path = resolveName(a, target_name, spec.target_segments) orelse target_name;
+            try recordBinding(a, spec_node.span, resolved_path, "specializes");
             // Check for specialization cycle (Check #4, T-02-08 mitigation).
             try checkSpecializationCycle(a, elem.name, target_name, node.span, &[_][]const u8{});
         }
@@ -2122,4 +2277,34 @@ fn elemUsageOf(node: *ast.Node) ?ast.ElementUsage {
         .use_case_usage => |u| u,
         else => null,
     };
+}
+
+// ─── ADR-0003 resolution helper tests ─────────────────────────────────────────
+// Pure-function coverage for the dotted-prefix / id-split logic that underpins
+// cross-file name resolution. (End-to-end resolveName coverage lands with the
+// workspace-merge orchestration sub-slice.)
+
+test "splitId separates package and terminal" {
+    const a = splitId("vehicle.battery.Cell");
+    try std.testing.expectEqualStrings("vehicle.battery", a.pkg);
+    try std.testing.expectEqualStrings("Cell", a.terminal);
+
+    const b = splitId("Cell"); // bare name → empty package
+    try std.testing.expectEqualStrings("", b.pkg);
+    try std.testing.expectEqualStrings("Cell", b.terminal);
+}
+
+test "isDottedPrefix respects dot boundaries" {
+    // Equal package.
+    try std.testing.expect(isDottedPrefix("interfaces", "interfaces"));
+    // Dotted sub-package (the showcase case).
+    try std.testing.expect(isDottedPrefix("interfaces", "interfaces.thermal"));
+    try std.testing.expect(isDottedPrefix("a.b", "a.b.c.d"));
+    // NOT a prefix: boundary must fall on a dot.
+    try std.testing.expect(!isDottedPrefix("interfaces", "interfacesX"));
+    try std.testing.expect(!isDottedPrefix("interfaces", "interfacesX.thermal"));
+    // Unrelated.
+    try std.testing.expect(!isDottedPrefix("interfaces", "vehicle.battery"));
+    // A longer prefix never matches a shorter package.
+    try std.testing.expect(!isDottedPrefix("interfaces.thermal", "interfaces"));
 }

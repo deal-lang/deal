@@ -1703,6 +1703,40 @@ pub fn writeIndexJson(
     }
     try buf.append(allocator, ']');
 
+    // references array (P2 WS-A): resolved reference bindings. Keyed position in
+    // the alphabetical top-level order is between imports_graph and v. Sorted by
+    // (from_span.start, resolved_path, ref_kind) for byte-deterministic output
+    // (D-18 / WARNING-01) since Pass-B append order is AST-walk order.
+    try buf.appendSlice(allocator, ",\"references\":[");
+    {
+        var refs: std.ArrayList(*const sema.Binding) = .empty;
+        defer refs.deinit(allocator);
+        for (table.bindings.items) |*b| try refs.append(allocator, b);
+        std.mem.sort(*const sema.Binding, refs.items, {}, struct {
+            fn lt(_: void, x: *const sema.Binding, y: *const sema.Binding) bool {
+                if (x.from_span.start != y.from_span.start)
+                    return x.from_span.start < y.from_span.start;
+                if (!std.mem.eql(u8, x.resolved_path, y.resolved_path))
+                    return std.mem.lessThan(u8, x.resolved_path, y.resolved_path);
+                return std.mem.lessThan(u8, x.ref_kind, y.ref_kind);
+            }
+        }.lt);
+        for (refs.items, 0..) |b, i| {
+            if (i > 0) try buf.append(allocator, ',');
+            // Per-reference fields (alphabetical): from_span, ref_kind, resolved_path
+            try buf.appendSlice(allocator, "{\"from_span\":[");
+            try appendU32(allocator, &buf, b.from_span.start);
+            try buf.append(allocator, ',');
+            try appendU32(allocator, &buf, b.from_span.end);
+            try buf.appendSlice(allocator, "],\"ref_kind\":");
+            try writeStr(allocator, &buf, b.ref_kind);
+            try buf.appendSlice(allocator, ",\"resolved_path\":");
+            try writeStr(allocator, &buf, b.resolved_path);
+            try buf.append(allocator, '}');
+        }
+    }
+    try buf.append(allocator, ']');
+
     // v: schema version.
     try buf.appendSlice(allocator, ",\"v\":1}");
 

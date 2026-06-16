@@ -400,6 +400,7 @@ pub fn deal_parse_internal_with_stdlib(
         .imported_packages = std.StringHashMap(void).init(stdlib_alloc),
         .imports_graph = &.{},
         .package_segments = &.{},
+        .bindings = .empty,
     };
 
     for (stdlib_sources) |src| {
@@ -598,6 +599,7 @@ pub export fn deal_check_with_stdlib(
             .imported_packages = std.StringHashMap(void).init(stdlib_alloc),
             .imports_graph = &.{},
             .package_segments = &.{},
+            .bindings = .empty,
         };
 
         // Parse + analyze the stdlib source bytes to collect dimension/unit entries.

@@ -26,6 +26,7 @@ use crate::documents::Documents;
 use crate::formatting;
 use crate::hover;
 use crate::index::Index;
+use crate::references;
 use crate::semantic_tokens;
 use crate::workspace::{self, Workspace};
 
@@ -74,6 +75,7 @@ impl LanguageServer for Backend {
             text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
             document_formatting_provider: Some(OneOf::Left(true)),
             workspace_symbol_provider: Some(OneOf::Left(true)),
+            references_provider: Some(OneOf::Left(true)),
             completion_provider: Some(CompletionOptions {
                 trigger_characters: Some(vec![".".to_string(), ":".to_string(), "<".to_string()]),
                 ..Default::default()
@@ -213,6 +215,10 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> LspResult<Option<GotoDefinitionResponse>> {
         definition::handle_definition(&self.documents, &self.index, params).await
+    }
+
+    async fn references(&self, params: ReferenceParams) -> LspResult<Option<Vec<Location>>> {
+        references::handle_references(&self.documents, &self.index, params).await
     }
 
     async fn semantic_tokens_full(

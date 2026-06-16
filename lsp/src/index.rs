@@ -66,6 +66,11 @@ pub struct Index {
     /// shape — and its consumers in completion.rs / definition.rs — stay
     /// untouched. Consumed by `workspace_symbols` to assign SymbolKind icons.
     kinds: DashMap<PathString, (Url, String)>,
+    /// P2 WS-A: reverse usage index. Maps a resolved fully-qualified path to the
+    /// reference sites that bind to it, sourced from the compiler's own
+    /// resolution (the envelope's `references[]`). Powers find-references /
+    /// documentHighlight / rename with compiler-exact, not heuristic, results.
+    usages: DashMap<PathString, Vec<(Url, Range)>>,
     /// PS-5: short → long PathString prefix expansions from
     /// `[workspace.aliases]` in deal.toml. Wrapped in RwLock so the
     /// `backend::initialized` handler can swap the table once the
@@ -78,6 +83,10 @@ pub struct Index {
 struct IndexEnvelope {
     #[serde(default)]
     elements: HashMap<String, ElementEntry>,
+    /// P2 WS-A: resolved reference bindings. `#[serde(default)]` so pre-P2
+    /// envelopes (no `references` key) still deserialize cleanly.
+    #[serde(default)]
+    references: Vec<RefEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -90,11 +99,27 @@ struct ElementEntry {
     kind: String,
 }
 
+/// P2 WS-A: one resolved reference binding from the envelope's `references[]`.
+#[derive(Debug, Deserialize)]
+struct RefEntry {
+    /// `[start_byte, end_byte]` half-open UTF-8 byte span of the reference site.
+    from_span: [usize; 2],
+    /// Fully-qualified path the reference resolved to.
+    #[serde(default)]
+    resolved_path: String,
+    /// Reference kind ("specializes", "type_ref", …). Retained for future
+    /// filtering; not yet used by the query API.
+    #[serde(default)]
+    #[allow(dead_code)]
+    ref_kind: String,
+}
+
 impl Index {
     pub fn new() -> Self {
         Self {
             symbols: DashMap::new(),
             kinds: DashMap::new(),
+            usages: DashMap::new(),
             aliases: RwLock::new(Arc::new(HashMap::new())),
         }
     }
@@ -103,6 +128,7 @@ impl Index {
         Self {
             symbols: DashMap::new(),
             kinds: DashMap::new(),
+            usages: DashMap::new(),
             aliases: RwLock::new(Arc::new(aliases)),
         }
     }
@@ -189,6 +215,18 @@ impl Index {
             self.symbols
                 .insert(path, (uri.clone(), Range { start, end }));
         }
+        // P2 WS-A: ingest resolved reference sites into the reverse usage index.
+        for r in env.references {
+            if r.resolved_path.is_empty() {
+                continue;
+            }
+            let start = byte_to_position(rope, r.from_span[0]);
+            let end = byte_to_position(rope, r.from_span[1]);
+            self.usages
+                .entry(r.resolved_path)
+                .or_default()
+                .push((uri.clone(), Range { start, end }));
+        }
     }
 
     /// Remove every entry whose value points at `uri` (called before
@@ -196,6 +234,42 @@ impl Index {
     pub fn remove_file(&self, uri: &Url) {
         self.symbols.retain(|_, v| &v.0 != uri);
         self.kinds.retain(|_, v| &v.0 != uri);
+        // P2 WS-A: drop this file's reference sites; remove now-empty buckets.
+        self.usages.retain(|_, sites| {
+            sites.retain(|(u, _)| u != uri);
+            !sites.is_empty()
+        });
+    }
+
+    /// P2 WS-A: find-references. Returns the declaration (when `include_decl`)
+    /// plus every reference site that the compiler resolved to `path`. Results
+    /// are de-duplicated and ordered deterministically (uri, then position).
+    pub fn references_of(&self, path: &str, include_decl: bool) -> Vec<Location> {
+        let canonical = self.resolve_with_alias(path);
+        let mut out: Vec<Location> = Vec::new();
+        if include_decl {
+            if let Some(v) = self.symbols.get(canonical.as_str()) {
+                let (u, r) = v.clone();
+                out.push(Location { uri: u, range: r });
+            }
+        }
+        if let Some(sites) = self.usages.get(canonical.as_str()) {
+            for (u, r) in sites.value().iter() {
+                out.push(Location {
+                    uri: u.clone(),
+                    range: *r,
+                });
+            }
+        }
+        out.sort_by(|a, b| {
+            a.uri
+                .as_str()
+                .cmp(b.uri.as_str())
+                .then(a.range.start.line.cmp(&b.range.start.line))
+                .then(a.range.start.character.cmp(&b.range.start.character))
+        });
+        out.dedup_by(|a, b| a.uri == b.uri && a.range == b.range);
+        out
     }
 
     /// Build LSP `SymbolInformation` entries for the `workspace/symbol`
@@ -340,6 +414,48 @@ mod tests {
         assert_eq!(a.1.end.character, 14);
         let b = idx.lookup("pkg.B").unwrap();
         assert_eq!(b.1.start.line, 2);
+    }
+
+    #[test]
+    fn references_index_ingests_and_queries_resolved_sites() {
+        // P2 WS-A: an envelope carrying references[] populates the reverse usage
+        // index; references_of returns the sites (and decl when requested).
+        let idx = Index::new();
+        let url_a = Url::parse("file:///a.deal").unwrap();
+        let rope = Rope::from_str("part def Battery {}\npart def Pack {}\n");
+        // Battery is declared in a.deal and referenced (specializes) twice.
+        let env = br#"{"v":1,
+            "elements":{"vehicle.Battery":{"id":"vehicle.Battery","kind":"part_def","source_file":"a","span":[9,16]}},
+            "references":[
+                {"from_span":[28,35],"ref_kind":"specializes","resolved_path":"vehicle.Battery"},
+                {"from_span":[40,47],"ref_kind":"specializes","resolved_path":"vehicle.Battery"}
+            ]}"#;
+        idx.update_from_envelope(&url_a, env, &rope);
+
+        // Two reference sites, declaration excluded.
+        let refs = idx.references_of("vehicle.Battery", false);
+        assert_eq!(refs.len(), 2, "expected two reference sites");
+        // include_declaration adds the decl site.
+        let with_decl = idx.references_of("vehicle.Battery", true);
+        assert_eq!(with_decl.len(), 3, "expected two refs + declaration");
+        // Unknown path yields nothing.
+        assert!(idx.references_of("vehicle.Nope", true).is_empty());
+    }
+
+    #[test]
+    fn references_index_evicts_on_refresh() {
+        // Re-parsing a file drops its old reference sites (no orphans).
+        let idx = Index::new();
+        let url = Url::parse("file:///a.deal").unwrap();
+        let rope = Rope::from_str("part def Battery {}\npart def Pack {}\n");
+        let env = br#"{"v":1,"elements":{},
+            "references":[{"from_span":[28,35],"ref_kind":"specializes","resolved_path":"vehicle.Battery"}]}"#;
+        idx.update_from_envelope(&url, env, &rope);
+        assert_eq!(idx.references_of("vehicle.Battery", false).len(), 1);
+        // Refresh with no references → the site is evicted, bucket removed.
+        let env2 = br#"{"v":1,"elements":{},"references":[]}"#;
+        idx.refresh_file(&url, env2, &rope);
+        assert!(idx.references_of("vehicle.Battery", false).is_empty());
     }
 
     #[test]

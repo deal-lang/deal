@@ -47,6 +47,24 @@ async fn definition_for(
     uri: &Url,
     position: Position,
 ) -> Option<Location> {
+    resolved_path_at(documents, index, uri, position)
+        .await
+        .map(|(_path, loc)| loc)
+}
+
+/// Resolve the symbol under the cursor to its canonical fully-qualified path
+/// AND its declaration `Location`. Shared by goto-definition and (P2 WS-A)
+/// find-references, which needs the canonical path to key the usage index.
+///
+/// The returned path is the matched index key (alias-expanded for a verbatim
+/// hit, or the winning suffix-match key) — i.e. the same FQ id `sema` records
+/// as a binding's `resolved_path`, so the two line up in the reverse index.
+pub(crate) async fn resolved_path_at(
+    documents: &Documents,
+    index: &Index,
+    uri: &Url,
+    position: Position,
+) -> Option<(String, Location)> {
     let handle_arc = documents.get_handle(uri)?;
     let rope = documents.get_buffer(uri)?;
     let byte_offset = hover::position_to_byte_pub(&rope, position)?;
@@ -62,8 +80,10 @@ async fn definition_for(
     let candidate = candidate_path_at(&root, byte_offset)?;
 
     // 1. Verbatim lookup (also exercises alias expansion in Index::lookup).
+    //    The canonical key is the alias-expanded candidate.
     if let Some((u, r)) = index.lookup(&candidate) {
-        return Some(Location { uri: u, range: r });
+        let canonical = index.resolve_with_alias(&candidate);
+        return Some((canonical, Location { uri: u, range: r }));
     }
     // 2. Suffix match — the candidate is the unqualified type name; find
     //    any indexed PathString whose final dotted segment(s) equal the
@@ -81,7 +101,7 @@ async fn definition_for(
         })
         .collect();
     hits.sort_by(|a, b| a.0.cmp(&b.0));
-    hits.into_iter().next().map(|(_p, loc)| loc)
+    hits.into_iter().next()
 }
 
 /// Find the deepest type-reference-like node at `byte_offset` and assemble

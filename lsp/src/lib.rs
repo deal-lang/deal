@@ -13,6 +13,7 @@ pub mod documents;
 pub mod formatting;
 pub mod hover;
 pub mod index;
+pub mod references;
 pub mod semantic_tokens;
 pub mod sysml_mapping;
 pub mod workspace;
