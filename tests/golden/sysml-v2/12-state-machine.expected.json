@@ -1,0 +1,363 @@
+{
+  "@id": "85678586-0bc5-567c-9049-1c733087d145",
+  "@type": "Package",
+  "declaredName": "Workspace",
+  "elementId": "85678586-0bc5-567c-9049-1c733087d145",
+  "ownedRelationship": [
+    {
+      "@id": "4c1d4325-37e5-5105-84ae-5fe514a13aea",
+      "@type": "Package",
+      "declaredName": "states",
+      "elementId": "4c1d4325-37e5-5105-84ae-5fe514a13aea",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states"
+    },
+    {
+      "@id": "63a1ebcb-8e06-528b-8a91-2bfbc992fa53",
+      "@type": "StateDefinition",
+      "declaredName": "ChargingControl",
+      "elementId": "63a1ebcb-8e06-528b-8a91-2bfbc992fa53",
+      "ownedMembership": [
+        {
+          "@id": "5f4ef8a1-a8ce-5da9-8db3-8f752d549917"
+        },
+        {
+          "@id": "cc269a0d-62c3-5565-9b3b-13bfb0672107"
+        },
+        {
+          "@id": "49e24be0-d2ba-594a-ab93-c6ebe76e7ba8"
+        },
+        {
+          "@id": "270290ee-838a-5380-9abb-7f884da2c0c8"
+        },
+        {
+          "@id": "0a2dbe59-3a41-5ac8-8f27-34675981a302"
+        },
+        {
+          "@id": "538db4e2-c681-5820-a847-7e41ef0be442"
+        },
+        {
+          "@id": "888025fd-7b5c-5c53-b28c-c2fde7ce543c"
+        },
+        {
+          "@id": "3b169385-5d51-53c3-94ea-108cf12d04e7"
+        },
+        {
+          "@id": "69f7382c-7e45-5d13-83fc-188258007b06"
+        }
+      ],
+      "ownedRelationship": [
+        {
+          "@id": "e2bb58a2-a620-5cbb-a221-a49e03b7fbd6",
+          "@type": "FeatureMembership",
+          "elementId": "e2bb58a2-a620-5cbb-a221-a49e03b7fbd6",
+          "ownedRelatedElement": [
+            {
+              "@id": "5f4ef8a1-a8ce-5da9-8db3-8f752d549917"
+            }
+          ]
+        },
+        {
+          "@id": "e0232cfb-66d3-513a-8884-74d57a74497c",
+          "@type": "FeatureMembership",
+          "elementId": "e0232cfb-66d3-513a-8884-74d57a74497c",
+          "ownedRelatedElement": [
+            {
+              "@id": "cc269a0d-62c3-5565-9b3b-13bfb0672107"
+            }
+          ]
+        },
+        {
+          "@id": "620a1c1e-9fc7-5127-9c99-f8fb0564e94d",
+          "@type": "FeatureMembership",
+          "elementId": "620a1c1e-9fc7-5127-9c99-f8fb0564e94d",
+          "ownedRelatedElement": [
+            {
+              "@id": "49e24be0-d2ba-594a-ab93-c6ebe76e7ba8"
+            }
+          ]
+        },
+        {
+          "@id": "45e7172d-9a58-5d36-9e22-6987c1e58bcf",
+          "@type": "StateSubactionMembership",
+          "elementId": "45e7172d-9a58-5d36-9e22-6987c1e58bcf",
+          "kind": "do",
+          "ownedRelatedElement": [
+            {
+              "@id": "270290ee-838a-5380-9abb-7f884da2c0c8"
+            }
+          ]
+        },
+        {
+          "@id": "07310d3f-f37b-57e5-9807-f640a648eee4",
+          "@type": "FeatureMembership",
+          "elementId": "07310d3f-f37b-57e5-9807-f640a648eee4",
+          "ownedRelatedElement": [
+            {
+              "@id": "0a2dbe59-3a41-5ac8-8f27-34675981a302"
+            }
+          ]
+        },
+        {
+          "@id": "0973cc23-ea00-59dc-a74e-15ef0782b9d6",
+          "@type": "StateSubactionMembership",
+          "elementId": "0973cc23-ea00-59dc-a74e-15ef0782b9d6",
+          "kind": "entry",
+          "ownedRelatedElement": [
+            {
+              "@id": "538db4e2-c681-5820-a847-7e41ef0be442"
+            }
+          ]
+        },
+        {
+          "@id": "ffde845b-5a64-5b15-9f73-89a6614233b3",
+          "@type": "FeatureMembership",
+          "elementId": "ffde845b-5a64-5b15-9f73-89a6614233b3",
+          "ownedRelatedElement": [
+            {
+              "@id": "888025fd-7b5c-5c53-b28c-c2fde7ce543c"
+            }
+          ]
+        },
+        {
+          "@id": "c457e57e-635c-5fa6-908a-d5c7e4b80afe",
+          "@type": "FeatureMembership",
+          "elementId": "c457e57e-635c-5fa6-908a-d5c7e4b80afe",
+          "ownedRelatedElement": [
+            {
+              "@id": "3b169385-5d51-53c3-94ea-108cf12d04e7"
+            }
+          ]
+        },
+        {
+          "@id": "fe1da0bc-6035-54bd-bd55-489c24d4ba58",
+          "@type": "FeatureMembership",
+          "elementId": "fe1da0bc-6035-54bd-bd55-489c24d4ba58",
+          "ownedRelatedElement": [
+            {
+              "@id": "69f7382c-7e45-5d13-83fc-188258007b06"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold12::states::ChargingControl"
+    },
+    {
+      "@id": "5f4ef8a1-a8ce-5da9-8db3-8f752d549917",
+      "@type": "StateUsage",
+      "declaredName": "Charging",
+      "elementId": "5f4ef8a1-a8ce-5da9-8db3-8f752d549917",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::Charging"
+    },
+    {
+      "@id": "cc269a0d-62c3-5565-9b3b-13bfb0672107",
+      "@type": "StateUsage",
+      "declaredName": "Fault",
+      "elementId": "cc269a0d-62c3-5565-9b3b-13bfb0672107",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::Fault"
+    },
+    {
+      "@id": "49e24be0-d2ba-594a-ab93-c6ebe76e7ba8",
+      "@type": "StateUsage",
+      "declaredName": "Idle",
+      "elementId": "49e24be0-d2ba-594a-ab93-c6ebe76e7ba8",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::Idle"
+    },
+    {
+      "@id": "270290ee-838a-5380-9abb-7f884da2c0c8",
+      "@type": "PerformActionUsage",
+      "declaredName": "do",
+      "elementId": "270290ee-838a-5380-9abb-7f884da2c0c8",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::do"
+    },
+    {
+      "@id": "0a2dbe59-3a41-5ac8-8f27-34675981a302",
+      "@type": "ActionUsage",
+      "declaredName": "done",
+      "elementId": "0a2dbe59-3a41-5ac8-8f27-34675981a302",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::done"
+    },
+    {
+      "@id": "538db4e2-c681-5820-a847-7e41ef0be442",
+      "@type": "PerformActionUsage",
+      "declaredName": "entry",
+      "elementId": "538db4e2-c681-5820-a847-7e41ef0be442",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::entry"
+    },
+    {
+      "@id": "888025fd-7b5c-5c53-b28c-c2fde7ce543c",
+      "@type": "ActionUsage",
+      "declaredName": "start",
+      "elementId": "888025fd-7b5c-5c53-b28c-c2fde7ce543c",
+      "ownedMembership": [],
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::start"
+    },
+    {
+      "@id": "3b169385-5d51-53c3-94ea-108cf12d04e7",
+      "@type": "TransitionUsage",
+      "declaredName": "transition_0",
+      "elementId": "3b169385-5d51-53c3-94ea-108cf12d04e7",
+      "ownedRelationship": [
+        {
+          "@id": "1ec76ea0-b0bb-5e00-90be-8c4592a62540",
+          "@type": "FeatureMembership",
+          "elementId": "1ec76ea0-b0bb-5e00-90be-8c4592a62540",
+          "ownedRelatedElement": [
+            {
+              "@id": "136a0c3d-33f8-5e4a-a79b-75bf3f4dcabe",
+              "@type": "SuccessionAsUsage",
+              "connectorEnd": [
+                {
+                  "@id": "63258661-9cae-5044-a003-300aaee2c6a6",
+                  "@type": "ConnectorEnd",
+                  "elementId": "63258661-9cae-5044-a003-300aaee2c6a6",
+                  "reference": [
+                    {
+                      "@id": "63a1ebcb-8e06-528b-8a91-2bfbc992fa53"
+                    }
+                  ]
+                },
+                {
+                  "@id": "14765eb1-ebe5-5726-93b8-f70306a12e4d",
+                  "@type": "ConnectorEnd",
+                  "elementId": "14765eb1-ebe5-5726-93b8-f70306a12e4d",
+                  "reference": [
+                    {
+                      "@id": "5f4ef8a1-a8ce-5da9-8db3-8f752d549917"
+                    }
+                  ]
+                }
+              ],
+              "declaredName": "transition_0--succession",
+              "elementId": "136a0c3d-33f8-5e4a-a79b-75bf3f4dcabe",
+              "ownedRelationship": [],
+              "qualifiedName": "gold12::states::ChargingControl::transition_0--succession"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold12::states::ChargingControl::transition_0"
+    },
+    {
+      "@id": "69f7382c-7e45-5d13-83fc-188258007b06",
+      "@type": "TransitionUsage",
+      "declaredName": "transition_1",
+      "elementId": "69f7382c-7e45-5d13-83fc-188258007b06",
+      "ownedRelationship": [
+        {
+          "@id": "9bdbd4f5-e3b8-5224-8fc3-7873263af9b9",
+          "@type": "FeatureMembership",
+          "elementId": "9bdbd4f5-e3b8-5224-8fc3-7873263af9b9",
+          "ownedRelatedElement": [
+            {
+              "@id": "da678ff7-d45a-5408-8128-87c80168140e",
+              "@type": "SuccessionAsUsage",
+              "connectorEnd": [
+                {
+                  "@id": "76ae2988-7701-5489-8290-22a65415b7bb",
+                  "@type": "ConnectorEnd",
+                  "elementId": "76ae2988-7701-5489-8290-22a65415b7bb",
+                  "reference": [
+                    {
+                      "@id": "63a1ebcb-8e06-528b-8a91-2bfbc992fa53"
+                    }
+                  ]
+                },
+                {
+                  "@id": "2a1eddea-d9a8-5eef-aacf-bd552e076d8c",
+                  "@type": "ConnectorEnd",
+                  "elementId": "2a1eddea-d9a8-5eef-aacf-bd552e076d8c",
+                  "reference": [
+                    {
+                      "@id": "cc269a0d-62c3-5565-9b3b-13bfb0672107"
+                    }
+                  ]
+                }
+              ],
+              "declaredName": "transition_1--succession",
+              "elementId": "da678ff7-d45a-5408-8128-87c80168140e",
+              "ownedRelationship": [],
+              "qualifiedName": "gold12::states::ChargingControl::transition_1--succession"
+            }
+          ]
+        }
+      ],
+      "qualifiedName": "gold12::states::ChargingControl::transition_1"
+    },
+    {
+      "@id": "ac17ff77-d113-5145-a28f-ff36d8e7780a",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "3d2796bf-72a7-584c-978a-2e0ec01ded3c",
+          "@type": "ConnectorEnd",
+          "elementId": "3d2796bf-72a7-584c-978a-2e0ec01ded3c",
+          "reference": [
+            {
+              "@id": "cc269a0d-62c3-5565-9b3b-13bfb0672107"
+            }
+          ]
+        },
+        {
+          "@id": "f0ac0214-f791-5a76-a750-39034e71b496",
+          "@type": "ConnectorEnd",
+          "elementId": "f0ac0214-f791-5a76-a750-39034e71b496",
+          "reference": [
+            {
+              "@id": "0a2dbe59-3a41-5ac8-8f27-34675981a302"
+            }
+          ]
+        }
+      ],
+      "declaredName": "done",
+      "elementId": "ac17ff77-d113-5145-a28f-ff36d8e7780a",
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::Fault--succession--gold12::states::ChargingControl::done"
+    },
+    {
+      "@id": "6170e972-cb4c-5bfe-b819-63da190b4d99",
+      "@type": "SuccessionAsUsage",
+      "connectorEnd": [
+        {
+          "@id": "a764ba71-c511-5c8b-8938-e2a81c623606",
+          "@type": "ConnectorEnd",
+          "elementId": "a764ba71-c511-5c8b-8938-e2a81c623606",
+          "reference": [
+            {
+              "@id": "888025fd-7b5c-5c53-b28c-c2fde7ce543c"
+            }
+          ]
+        },
+        {
+          "@id": "8cb3c9a4-07aa-5443-8f37-0d70a2844619",
+          "@type": "ConnectorEnd",
+          "elementId": "8cb3c9a4-07aa-5443-8f37-0d70a2844619",
+          "reference": [
+            {
+              "@id": "49e24be0-d2ba-594a-ab93-c6ebe76e7ba8"
+            }
+          ]
+        }
+      ],
+      "declaredName": "Idle",
+      "elementId": "6170e972-cb4c-5bfe-b819-63da190b4d99",
+      "ownedRelationship": [],
+      "qualifiedName": "gold12::states::ChargingControl::start--succession--gold12::states::ChargingControl::Idle"
+    }
+  ],
+  "qualifiedName": "Workspace"
+}

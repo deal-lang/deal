@@ -1,0 +1,18 @@
+// Golden fixture 12: state machine (BH-4).
+// Exercises: StateDefinition (8.3.18.5), StateUsage (8.3.18.6),
+//   StateSubactionMembership entry/do (8.3.18.4), TransitionUsage (8.3.18.9)
+//   with an owned SuccessionAsUsage backbone, control nodes (start/done),
+//   SuccessionAsUsage (8.3.13.6).
+package gold12.states;
+
+state def ChargingControl {
+    state Idle;
+    state Charging;
+    state Fault;
+    entry / initialize();
+    do / monitor();
+    start -> Idle;
+    on PlugIn -> Charging;
+    on Overheat [temp > 50] / shutdown() -> Fault;
+    Fault -> done;
+}

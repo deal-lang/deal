@@ -1,0 +1,30 @@
+// Golden fixture 11: action behavioral surface (BH-1..BH-3, BH-6).
+// Exercises: ActionDefinition (8.3.17.3), ActionUsage (8.3.17.4), pin →
+//   ReferenceUsage (8.3.6.3), control nodes (start/done), terminate →
+//   TerminateActionUsage (8.3.17.16), SuccessionAsUsage (8.3.13.6),
+//   DecisionNode + injected MergeNode (8.3.17.7/13), ForkNode + injected
+//   JoinNode (8.3.17.8/11), WhileLoopActionUsage (8.3.17.19),
+//   ForLoopActionUsage (8.3.17.9), PerformActionUsage (8.3.17.14),
+//   AcceptActionUsage (8.3.17.2), AssignmentActionUsage (8.3.17.5),
+//   SendActionUsage (8.3.17.15), FlowUsage (8.3.16.3),
+//   BindingConnectorAsUsage (KerML 8.3.4.5.2).
+package gold11.behavior;
+
+action def Charge {
+    in soc : Real;
+    action negotiate;
+    action ramp;
+    action measure;
+    action cool;
+    start -> negotiate -> ramp -> done;
+    ramp -> decide { [soc >= 80] -> done  [else] -> ramp };
+    ramp -> par { -> measure  -> cool } -> done;
+    loop while [soc < 100] { measure -> done; }
+    for c in cells { negotiate(c); }
+    cool -> terminate;
+    accept PlugInserted;
+    assign soc := soc + 1;
+    send Overheat to controller;
+    ramp.delivered ~> measure.sample;
+    bind measure.sample = ramp.delivered;
+}

@@ -1,7 +1,8 @@
 # SysML v2 Golden Fixtures
 
-This directory contains 8 golden fixtures that test the `deal build --target sysml-v2`
-pipeline end-to-end (Plan 02-04, REQ #6).
+This directory contains 12 golden fixtures that test the `deal build --target sysml-v2`
+pipeline end-to-end (Plan 02-04, REQ #6). Fixtures 01–10 are structural; 11–12
+cover the Stage-2 behavioral surface (BH-1..BH-7).
 
 Each fixture is a pair:
 

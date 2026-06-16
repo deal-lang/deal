@@ -272,6 +272,16 @@ fn fixture_schema_validity_10_constraint_def() {
     validate_expected_json("10-constraint-def");
 }
 
+#[test]
+fn fixture_schema_validity_11_action_behavior() {
+    validate_expected_json("11-action-behavior");
+}
+
+#[test]
+fn fixture_schema_validity_12_state_machine() {
+    validate_expected_json("12-state-machine");
+}
+
 // ─── Rolled-up test: all expected.json files ─────────────────────────────────
 
 /// Rolled-up test: iterate all *.expected.json files and validate each.
@@ -297,5 +307,5 @@ fn all_expected_json_validate() {
         }
     }
 
-    assert_eq!(count, 10, "Expected 10 .expected.json fixtures, found {count}");
+    assert_eq!(count, 12, "Expected 12 .expected.json fixtures, found {count}");
 }

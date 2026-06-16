@@ -198,3 +198,19 @@ fn golden_10_constraint_def() {
     let actual = run_fixture_and_compare("10-constraint-def.deal");
     assert_schema_valid(&actual, "10-constraint-def");
 }
+
+// ─── Fixture 11: action behavioral surface (BH-1..BH-3, BH-6, S2.7) ──────────
+
+#[test]
+fn golden_11_action_behavior() {
+    let actual = run_fixture_and_compare("11-action-behavior.deal");
+    assert_schema_valid(&actual, "11-action-behavior");
+}
+
+// ─── Fixture 12: state machine (BH-4, S2.7) ──────────────────────────────────
+
+#[test]
+fn golden_12_state_machine() {
+    let actual = run_fixture_and_compare("12-state-machine.deal");
+    assert_schema_valid(&actual, "12-state-machine");
+}
