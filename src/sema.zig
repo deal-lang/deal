@@ -938,9 +938,17 @@ fn resolveName(a: *Analyzer, name: []const u8, segments: [][]const u8) ?[]const 
 /// best-available name otherwise. Appended in Pass-B walk order; the index
 /// emitter sorts for deterministic output.
 fn recordBinding(a: *Analyzer, span: ast.Span, resolved_path: []const u8, ref_kind: []const u8) !void {
+    // `resolved_path` may be borrowed from the EXTERNAL table's arena (for a
+    // cross-file binding, it is `entry.id` of a workspace declaration that lives
+    // in the seed arena, which the caller frees after analysis). Dupe it into
+    // the analysis arena so the binding owns its string and survives the
+    // external arena's teardown — otherwise index emission reads freed memory
+    // (UAF / SIGSEGV). `ref_kind` is always a static string literal, so it needs
+    // no dupe.
+    const owned_path = try a.arena.dupe(u8, resolved_path);
     try a.table.bindings.append(a.arena, .{
         .from_span = span,
-        .resolved_path = resolved_path,
+        .resolved_path = owned_path,
         .ref_kind = ref_kind,
     });
 }

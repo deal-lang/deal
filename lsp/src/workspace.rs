@@ -233,7 +233,8 @@ pub async fn eager_parse(workspace: Arc<Workspace>, documents: Arc<Documents>, i
         workspace.root.display()
     );
 
-    let mut indexed = 0usize;
+    // ADR-0003 two-phase analysis. Phase 1: read every workspace source.
+    let mut entries: Vec<(tower_lsp::lsp_types::Url, String)> = Vec::with_capacity(total);
     for path in files {
         let text = match std::fs::read_to_string(&path) {
             Ok(t) => t,
@@ -249,8 +250,23 @@ pub async fn eager_parse(workspace: Arc<Workspace>, documents: Arc<Documents>, i
             );
             continue;
         };
-        if let Err(e) = documents.open_silent(uri.clone(), text, &index).await {
-            tracing::warn!("eager_parse: parse {} failed: {e}", path.display());
+        entries.push((uri, text));
+    }
+
+    // The workspace-merged declaration set: every file's bytes. Each file is
+    // analyzed against the whole set so cross-file references resolve to the
+    // declaring FQ id (local declarations still win, so self-inclusion is fine).
+    let all_sources: Vec<&[u8]> = entries.iter().map(|(_, t)| t.as_bytes()).collect();
+
+    // Phase 2: analyze each file with the merged set; populate the index
+    // (incl. cross-file references[]).
+    let mut indexed = 0usize;
+    for (uri, text) in &entries {
+        if let Err(e) = documents
+            .open_silent_with_external(uri.clone(), text.clone(), &all_sources, &index)
+            .await
+        {
+            tracing::warn!("eager_parse: analyze {uri} failed: {e}");
             continue;
         }
         indexed += 1;

@@ -178,6 +178,37 @@ impl Documents {
         Ok(())
     }
 
+    /// Like `open_silent`, but analyzes the file against a workspace-merged
+    /// declaration set (`external_sources`, the bytes of every workspace file)
+    /// so cross-file references resolve to their declaring fully-qualified id
+    /// (ADR-0003). The handle's `deal_index_json` then carries cross-file
+    /// `references[]`, which `Index::update_from_envelope` ingests into the
+    /// reverse usage index. Used by the two-phase `eager_parse`.
+    ///
+    /// Including the file itself in `external_sources` is harmless — local
+    /// declarations win in `resolveName`'s first tier.
+    pub async fn open_silent_with_external(
+        &self,
+        uri: Url,
+        text: String,
+        external_sources: &[&[u8]],
+        index: &Index,
+    ) -> anyhow::Result<()> {
+        let filename = uri.path();
+        let handle = deal_ffi::safe::check_with_external(text.as_bytes(), filename, external_sources)
+            .ok_or_else(|| anyhow::anyhow!("deal_check_with_external returned null for {uri}"))?;
+        self.parse_count.fetch_add(1, Ordering::SeqCst);
+
+        let rope = Rope::from_str(&text);
+        let envelope_bytes = deal_ffi::safe::index_json(&handle).unwrap_or_default();
+        index.update_from_envelope(&uri, &envelope_bytes, &rope);
+
+        self.buffers.insert(uri.clone(), rope);
+        self.handles.insert(uri, Arc::new(Mutex::new(handle)));
+
+        Ok(())
+    }
+
     /// did_change path: drop the prior handle (Drop fires deal_free), parse
     /// the new buffer, publish updated diagnostics, and refresh the
     /// workspace index slice for this URI (D-46 invariant — in-memory

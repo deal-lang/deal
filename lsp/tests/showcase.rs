@@ -547,6 +547,76 @@ async fn definition_lookup_specializes() {
 }
 
 // ---------------------------------------------------------------------
+// Test 5b: references_finds_cross_file_specializes (P2 WS-A / ADR-0003)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn references_finds_cross_file_specializes() {
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(SHOWCASE_ROOT)).await;
+    // eager_parse is two-phase (ADR-0003); wait until battery.deal's
+    // <<specializes>> binding has been resolved+indexed cross-file.
+    let needle_path = "interfaces.thermal.ThermallyManaged";
+    let mut waited = 0;
+    while index.references_of(needle_path, false).is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+    assert!(
+        !index.references_of(needle_path, false).is_empty(),
+        "eager_parse did not index the cross-file specializes binding within 10s"
+    );
+
+    let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
+    did_open(&mut service, &uri, &src, 1).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Cursor on the <<specializes>> referent (the 2nd occurrence of the name —
+    // the 1st is in the import statement).
+    let nm = "ThermallyManaged";
+    let first = src.find(nm).expect("ThermallyManaged in battery.deal");
+    let byte = src[first + nm.len()..]
+        .find(nm)
+        .map(|n| first + nm.len() + n)
+        .expect("second ThermallyManaged (the specializes referent)");
+    let (line, char_) = byte_to_line_char(&src, byte + 4);
+
+    let params = ReferenceParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position: Position::new(line, char_),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+        context: ReferenceContext {
+            include_declaration: true,
+        },
+    };
+    let locs: Option<Vec<Location>> =
+        call_request(&mut service, "textDocument/references", 12, params).await;
+    let locs = locs.expect("textDocument/references returned null for ThermallyManaged");
+
+    // The reference SITE in battery.deal must be present — this is the cross-file
+    // binding ADR-0003 provides that goto-definition alone could not.
+    let battery_path = std::fs::canonicalize(SHOWCASE_BATTERY).unwrap();
+    assert!(
+        locs.iter()
+            .any(|l| l.uri.to_file_path().map(|p| p == battery_path).unwrap_or(false)),
+        "find-references missing the battery.deal <<specializes>> site; got {locs:?}"
+    );
+    // include_declaration → the declaration in interfaces/thermal.deal is present.
+    assert!(
+        locs.iter().any(|l| l
+            .uri
+            .to_file_path()
+            .map(|p| p.ends_with("interfaces/thermal.deal"))
+            .unwrap_or(false)),
+        "find-references missing the ThermallyManaged declaration; got {locs:?}"
+    );
+}
+
+// ---------------------------------------------------------------------
 // Test 6: hover_renders_jsdoc
 // ---------------------------------------------------------------------
 

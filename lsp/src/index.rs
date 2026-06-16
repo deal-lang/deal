@@ -245,15 +245,22 @@ impl Index {
     /// plus every reference site that the compiler resolved to `path`. Results
     /// are de-duplicated and ordered deterministically (uri, then position).
     pub fn references_of(&self, path: &str, include_decl: bool) -> Vec<Location> {
-        let canonical = self.resolve_with_alias(path);
+        // `path` is already a canonical fully-qualified id (the symbols/usages
+        // key) — it comes from `definition::resolved_path_at` or from the
+        // binding's `resolved_path`. We must NOT run `resolve_with_alias` here:
+        // workspace aliases map package names to *directory* paths (e.g.
+        // `interfaces = "packages/interfaces"`), so alias-expanding a canonical
+        // id like `interfaces.thermal.ThermallyManaged` produces a bogus key and
+        // misses. (Definition tolerates this via a suffix-match fallback; the
+        // reverse index keys are exact.)
         let mut out: Vec<Location> = Vec::new();
         if include_decl {
-            if let Some(v) = self.symbols.get(canonical.as_str()) {
+            if let Some(v) = self.symbols.get(path) {
                 let (u, r) = v.clone();
                 out.push(Location { uri: u, range: r });
             }
         }
-        if let Some(sites) = self.usages.get(canonical.as_str()) {
+        if let Some(sites) = self.usages.get(path) {
             for (u, r) in sites.value().iter() {
                 out.push(Location {
                     uri: u.clone(),

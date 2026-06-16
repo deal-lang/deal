@@ -355,15 +355,17 @@ fn mergeStdlibSourceInto(
     var it = sub_table.entries.iterator();
     while (it.next()) |kv| {
         const entry = kv.value_ptr.*;
-        // Dim/unit-only seeding (Check #7) vs. ADR-0003 workspace resolution,
-        // which needs every declaration. For `all_decls` we copy only the
-        // qualified-id key (skip bare-name aliases and imported entries) so the
-        // external table is the clean set of workspace declarations.
-        const want = if (all_decls)
-            (entry.kind != .imported and entry.kind != .imported_wildcard_pkg and
-                std.mem.eql(u8, kv.key_ptr.*, entry.id))
-        else
-            (entry.kind == .dimension_def or entry.kind == .unit_def);
+        // Dim/unit entries are seeded under ALL their keys (bare + qualified)
+        // because Check #7 resolves units/dimensions by bare name (`kg`, `V`) —
+        // this is the historical behavior and MUST be preserved.
+        const is_dim_unit = entry.kind == .dimension_def or entry.kind == .unit_def;
+        // ADR-0003 workspace resolution additionally needs every declaration,
+        // keyed by its qualified id only (bare-name aliases would collide and
+        // are unnecessary — resolveName works off `entry.id`).
+        const is_qualified_decl = entry.kind != .imported and
+            entry.kind != .imported_wildcard_pkg and
+            std.mem.eql(u8, kv.key_ptr.*, entry.id);
+        const want = if (all_decls) (is_dim_unit or is_qualified_decl) else is_dim_unit;
         if (want and !merged.entries.contains(kv.key_ptr.*)) {
             const key_copy = alloc.dupe(u8, kv.key_ptr.*) catch continue;
             merged.entries.put(key_copy, entry) catch continue;
@@ -633,7 +635,14 @@ pub export fn deal_check_with_stdlib(
                     "stdlib_{d}.deal",
                     .{file_idx},
                 ) catch "stdlib.deal";
-                mergeStdlibSourceInto(merged, stdlib_alloc, chunk, fname, false);
+                // all_decls=true (ADR-0003): the external table carries every
+                // declaration from the provided sources, so cross-file name
+                // resolution (e.g. a `<<specializes>>` target imported from a
+                // sibling workspace file) binds to the declaring FQ id. This is
+                // a superset of the prior dim/unit seeding — analyzeWithExternalTable
+                // still copies only dim/unit into the local table (Check #7), and
+                // resolveName consults the rest; diagnostics are unchanged.
+                mergeStdlibSourceInto(merged, stdlib_alloc, chunk, fname, true);
                 file_idx += 1;
             }
         }

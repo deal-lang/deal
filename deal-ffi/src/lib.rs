@@ -207,6 +207,54 @@ pub mod safe {
         OwnedDealHandle::from_raw(ptr)
     }
 
+    /// Analyze `source` (named `filename`) with an external symbol table
+    /// seeded from `external_sources` — stdlib and/or sibling workspace files.
+    ///
+    /// P2 WS-A / ADR-0003: enables cross-file name resolution. References in
+    /// `source` (e.g. a `<<specializes>>` target imported from another file)
+    /// resolve against the merged declarations of every provided source, and
+    /// the resulting handle's `index_json` carries `references[]` keyed by the
+    /// declaring file's fully-qualified id.
+    ///
+    /// Each source's declarations are keyed by its own `package` declaration,
+    /// so the synthesized chunk filenames are irrelevant to resolution.
+    /// (Limitation: chunks are parsed in `.deal` mode; `.dealx` sources in the
+    /// external set do not currently contribute declarations — follow-up.)
+    ///
+    /// Returns `None` on null pointer (OOM). The handle frees on drop.
+    pub fn check_with_external(
+        source: &[u8],
+        filename: &str,
+        external_sources: &[&[u8]],
+    ) -> Option<OwnedDealHandle> {
+        // The extern splits the blob on NUL (0x00) — never valid in UTF-8 DEAL
+        // source — into one chunk per source.
+        let mut blob: Vec<u8> = Vec::new();
+        for (i, src) in external_sources.iter().enumerate() {
+            if i > 0 {
+                blob.push(0);
+            }
+            blob.extend_from_slice(src);
+        }
+        let mut diag_ptr: *const u8 = std::ptr::null();
+        let mut diag_len: usize = 0;
+        // SAFETY: all slices live for the call; Zig copies what it needs into
+        // the handle arena. out pointers are valid &mut.
+        let ptr = unsafe {
+            deal_check_with_stdlib(
+                source.as_ptr(),
+                source.len(),
+                filename.as_bytes().as_ptr(),
+                filename.len(),
+                blob.as_ptr(),
+                blob.len(),
+                &mut diag_ptr,
+                &mut diag_len,
+            )
+        };
+        OwnedDealHandle::from_raw(ptr)
+    }
+
     /// `true` if the handle's parse produced at least one error-severity
     /// diagnostic.
     pub fn has_errors(handle: &OwnedDealHandle) -> bool {
@@ -303,6 +351,34 @@ mod tests {
         assert!(
             s.contains("package"),
             "formatted output missing 'package' keyword"
+        );
+    }
+
+    // P2 WS-A / ADR-0003: cross-file name resolution across the FFI + JSON
+    // boundary. `interfaces.thermal` declares ThermallyManaged; `battery`
+    // imports it via the PREFIX package `interfaces` and specializes it (the
+    // showcase's loose-import shape). The reference binding must resolve to the
+    // declaring file's FQ id and surface in the index envelope's references[].
+    #[test]
+    fn safe_check_with_external_resolves_cross_file_reference() {
+        let interfaces: &[u8] =
+            b"package interfaces.thermal;\ninterface def ThermallyManaged { }\n";
+        let battery: &[u8] = b"package vehicle.battery;\n\
+            import interfaces.{ThermallyManaged};\n\
+            part def BatteryPack <<specializes>> ThermallyManaged { }\n";
+
+        let handle = safe::check_with_external(battery, "vehicle/battery.deal", &[interfaces])
+            .expect("check_with_external returned null");
+        let index = safe::index_json(&handle).expect("index_json failed");
+        let s = std::str::from_utf8(&index).expect("index json not UTF-8");
+
+        assert!(
+            s.contains("\"resolved_path\":\"interfaces.thermal.ThermallyManaged\""),
+            "cross-file <<specializes>> did not resolve to the declaring FQ id; index = {s}"
+        );
+        assert!(
+            s.contains("\"ref_kind\":\"specializes\""),
+            "references[] missing the specializes binding; index = {s}"
         );
     }
 }
