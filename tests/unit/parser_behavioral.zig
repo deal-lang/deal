@@ -137,3 +137,37 @@ test "parser.behavioral.state_machine" {
         "\"k\":\"succession_chain\"",
     });
 }
+
+test "parser.behavioral.action_usage_body" {
+    // BH-7: a sub-action may carry its own ActionBody (directed pins that
+    // item flows reference). Grammar: action IDENT TypeAnnotation? (ActionBody|";").
+    try expectBehavioral(
+        \\package p;
+        \\action def A {
+        \\    action deliverPower { out delivered : Real; }
+        \\    action measure { in sample : Real; }
+        \\    deliverPower.delivered ~> measure.sample;
+        \\}
+    , &.{
+        "\"k\":\"action_usage\"",
+        "\"k\":\"action_body\"",
+        "\"k\":\"pin_decl\"",
+        "\"k\":\"item_flow_statement\"",
+    });
+}
+
+test "parser.behavioral.state_body_pins" {
+    // BH-4/BH-7: a state def/usage may carry directed parameters (pins).
+    try expectBehavioral(
+        \\package p;
+        \\state def S {
+        \\    in soc : Real;
+        \\    state Idle;
+        \\    start -> Idle;
+        \\}
+    , &.{
+        "\"k\":\"state_def\"",
+        "\"k\":\"pin_decl\"",
+        "\"k\":\"state_usage\"",
+    });
+}

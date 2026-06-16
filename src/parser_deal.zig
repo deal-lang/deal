@@ -2343,6 +2343,16 @@ fn parseStateMember(
             const dc = try p.makeNode(.doc_comment, dc_tok.span, .{ .doc_comment = .{ .text = p.tokenText(dc_tok.span) } });
             try members.append(p.arena, dc);
         },
+        .kw_in, .kw_out, .kw_inout => {
+            // BH-4/BH-7: a state may carry directed parameters (pins), e.g.
+            // `in soc : Percent;`. LL(2): `in x : T` is a pin; `in attribute x`
+            // is a directed usage.
+            if (p.peek2().tag == .ident) {
+                try members.append(p.arena, try parsePinDeclaration(p));
+            } else if (try parseMemberDeclaration(p)) |m| {
+                try members.append(p.arena, m);
+            }
+        },
         .kw_entry, .kw_do, .kw_exit => try members.append(p.arena, try parseEntryDoExit(p)),
         .kw_state => try members.append(p.arena, try parseStateUsage(p)),
         .kw_on => try members.append(p.arena, try parseTransitionStatement(p)),
@@ -2680,8 +2690,17 @@ fn parseActionUsage(
     const name = p.tokenText(name_tok.span);
     const type_node = try parseOptionalTypeAnnotation(p);
 
+    // BH-7: `ActionUsage ::= "action" IDENT TypeAnnotation? ( ActionBody | ";" )`.
+    // A sub-action may carry its own behavioral body (e.g. directed pins that
+    // item flows reference: `action deliverPower { out delivered : Energy; }`).
+    var inline_body: ?*ast.Node = null;
     var end_pos = name_tok.span.end;
-    if (p.peek().tag == .semicolon) {
+    if (type_node) |tn| end_pos = tn.span.end;
+    if (p.peek().tag == .l_brace) {
+        const body = try parseActionBodyNode(p);
+        inline_body = body;
+        end_pos = body.span.end;
+    } else if (p.peek().tag == .semicolon) {
         const semi = p.advance();
         end_pos = semi.span.end;
     }
@@ -2698,7 +2717,7 @@ fn parseActionUsage(
         .type_node = type_node,
         .multiplicity = null,
         .default_value = null,
-        .inline_body = null,
+        .inline_body = inline_body,
         .annotations = &.{},
         .doc = doc_node,
     };
