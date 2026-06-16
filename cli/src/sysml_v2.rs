@@ -70,6 +70,9 @@ struct IrEdge<'a> {
     src: &'a str,
     dst: &'a str,
     kind: &'a str,
+    /// Behavioral edge payload (IR v0.1): "entry"|"do"|"exit" on a `subaction`
+    /// edge; None otherwise.
+    subaction_kind: Option<&'a str>,
 }
 
 // ─── Top-level emitter ─────────────────────────────────────────────────────────
@@ -99,8 +102,9 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Value> {
         let src = edge_val["src"].as_str().unwrap_or("");
         let dst = edge_val["dst"].as_str().unwrap_or("");
         let kind = edge_val["kind"].as_str().unwrap_or("");
+        let subaction_kind = edge_val.get("subaction_kind").and_then(|v| v.as_str());
         if !src.is_empty() && !dst.is_empty() && !kind.is_empty() {
-            edges.push(IrEdge { src, dst, kind });
+            edges.push(IrEdge { src, dst, kind, subaction_kind });
         }
     }
 
@@ -141,6 +145,15 @@ pub fn emit(ir_json: &Value) -> anyhow::Result<Value> {
     for node in &nodes {
         let sysml_elem = emit_node(node, &outgoing, &node_map, &edges)?;
         all_sysml_elements.push(sysml_elem);
+    }
+
+    // S2.6b: materialize behavioral edges (succession/item_flow/binding) as
+    // ConnectorAsUsage elements. Edges are already in deterministic (src,dst,
+    // kind) order from the IR emitter. Non-behavioral edge kinds yield None.
+    for edge in &edges {
+        if let Some(elem) = emit_behavioral_edge(edge) {
+            all_sysml_elements.push(elem);
+        }
     }
 
     // Build the top-level workspace Package (D-24).
@@ -191,7 +204,29 @@ fn emit_node<'a>(
         "interface_def" => emit_interface_def(node, outgoing, node_map, all_edges),
         "connection_def" => emit_connection_def(node),
         "flow_def" | "item_def" => emit_item_def(node),
-        "action_def" | "state_def" | "use_case_def"
+        // ── Behavioral definitions (IR v0.1, S2.6) ──────────────────────────
+        "action_def" => emit_typed_with_members(node, "ActionDefinition", outgoing, node_map), // 8.3.17.3
+        "state_def" => emit_state(node, "StateDefinition", outgoing, node_map), // 8.3.18.5
+        // ── Behavioral nodes (IR v0.1, S2.6) — metaclass + clause per
+        //    behavioral-mapping.md §1 (wiki-verified). ActionUsage closure
+        //    8.3.17.4 anchors the family emit shape.
+        "action_usage" => emit_typed_with_members(node, "ActionUsage", outgoing, node_map), // 8.3.17.4
+        "control_node" => emit_typed_with_members(node, "ActionUsage", outgoing, node_map), // stdlib control (start/done)
+        "terminate_action" => emit_typed_with_members(node, "TerminateActionUsage", outgoing, node_map), // 8.3.17.16
+        "send_action" => emit_typed_with_members(node, "SendActionUsage", outgoing, node_map), // 8.3.17.15
+        "accept_action" => emit_typed_with_members(node, "AcceptActionUsage", outgoing, node_map), // 8.3.17.2
+        "assign_action" => emit_typed_with_members(node, "AssignmentActionUsage", outgoing, node_map), // 8.3.17.5
+        "perform_action" => emit_typed_with_members(node, "PerformActionUsage", outgoing, node_map), // 8.3.17.14
+        "while_loop_action" => emit_typed_with_members(node, "WhileLoopActionUsage", outgoing, node_map), // 8.3.17.19
+        "for_loop_action" => emit_typed_with_members(node, "ForLoopActionUsage", outgoing, node_map), // 8.3.17.9
+        "decision_node" => emit_typed_with_members(node, "DecisionNode", outgoing, node_map), // 8.3.17.7
+        "merge_node" => emit_typed_with_members(node, "MergeNode", outgoing, node_map), // 8.3.17.13
+        "fork_node" => emit_typed_with_members(node, "ForkNode", outgoing, node_map), // 8.3.17.8
+        "join_node" => emit_typed_with_members(node, "JoinNode", outgoing, node_map), // 8.3.17.11
+        "state_usage" => emit_state(node, "StateUsage", outgoing, node_map), // 8.3.18.6
+        "transition" => emit_transition(node), // 8.3.18.9 (TransitionUsage)
+        "pin" => emit_pin(node), // 8.3.6.3 (ReferenceUsage + FeatureDirectionKind)
+        "use_case_def"
         | "allocation_def" | "allocate" | "annotation" | "validate" | "subsystem"
         | "system" => emit_generic_element(node),
         "constraint_def" => emit_constraint_def(node),
@@ -266,6 +301,212 @@ fn specialization_relationships(
         }
     }
     rels
+}
+
+/// Generic typed element with FeatureMembership-wrapped owned members.
+///
+/// Used for the IR v0.1 behavioral nodes (S2.6). Each maps to exactly one SysML
+/// v2 metaclass (clause cited at the dispatch site, per
+/// spec/ir/v0.1/behavioral-mapping.md §1, wiki-verified via the
+/// sysml-v2-wiki-navigator closure). We fill only base + structural-containment
+/// slots; the `actionDefinition`/`stateDefinition` attributes are DERIVED and the
+/// `Actions::actions`/`States::stateActions` library specializations are
+/// normalizer-injected-but-derived (closure 8.3.17.4 checkActionUsageSpecialization;
+/// mapping contract §4.5) — neither is authored here.
+fn emit_typed_with_members<'a>(
+    node: &IrNode,
+    sysml_type: &str,
+    outgoing: &HashMap<&str, Vec<&IrEdge<'a>>>,
+    node_map: &HashMap<&str, &IrNode>,
+) -> anyhow::Result<Value> {
+    let mut m = base_fields(node.id, sysml_type);
+    let member_refs = owned_member_refs(node.id, outgoing, node_map);
+    let mut owned_rels = specialization_relationships(node.id, outgoing);
+    for member_ref in &member_refs {
+        let fm_uuid = deal_id_to_uuid(&format!(
+            "{}--FeatureMembership--{}",
+            node.id,
+            member_ref["@id"].as_str().unwrap_or("")
+        ));
+        let mut fm = Map::new();
+        fm.insert("@id".to_string(), json!(fm_uuid));
+        fm.insert("@type".to_string(), json!("FeatureMembership"));
+        fm.insert("elementId".to_string(), json!(fm_uuid));
+        fm.insert("ownedRelatedElement".to_string(), json!([member_ref]));
+        owned_rels.push(Value::Object(fm));
+    }
+    m.insert("ownedMembership".to_string(), json!(member_refs));
+    m.insert("ownedRelationship".to_string(), json!(owned_rels));
+    Ok(Value::Object(m))
+}
+
+/// Materialize a behavioral IR edge (S2.6b) as a SysML ConnectorAsUsage element.
+///
+/// succession → SuccessionAsUsage (8.3.13.6), item_flow → FlowUsage (8.3.16.3),
+/// binding → BindingConnectorAsUsage (KerML BindingConnector 8.3.4.5.2). The
+/// SuccessionAsUsage closure (8.3.13.6: SuccessionAsUsage ▸ Succession ▸
+/// ConnectorAsUsage ▸ Connector) establishes that these *AsUsage connectors
+/// carry two ConnectorEnds (Connector::connectorEnd). The library
+/// specializations (Links::links, Occurrences::happensBeforeLinks) are derived —
+/// not authored (§4.5). Returns None for non-behavioral edge kinds (contains/
+/// specializes/etc., handled inside emit_node). The `subaction` membership and
+/// succession guard expressions are emitted in S2.6c.
+fn emit_behavioral_edge(edge: &IrEdge) -> Option<Value> {
+    let (sysml_type, tag): (&str, &str) = match edge.kind {
+        "succession" => ("SuccessionAsUsage", "succession"),
+        "item_flow" => ("FlowUsage", "item_flow"),
+        "binding" => ("BindingConnectorAsUsage", "binding"),
+        _ => return None,
+    };
+    let conn_id = format!("{}--{}--{}", edge.src, tag, edge.dst);
+    Some(make_connector(&conn_id, sysml_type, edge.src, edge.dst))
+}
+
+/// Build a binary ConnectorAsUsage element with two ConnectorEnds (source,
+/// target). Shared by behavioral edges (S2.6b) and the owned Succession of a
+/// TransitionUsage (S2.6c). Connector shape per the SuccessionAsUsage closure
+/// (8.3.13.6: ConnectorAsUsage ▸ Connector::connectorEnd).
+fn make_connector(conn_id: &str, sysml_type: &str, src_id: &str, dst_id: &str) -> Value {
+    let mk_end = |which: &str, ref_id: &str| -> Value {
+        let end_uuid = deal_id_to_uuid(&format!("{conn_id}--end--{which}"));
+        json!({
+            "@id": end_uuid,
+            "@type": "ConnectorEnd",
+            "elementId": end_uuid,
+            "reference": [{ "@id": deal_id_to_uuid(ref_id) }],
+        })
+    };
+    let mut m = base_fields(conn_id, sysml_type);
+    m.insert(
+        "connectorEnd".to_string(),
+        json!([mk_end("source", src_id), mk_end("target", dst_id)]),
+    );
+    m.insert("ownedRelationship".to_string(), json!([]));
+    Value::Object(m)
+}
+
+/// transition → SysML TransitionUsage (8.3.18.9). Per the closure, ALL of
+/// source/target/triggerAction/guardExpression/effectAction/succession are
+/// DERIVED (computed by the receiving tool from owned features) — none are
+/// authored (rule 6). We author the non-derived backbone: the owned Succession
+/// (source→target) that the transition asserts when triggered. The trigger
+/// (AcceptActionUsage), guard (Expression), and effect (ActionUsage)
+/// TransitionFeatureMemberships are richer owned sub-trees deferred to a
+/// follow-up; the IR carries trigger_ref/guard_expr/effect_ref for them.
+fn emit_transition(node: &IrNode) -> anyhow::Result<Value> {
+    let mut m = base_fields(node.id, "TransitionUsage");
+    let mut owned_rels: Vec<Value> = Vec::new();
+
+    let src = node.payload.get("source_ref").and_then(|v| v.as_str());
+    let tgt = node.payload.get("target_ref").and_then(|v| v.as_str());
+    if let (Some(src), Some(tgt)) = (src, tgt) {
+        let succ_id = format!("{}--succession", node.id);
+        let succ = make_connector(&succ_id, "SuccessionAsUsage", src, tgt);
+        let fm_uuid = deal_id_to_uuid(&format!("{}--FeatureMembership--succession", node.id));
+        owned_rels.push(json!({
+            "@id": fm_uuid,
+            "@type": "FeatureMembership",
+            "elementId": fm_uuid,
+            "ownedRelatedElement": [succ],
+        }));
+    }
+
+    m.insert("ownedRelationship".to_string(), json!(owned_rels));
+    Ok(Value::Object(m))
+}
+
+/// state_def → StateDefinition (8.3.18.5), state_usage → StateUsage (8.3.18.6).
+///
+/// Like emit_typed_with_members, except an entry/do/exit subaction member is
+/// owned via a StateSubactionMembership (8.3.18.4) carrying its `kind`, rather
+/// than a plain FeatureMembership. Per the StateSubactionMembership closure it is
+/// a FeatureMembership whose `action` is derived (not authored) and whose `kind`
+/// ∈ {entry, do, exit} is authored; owningType must be a State (satisfied here).
+fn emit_state<'a>(
+    node: &IrNode,
+    sysml_type: &str,
+    outgoing: &HashMap<&str, Vec<&IrEdge<'a>>>,
+    node_map: &HashMap<&str, &IrNode>,
+) -> anyhow::Result<Value> {
+    let mut m = base_fields(node.id, sysml_type);
+
+    // subaction target id → kind, from this state's outgoing subaction edges.
+    let mut subaction_kind: HashMap<&str, &str> = HashMap::new();
+    if let Some(edges) = outgoing.get(node.id) {
+        for e in edges.iter() {
+            if e.kind == "subaction" {
+                if let Some(k) = e.subaction_kind {
+                    subaction_kind.insert(e.dst, k);
+                }
+            }
+        }
+    }
+
+    // Owned members via 'contains' edges (sorted, deterministic).
+    let mut member_ids: Vec<&str> = Vec::new();
+    if let Some(edges) = outgoing.get(node.id) {
+        let mut ids: Vec<&str> = edges
+            .iter()
+            .filter(|e| e.kind == "contains")
+            .map(|e| e.dst)
+            .collect();
+        ids.sort();
+        for id in ids {
+            if node_map.contains_key(id) {
+                member_ids.push(id);
+            }
+        }
+    }
+
+    let mut member_refs: Vec<Value> = Vec::new();
+    let mut owned_rels = specialization_relationships(node.id, outgoing);
+    for member_id in &member_ids {
+        let member_uuid = deal_id_to_uuid(member_id);
+        member_refs.push(json!({ "@id": member_uuid }));
+        if let Some(kind) = subaction_kind.get(member_id) {
+            let ssm_uuid =
+                deal_id_to_uuid(&format!("{}--StateSubactionMembership--{}", node.id, member_id));
+            owned_rels.push(json!({
+                "@id": ssm_uuid,
+                "@type": "StateSubactionMembership",
+                "elementId": ssm_uuid,
+                "kind": kind,
+                "ownedRelatedElement": [{ "@id": member_uuid }],
+            }));
+        } else {
+            let fm_uuid =
+                deal_id_to_uuid(&format!("{}--FeatureMembership--{}", node.id, member_uuid));
+            owned_rels.push(json!({
+                "@id": fm_uuid,
+                "@type": "FeatureMembership",
+                "elementId": fm_uuid,
+                "ownedRelatedElement": [{ "@id": member_uuid }],
+            }));
+        }
+    }
+
+    m.insert("ownedMembership".to_string(), json!(member_refs));
+    m.insert("ownedRelationship".to_string(), json!(owned_rels));
+    Ok(Value::Object(m))
+}
+
+/// pin → SysML ReferenceUsage (8.3.6.3) carrying a FeatureDirectionKind
+/// `direction` (Feature::direction, inherited via Usage ▸ Feature). A pin is a
+/// directed, non-compositional parameter of an action. Per the closure,
+/// `isReference` is derived (always true) and not authored; the pin's type
+/// (a FeatureTyping) is deferred (the IR carries type_ref).
+fn emit_pin(node: &IrNode) -> anyhow::Result<Value> {
+    let mut m = base_fields(node.id, "ReferenceUsage");
+    let direction = node.payload["direction"].as_str().unwrap_or("none");
+    let sysml_direction = match direction {
+        "in" => "in",
+        "out" => "out",
+        "inout" => "inout",
+        _ => "none",
+    };
+    m.insert("direction".to_string(), json!(sysml_direction));
+    m.insert("ownedRelationship".to_string(), json!([]));
+    Ok(Value::Object(m))
 }
 
 // ─── Per-kind emitters ─────────────────────────────────────────────────────────
