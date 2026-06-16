@@ -1852,10 +1852,23 @@ fn emitIrEdge(
 ) !void {
     try buf.appendSlice(allocator, "{\"dst\":");
     try writeStr(allocator, buf, edge.dst);
+    // Behavioral edge payload (optional, alphabetical: flow_type, guard before kind).
+    if (edge.flow_type) |ft| {
+        try buf.appendSlice(allocator, ",\"flow_type\":");
+        try writeStr(allocator, buf, ft);
+    }
+    if (edge.guard) |g| {
+        try buf.appendSlice(allocator, ",\"guard\":");
+        try writeStr(allocator, buf, g);
+    }
     try buf.appendSlice(allocator, ",\"kind\":\"");
     try buf.appendSlice(allocator, edgeKindName(edge.kind));
     try buf.appendSlice(allocator, "\",\"src\":");
     try writeStr(allocator, buf, edge.src);
+    if (edge.subaction_kind) |sk| {
+        try buf.appendSlice(allocator, ",\"subaction_kind\":");
+        try writeStr(allocator, buf, sk);
+    }
     try buf.append(allocator, '}');
 }
 
@@ -1901,6 +1914,13 @@ fn emitIrPayload(
         try emitAgentMetadata(allocator, buf, &meta);
     }
 
+    // callee_ref (behavioral; alphabetical: after agent_metadata)
+    if (payload.callee_ref) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"callee_ref\":");
+        try writeStr(allocator, buf, v);
+    }
+
     // direction (only if != none)
     if (payload.direction != .none) {
         try emitComma(allocator, buf, &first);
@@ -1909,12 +1929,50 @@ fn emitIrPayload(
         try buf.append(allocator, '"');
     }
 
+    // effect_ref, endpoint, guard_expr, implicit (behavioral; alphabetical)
+    if (payload.effect_ref) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"effect_ref\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.endpoint) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"endpoint\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.guard_expr) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"guard_expr\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.implicit) {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"implicit\":true");
+    }
+
     // is_statement_valued (calc_def only; alphabetical: between direction and modifiers)
     if (payload.calc_def) |cdp| {
         if (cdp.is_statement_valued) {
             try emitComma(allocator, buf, &first);
             try buf.appendSlice(allocator, "\"is_statement_valued\":true");
         }
+    }
+
+    // iterable_expr, loop_kind, loop_var (behavioral; alphabetical)
+    if (payload.iterable_expr) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"iterable_expr\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.loop_kind) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"loop_kind\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.loop_var) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"loop_var\":");
+        try writeStr(allocator, buf, v);
     }
 
     // modifiers
@@ -1957,6 +2015,13 @@ fn emitIrPayload(
         }
     }
 
+    // payload_ref (behavioral; alphabetical: after params, before precision)
+    if (payload.payload_ref) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"payload_ref\":");
+        try writeStr(allocator, buf, v);
+    }
+
     // precision (calc_def only; alphabetical: after params, before requirement_ref)
     if (payload.calc_def) |cdp| {
         if (cdp.precision) |prec| {
@@ -1967,6 +2032,13 @@ fn emitIrPayload(
             try writeStr(allocator, buf, prec.value);
             try buf.append(allocator, '}');
         }
+    }
+
+    // referent_ref (behavioral; alphabetical: after precision, before requirement_ref)
+    if (payload.referent_ref) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"referent_ref\":");
+        try writeStr(allocator, buf, v);
     }
 
     // requirement_ref
@@ -1996,11 +2068,35 @@ fn emitIrPayload(
         try buf.append(allocator, ']');
     }
 
+    // source_ref, target_ref, trigger_ref (behavioral; alphabetical, before type_ref)
+    if (payload.source_ref) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"source_ref\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.target_ref) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"target_ref\":");
+        try writeStr(allocator, buf, v);
+    }
+    if (payload.trigger_ref) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"trigger_ref\":");
+        try writeStr(allocator, buf, v);
+    }
+
     // type_ref
     if (payload.type_ref) |type_ref| {
         try emitComma(allocator, buf, &first);
         try buf.appendSlice(allocator, "\"type_ref\":");
         try writeStr(allocator, buf, type_ref);
+    }
+
+    // value_expr (behavioral; alphabetical: last, after type_ref)
+    if (payload.value_expr) |v| {
+        try emitComma(allocator, buf, &first);
+        try buf.appendSlice(allocator, "\"value_expr\":");
+        try writeStr(allocator, buf, v);
     }
 
     try buf.append(allocator, '}');
@@ -2123,6 +2219,11 @@ fn edgeKindName(kind: ir.EdgeKind) []const u8 {
         .specializes => "specializes",
         .subsets => "subsets",
         .traces => "traces",
+        // Behavioral surface (IR v0.1, S2.5)
+        .succession => "succession",
+        .item_flow => "item_flow",
+        .binding => "binding",
+        .subaction => "subaction",
     };
 }
 
@@ -2157,6 +2258,23 @@ fn irNodeKindName(kind: ir.NodeKind) []const u8 {
         .traceability_block => "traceability_block",
         .use_case_def => "use_case_def",
         .validate => "validate",
+        // Behavioral surface (IR v0.1, S2.5)
+        .action_usage => "action_usage",
+        .terminate_action => "terminate_action",
+        .send_action => "send_action",
+        .accept_action => "accept_action",
+        .assign_action => "assign_action",
+        .perform_action => "perform_action",
+        .while_loop_action => "while_loop_action",
+        .for_loop_action => "for_loop_action",
+        .decision_node => "decision_node",
+        .merge_node => "merge_node",
+        .fork_node => "fork_node",
+        .join_node => "join_node",
+        .control_node => "control_node",
+        .state_usage => "state_usage",
+        .transition => "transition",
+        .pin => "pin",
     };
 }
 

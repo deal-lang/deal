@@ -55,6 +55,26 @@ pub const NodeKind = enum {
     traceability_block,
     use_case_def,
     validate,
+
+    // ─── Behavioral surface (IR v0.1, S2.5) ─────────────────────────────────
+    // Each maps to exactly one SysML v2 metaclass; see
+    // spec/ir/v0.1/behavioral-mapping.md §2.
+    action_usage, // ActionUsage (8.3.17.4) — a Step
+    terminate_action, // TerminateActionUsage (8.3.17.16)
+    send_action, // SendActionUsage (8.3.17.15)
+    accept_action, // AcceptActionUsage (8.3.17.2)
+    assign_action, // AssignmentActionUsage (8.3.17.5)
+    perform_action, // PerformActionUsage (8.3.17.14)
+    while_loop_action, // WhileLoopActionUsage (8.3.17.19)
+    for_loop_action, // ForLoopActionUsage (8.3.17.9)
+    decision_node, // DecisionNode (8.3.17.7)
+    merge_node, // MergeNode (8.3.17.13) — injected at decide exit
+    fork_node, // ForkNode (8.3.17.8)
+    join_node, // JoinNode (8.3.17.11) — injected at par exit
+    control_node, // stdlib control (start/done)
+    state_usage, // StateUsage (8.3.18.6)
+    transition, // TransitionUsage (8.3.18.9)
+    pin, // directed parameter Feature (8.3.3.1.5)
 };
 
 // ─── EdgeKind ──────────────────────────────────────────────────────────────
@@ -73,6 +93,12 @@ pub const EdgeKind = enum {
     specializes,
     subsets,
     traces,
+
+    // ─── Behavioral surface (IR v0.1, S2.5) ─────────────────────────────────
+    succession, // SuccessionAsUsage (8.3.13.6) — optional guard payload
+    item_flow, // FlowUsage (8.3.16.3) — optional flow_type payload
+    binding, // BindingConnectorAsUsage (KerML 8.3.4.5.2)
+    subaction, // StateSubactionMembership (8.3.18.4) — entry|do|exit payload
 };
 
 // ─── Edge ──────────────────────────────────────────────────────────────────
@@ -84,6 +110,15 @@ pub const Edge = struct {
     src: []const u8,
     dst: []const u8,
     kind: EdgeKind,
+
+    // ─── Behavioral edge payload (IR v0.1, S2.5) ────────────────────────────
+    // All optional; populated only for the corresponding behavioral EdgeKind.
+    /// succession: guard expression text, or "else" for a decision default branch.
+    guard: ?[]const u8 = null,
+    /// item_flow: flow-def id typing the flow, when written as `~> … : FlowType`.
+    flow_type: ?[]const u8 = null,
+    /// subaction: "entry" | "do" | "exit".
+    subaction_kind: ?[]const u8 = null,
 };
 
 /// An edge reference stored in the incoming_index (for references() queries).
@@ -191,6 +226,39 @@ pub const IrPayload = struct {
     /// For calc_def nodes: extended directed-param payload (D-12, Wave 4).
     /// Null for all other node kinds.
     calc_def: ?IrCalcDefPayload = null,
+
+    // ─── Behavioral payload (IR v0.1, S2.5) ─────────────────────────────────
+    // Each field is populated only for the node kinds noted; see
+    // spec/ir/v0.1/behavioral-mapping.md §2. Refs are qualified-path ids or
+    // (where resolution is deferred) the source feature-path text.
+    /// control_node: "start" | "done".
+    endpoint: ?[]const u8 = null,
+    /// while_loop_action: "while" | "until".
+    loop_kind: ?[]const u8 = null,
+    /// merge_node / join_node: true when normalizer-injected (§4).
+    implicit: bool = false,
+    /// accept_action / transition: trigger (signal/event) reference.
+    trigger_ref: ?[]const u8 = null,
+    /// send_action / transition: target reference.
+    target_ref: ?[]const u8 = null,
+    /// transition: source state reference.
+    source_ref: ?[]const u8 = null,
+    /// transition: effect (performed Step) reference.
+    effect_ref: ?[]const u8 = null,
+    /// assign_action: referent (assigned feature) reference.
+    referent_ref: ?[]const u8 = null,
+    /// assign_action: value expression text.
+    value_expr: ?[]const u8 = null,
+    /// send_action: payload (signal) reference.
+    payload_ref: ?[]const u8 = null,
+    /// perform_action: callee (invoked behavior) reference.
+    callee_ref: ?[]const u8 = null,
+    /// accept_action / transition: guard expression text.
+    guard_expr: ?[]const u8 = null,
+    /// for_loop_action: iterable expression text.
+    iterable_expr: ?[]const u8 = null,
+    /// for_loop_action: iteration variable name.
+    loop_var: ?[]const u8 = null,
 };
 
 // ─── IrNode ────────────────────────────────────────────────────────────────
