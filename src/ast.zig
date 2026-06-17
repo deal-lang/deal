@@ -306,6 +306,9 @@ pub const ExportDecl = struct {
 /// Shared shape for all 14 element definition kinds.
 pub const ElementDef = struct {
     name: []const u8,
+    /// P2 WS-C0: span of the declared name token (for precise rename of the
+    /// declaration). Empty when unset; callers fall back to the node span.
+    name_span: Span = .{ .start = 0, .end = 0 },
     modifiers: []Modifier,
     direction: Direction,
     specializes: ?*Node, // structural_relationship node
@@ -397,6 +400,10 @@ pub const UseCaseUsage = ElementUsage;
 pub const TypeAnnotation = struct {
     /// Dot-separated qualified name segments
     name_segments: [][]const u8,
+    /// P2 WS-C0: span of the TERMINAL name token (the last segment), for
+    /// precise rename/highlight. Defaults to the empty span when unset (e.g.
+    /// constructed without span tracking); callers fall back to the node span.
+    terminal_span: Span = .{ .start = 0, .end = 0 },
 };
 
 pub const Multiplicity = struct {
@@ -437,6 +444,9 @@ pub const OperatorStatement = struct {
 pub const StructuralRelationship = struct {
     op_text: []const u8,
     target_segments: [][]const u8,
+    /// P2 WS-C0: span of the TERMINAL target name token (excludes the
+    /// `<<operator>>`), for precise rename/highlight. Empty span when unset.
+    target_span: Span = .{ .start = 0, .end = 0 },
 };
 
 pub const InlineBody = struct {

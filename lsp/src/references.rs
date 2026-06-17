@@ -12,7 +12,9 @@
 //! exist — the LSP MUST NOT panic.
 
 use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::{Location, ReferenceParams};
+use tower_lsp::lsp_types::{
+    DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams, Location, ReferenceParams,
+};
 
 use crate::definition;
 use crate::documents::Documents;
@@ -39,5 +41,45 @@ pub async fn handle_references(
         Ok(None)
     } else {
         Ok(Some(locations))
+    }
+}
+
+/// Implementation of `textDocument/documentHighlight` (P2 WS-B).
+///
+/// Single-file: highlights the declaration (if it lives in this file) as
+/// `Write` and every reference site in this file as `Read`, resolved through
+/// the same authoritative binding index as find-references.
+pub async fn handle_document_highlight(
+    documents: &Documents,
+    index: &Index,
+    params: DocumentHighlightParams,
+) -> LspResult<Option<Vec<DocumentHighlight>>> {
+    let uri = &params.text_document_position_params.text_document.uri;
+    let position = params.text_document_position_params.position;
+
+    let Some((path, _decl)) =
+        definition::resolved_path_at(documents, index, uri, position).await
+    else {
+        return Ok(None);
+    };
+
+    let mut out: Vec<DocumentHighlight> = Vec::new();
+    if let Some(range) = index.declaration_in_file(uri, &path) {
+        out.push(DocumentHighlight {
+            range,
+            kind: Some(DocumentHighlightKind::WRITE),
+        });
+    }
+    for range in index.usages_in_file(uri, &path) {
+        out.push(DocumentHighlight {
+            range,
+            kind: Some(DocumentHighlightKind::READ),
+        });
+    }
+
+    if out.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(out))
     }
 }

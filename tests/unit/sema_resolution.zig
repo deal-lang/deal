@@ -46,9 +46,80 @@ test "ADR-0003: cross-file specializes binds to declaring FQ id (prefix-subtree)
             std.mem.eql(u8, b.resolved_path, "interfaces.thermal.ThermallyManaged"))
         {
             found = true;
+            // P2 WS-C0: the recorded span must be the bare terminal name token
+            // (NOT including the `<<specializes>>` operator) so rename is precise.
+            const slice = battery_src[@as(usize, b.from_span.start)..@as(usize, b.from_span.end)];
+            try std.testing.expectEqualStrings("ThermallyManaged", slice);
         }
     }
     try std.testing.expect(found);
+}
+
+test "ADR-0003: cross-file type reference binds (type_ref)" {
+    const gpa = std.testing.allocator;
+
+    const lib_src =
+        \\package lib.parts;
+        \\part def Cell { }
+    ;
+    // Consumer imports Cell via the prefix package `lib` and uses it as a type.
+    const consumer_src =
+        \\package vehicle.battery;
+        \\import lib.{Cell};
+        \\part def Pack {
+        \\  part cell : Cell;
+        \\}
+    ;
+
+    const ws = [_]lib.StdlibSource{
+        .{ .source = lib_src, .filename = "lib/parts.deal" },
+    };
+    const handle = try lib.deal_parse_internal_with_stdlib(
+        gpa,
+        consumer_src,
+        "vehicle/battery.deal",
+        &ws,
+        true,
+    );
+    defer lib.deal_free_internal(handle);
+
+    const table = handle.index_root orelse return error.TestUnexpectedResult;
+    var found = false;
+    for (table.bindings.items) |b| {
+        if (std.mem.eql(u8, b.ref_kind, "type_ref") and
+            std.mem.eql(u8, b.resolved_path, "lib.parts.Cell"))
+        {
+            found = true;
+            // Precise span: the type-name token only (not `part cell : ` etc.).
+            const slice = consumer_src[@as(usize, b.from_span.start)..@as(usize, b.from_span.end)];
+            try std.testing.expectEqualStrings("Cell", slice);
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "ADR-0003: built-in type reference records no binding" {
+    const gpa = std.testing.allocator;
+    const src =
+        \\package p;
+        \\part def Thing {
+        \\  attribute mass : Real;
+        \\}
+    ;
+    const handle = try lib.deal_parse_internal_with_stdlib(
+        gpa,
+        src,
+        "p.deal",
+        &[_]lib.StdlibSource{},
+        true,
+    );
+    defer lib.deal_free_internal(handle);
+
+    const table = handle.index_root orelse return error.TestUnexpectedResult;
+    // `Real` is a built-in — no in-workspace declaration, so no type_ref binding.
+    for (table.bindings.items) |b| {
+        try std.testing.expect(!std.mem.eql(u8, b.resolved_path, "Real"));
+    }
 }
 
 test "ADR-0003: same-file specializes binds to local FQ id" {

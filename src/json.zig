@@ -1672,7 +1672,13 @@ pub fn writeIndexJson(
             try writeStr(allocator, &buf, entry.id);
             try buf.appendSlice(allocator, ",\"kind\":\"");
             try buf.appendSlice(allocator, symbolKindName(entry.kind));
-            try buf.appendSlice(allocator, "\",\"source_file\":");
+            // P2 WS-C0: precise declared-name span (alphabetical: kind < name_span
+            // < source_file). Subset of `span`; used by the LSP for rename.
+            try buf.appendSlice(allocator, "\",\"name_span\":[");
+            try appendU32(allocator, &buf, entry.name_span.start);
+            try buf.append(allocator, ',');
+            try appendU32(allocator, &buf, entry.name_span.end);
+            try buf.appendSlice(allocator, "],\"source_file\":");
             try writeStr(allocator, &buf, entry.source_file);
             try buf.appendSlice(allocator, ",\"span\":[");
             try appendU32(allocator, &buf, entry.span.start);

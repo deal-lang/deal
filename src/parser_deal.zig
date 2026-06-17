@@ -1011,6 +1011,7 @@ fn parseElementDef(
 
     const def = ast.ElementDef{
         .name = name,
+        .name_span = name_tok.span,
         .modifiers = modifiers,
         .direction = direction,
         .specializes = specializes,
@@ -1044,6 +1045,7 @@ fn parseRequirementDef(
     };
     const def = ast.ElementDef{
         .name = name,
+        .name_span = name_tok.span,
         .modifiers = modifiers,
         .direction = direction,
         .specializes = null,
@@ -1076,6 +1078,7 @@ fn parseNeedDef(
     };
     const def = ast.ElementDef{
         .name = name,
+        .name_span = name_tok.span,
         .modifiers = modifiers,
         .direction = direction,
         .specializes = null,
@@ -1109,6 +1112,7 @@ fn parseUseCaseDef(
     };
     const def = ast.ElementDef{
         .name = name,
+        .name_span = name_tok.span,
         .modifiers = modifiers,
         .direction = direction,
         .specializes = null,
@@ -1218,11 +1222,11 @@ fn parseCalcDef(
 /// Parse ":" TypeRef (required type annotation — not optional).
 fn parseTypeAnnotation(p: *Parser) !*ast.Node {
     const colon_tok = try p.expect(.colon);
-    const segments = try parseQualifiedNameSegments(p);
-    const last_end: u32 = if (segments.len > 0) p.lex.pos else colon_tok.span.end;
+    const qn = try parseQualifiedNameWithSpan(p);
+    const last_end: u32 = if (qn.segs.len > 0) p.lex.pos else colon_tok.span.end;
     const span = ast.Span{ .start = colon_tok.span.start, .end = last_end };
     return p.makeNode(.type_annotation, span, .{
-        .type_annotation = .{ .name_segments = segments },
+        .type_annotation = .{ .name_segments = qn.segs, .terminal_span = qn.terminal_span },
     });
 }
 
@@ -1278,11 +1282,11 @@ fn parseParamDecl(p: *Parser) !*ast.Node {
 
 /// Parse type segments after the colon was already consumed by the caller.
 fn parseTypeAnnotationInner(p: *Parser, colon_start: u32) !*ast.Node {
-    const segments = try parseQualifiedNameSegments(p);
-    const end: u32 = if (segments.len > 0) p.lex.pos else colon_start;
+    const qn = try parseQualifiedNameWithSpan(p);
+    const end: u32 = if (qn.segs.len > 0) p.lex.pos else colon_start;
     const span = ast.Span{ .start = colon_start, .end = end };
     return p.makeNode(.type_annotation, span, .{
-        .type_annotation = .{ .name_segments = segments },
+        .type_annotation = .{ .name_segments = qn.segs, .terminal_span = qn.terminal_span },
     });
 }
 
@@ -2838,16 +2842,12 @@ fn parseUseCaseUsage(
 fn parseOptionalTypeAnnotation(p: *Parser) !?*ast.Node {
     if (p.peek().tag != .colon) return null;
     const colon_tok = p.advance(); // consume ":"
-    const segments = try parseQualifiedNameSegments(p);
-    if (segments.len == 0) return null;
-    const last_seg_end = if (segments.len > 0) blk: {
-        // Find end of last segment in source.
-        // We can use the lexer position which is now past the name.
-        break :blk p.lex.pos;
-    } else colon_tok.span.end;
+    const qn = try parseQualifiedNameWithSpan(p);
+    if (qn.segs.len == 0) return null;
+    const last_seg_end = p.lex.pos;
     const span = ast.Span{ .start = colon_tok.span.start, .end = last_seg_end };
     return p.makeNode(.type_annotation, span, .{
-        .type_annotation = .{ .name_segments = segments },
+        .type_annotation = .{ .name_segments = qn.segs, .terminal_span = qn.terminal_span },
     });
 }
 
@@ -2958,14 +2958,15 @@ fn parseStructuralRelationship(p: *Parser) !*ast.Node {
     const op_text = p.tokenText(op_tok.span);
     // Strip << and >> to get inner text
     const inner = if (op_text.len >= 4) op_text[2 .. op_text.len - 2] else op_text;
-    const segments = try parseQualifiedNameSegments(p);
+    const qn = try parseQualifiedNameWithSpan(p);
 
     const end_pos = p.lex.pos;
     const span = ast.Span{ .start = op_tok.span.start, .end = end_pos };
     return p.makeNode(.structural_relationship, span, .{
         .structural_relationship = .{
             .op_text = inner,
-            .target_segments = segments,
+            .target_segments = qn.segs,
+            .target_span = qn.terminal_span,
         },
     });
 }
@@ -3324,6 +3325,39 @@ fn parseQualifiedNameSegments(p: *Parser) ![][]const u8 {
     }
 
     return try segs.toOwnedSlice(p.arena);
+}
+
+/// P2 WS-C0: like `parseQualifiedNameSegments` but also returns the span of the
+/// TERMINAL segment token (for precise rename/highlight). Empty span when no
+/// segment was parsed.
+const QualifiedName = struct {
+    segs: [][]const u8,
+    terminal_span: ast.Span,
+};
+
+fn parseQualifiedNameWithSpan(p: *Parser) !QualifiedName {
+    var segs: std.ArrayList([]const u8) = .empty;
+    var terminal_span: ast.Span = .{ .start = 0, .end = 0 };
+    const first = p.peek();
+    if (first.tag == .ident or isKeyword(first.tag)) {
+        _ = p.advance();
+        try segs.append(p.arena, p.tokenText(first.span));
+        terminal_span = first.span;
+    } else {
+        return .{ .segs = try segs.toOwnedSlice(p.arena), .terminal_span = terminal_span };
+    }
+    while (p.peek().tag == .dot) {
+        const second = p.peek2();
+        if (second.tag == .ident or isKeyword(second.tag)) {
+            _ = p.advance(); // consume "."
+            const seg_tok = p.advance();
+            try segs.append(p.arena, p.tokenText(seg_tok.span));
+            terminal_span = seg_tok.span;
+        } else {
+            break;
+        }
+    }
+    return .{ .segs = try segs.toOwnedSlice(p.arena), .terminal_span = terminal_span };
 }
 
 fn parseNamespacePathSegments(p: *Parser) ![][]const u8 {

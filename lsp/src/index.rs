@@ -71,6 +71,10 @@ pub struct Index {
     /// resolution (the envelope's `references[]`). Powers find-references /
     /// documentHighlight / rename with compiler-exact, not heuristic, results.
     usages: DashMap<PathString, Vec<(Url, Range)>>,
+    /// P2 WS-C0: precise declared-NAME range per symbol (from the envelope's
+    /// `name_span`), keyed by FQ path. Used by rename / documentHighlight to
+    /// edit/mark the declaration's identifier token rather than its whole span.
+    decl_names: DashMap<PathString, (Url, Range)>,
     /// PS-5: short → long PathString prefix expansions from
     /// `[workspace.aliases]` in deal.toml. Wrapped in RwLock so the
     /// `backend::initialized` handler can swap the table once the
@@ -97,6 +101,10 @@ struct ElementEntry {
     /// Defaults to empty when absent so older envelopes still deserialize.
     #[serde(default)]
     kind: String,
+    /// P2 WS-C0: `[start, end]` byte span of the declared NAME token (subset of
+    /// `span`). `#[serde(default)]` so pre-WS-C0 envelopes still deserialize.
+    #[serde(default)]
+    name_span: Option<[usize; 2]>,
 }
 
 /// P2 WS-A: one resolved reference binding from the envelope's `references[]`.
@@ -120,6 +128,7 @@ impl Index {
             symbols: DashMap::new(),
             kinds: DashMap::new(),
             usages: DashMap::new(),
+            decl_names: DashMap::new(),
             aliases: RwLock::new(Arc::new(HashMap::new())),
         }
     }
@@ -129,6 +138,7 @@ impl Index {
             symbols: DashMap::new(),
             kinds: DashMap::new(),
             usages: DashMap::new(),
+            decl_names: DashMap::new(),
             aliases: RwLock::new(Arc::new(aliases)),
         }
     }
@@ -212,6 +222,18 @@ impl Index {
             let start = byte_to_position(rope, entry.span[0]);
             let end = byte_to_position(rope, entry.span[1]);
             self.kinds.insert(path.clone(), (uri.clone(), entry.kind));
+            // P2 WS-C0: record the precise declared-name range when present
+            // (non-empty span); rename/highlight prefer it over the whole-def span.
+            if let Some([ns, ne]) = entry.name_span {
+                if ne > ns {
+                    let nstart = byte_to_position(rope, ns);
+                    let nend = byte_to_position(rope, ne);
+                    self.decl_names.insert(
+                        path.clone(),
+                        (uri.clone(), Range { start: nstart, end: nend }),
+                    );
+                }
+            }
             self.symbols
                 .insert(path, (uri.clone(), Range { start, end }));
         }
@@ -234,6 +256,7 @@ impl Index {
     pub fn remove_file(&self, uri: &Url) {
         self.symbols.retain(|_, v| &v.0 != uri);
         self.kinds.retain(|_, v| &v.0 != uri);
+        self.decl_names.retain(|_, v| &v.0 != uri);
         // P2 WS-A: drop this file's reference sites; remove now-empty buckets.
         self.usages.retain(|_, sites| {
             sites.retain(|(u, _)| u != uri);
@@ -255,9 +278,9 @@ impl Index {
         // reverse index keys are exact.)
         let mut out: Vec<Location> = Vec::new();
         if include_decl {
-            if let Some(v) = self.symbols.get(path) {
-                let (u, r) = v.clone();
-                out.push(Location { uri: u, range: r });
+            // Precise declared-name location (WS-C0) when available.
+            if let Some(loc) = self.declaration_location(path) {
+                out.push(loc);
             }
         }
         if let Some(sites) = self.usages.get(path) {
@@ -277,6 +300,60 @@ impl Index {
         });
         out.dedup_by(|a, b| a.uri == b.uri && a.range == b.range);
         out
+    }
+
+    /// P2 WS-C: true if a declaration with this exact FQ path exists (for
+    /// rename collision detection).
+    pub fn contains_path(&self, path: &str) -> bool {
+        self.symbols.contains_key(path)
+    }
+
+    /// P2 WS-B: reference-site ranges for `path` that live in `uri` (for
+    /// documentHighlight, which is single-file). `path` is a canonical id — no
+    /// alias resolution (see `references_of`).
+    pub fn usages_in_file(&self, uri: &Url, path: &str) -> Vec<Range> {
+        self.usages
+            .get(path)
+            .map(|sites| {
+                sites
+                    .value()
+                    .iter()
+                    .filter(|(u, _)| u == uri)
+                    .map(|(_, r)| *r)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// P2 WS-B: the declaration range for `path` IFF it is declared in `uri`
+    /// (so documentHighlight can mark it `Write`). Canonical id — no alias
+    /// resolution.
+    pub fn declaration_in_file(&self, uri: &Url, path: &str) -> Option<Range> {
+        // Prefer the precise declared-name range (WS-C0); fall back to the
+        // whole-definition span for kinds that don't yet carry a name_span
+        // (e.g. calc/constraint defs).
+        if let Some(v) = self.decl_names.get(path) {
+            if &v.0 == uri {
+                return Some(v.1);
+            }
+        }
+        self.symbols
+            .get(path)
+            .and_then(|v| if &v.0 == uri { Some(v.1) } else { None })
+    }
+
+    /// P2 WS-C0: the precise declared-name `Location` for a symbol (the name
+    /// token, not the whole definition), used by rename to edit the declaration.
+    /// Falls back to the whole-definition span when no name_span was recorded.
+    pub fn declaration_location(&self, path: &str) -> Option<Location> {
+        if let Some(v) = self.decl_names.get(path) {
+            let (u, r) = v.clone();
+            return Some(Location { uri: u, range: r });
+        }
+        self.symbols.get(path).map(|v| {
+            let (u, r) = v.clone();
+            Location { uri: u, range: r }
+        })
     }
 
     /// Build LSP `SymbolInformation` entries for the `workspace/symbol`
@@ -447,6 +524,52 @@ mod tests {
         assert_eq!(with_decl.len(), 3, "expected two refs + declaration");
         // Unknown path yields nothing.
         assert!(idx.references_of("vehicle.Nope", true).is_empty());
+    }
+
+    #[test]
+    fn usages_in_file_and_declaration_in_file_scope_by_uri() {
+        // P2 WS-B: documentHighlight queries. Battery references Battery's decl
+        // from two files; the decl lives in a.deal.
+        let idx = Index::new();
+        let url_a = Url::parse("file:///a.deal").unwrap();
+        let url_b = Url::parse("file:///b.deal").unwrap();
+        let rope = Rope::from_str("part def Battery {}\npart def Pack {}\n");
+        let env_a = br#"{"v":1,
+            "elements":{"vehicle.Battery":{"id":"vehicle.Battery","kind":"part_def","source_file":"a","span":[9,16]}},
+            "references":[{"from_span":[28,35],"ref_kind":"specializes","resolved_path":"vehicle.Battery"}]}"#;
+        let env_b = br#"{"v":1,"elements":{},
+            "references":[{"from_span":[5,12],"ref_kind":"specializes","resolved_path":"vehicle.Battery"}]}"#;
+        idx.update_from_envelope(&url_a, env_a, &rope);
+        idx.update_from_envelope(&url_b, env_b, &rope);
+
+        // a.deal: one usage + the declaration.
+        assert_eq!(idx.usages_in_file(&url_a, "vehicle.Battery").len(), 1);
+        assert!(idx.declaration_in_file(&url_a, "vehicle.Battery").is_some());
+        // b.deal: one usage, no declaration.
+        assert_eq!(idx.usages_in_file(&url_b, "vehicle.Battery").len(), 1);
+        assert!(idx.declaration_in_file(&url_b, "vehicle.Battery").is_none());
+        // Unknown path: nothing.
+        assert!(idx.usages_in_file(&url_a, "vehicle.Nope").is_empty());
+    }
+
+    #[test]
+    fn declaration_in_file_prefers_precise_name_span() {
+        // P2 WS-C0: element span covers the whole def [0,19]; name_span is the
+        // "Battery" token [9,16]. declaration_in_file must return the name range.
+        let idx = Index::new();
+        let url = Url::parse("file:///a.deal").unwrap();
+        let rope = Rope::from_str("part def Battery {}\n");
+        let env = br#"{"v":1,"elements":{
+            "vehicle.Battery":{"id":"vehicle.Battery","kind":"part_def","name_span":[9,16],"source_file":"a","span":[0,19]}
+        }}"#;
+        idx.update_from_envelope(&url, env, &rope);
+        let r = idx
+            .declaration_in_file(&url, "vehicle.Battery")
+            .expect("declaration present");
+        // Name token starts at byte 9 ('B' of Battery) on line 0.
+        assert_eq!(r.start.line, 0);
+        assert_eq!(r.start.character, 9, "should use the name_span, not the whole-def span");
+        assert_eq!(r.end.character, 16);
     }
 
     #[test]

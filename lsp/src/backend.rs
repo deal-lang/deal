@@ -27,6 +27,7 @@ use crate::formatting;
 use crate::hover;
 use crate::index::Index;
 use crate::references;
+use crate::rename;
 use crate::semantic_tokens;
 use crate::workspace::{self, Workspace};
 
@@ -76,6 +77,11 @@ impl LanguageServer for Backend {
             document_formatting_provider: Some(OneOf::Left(true)),
             workspace_symbol_provider: Some(OneOf::Left(true)),
             references_provider: Some(OneOf::Left(true)),
+            document_highlight_provider: Some(OneOf::Left(true)),
+            rename_provider: Some(OneOf::Right(RenameOptions {
+                prepare_provider: Some(true),
+                work_done_progress_options: Default::default(),
+            })),
             completion_provider: Some(CompletionOptions {
                 trigger_characters: Some(vec![".".to_string(), ":".to_string(), "<".to_string()]),
                 ..Default::default()
@@ -219,6 +225,24 @@ impl LanguageServer for Backend {
 
     async fn references(&self, params: ReferenceParams) -> LspResult<Option<Vec<Location>>> {
         references::handle_references(&self.documents, &self.index, params).await
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> LspResult<Option<Vec<DocumentHighlight>>> {
+        references::handle_document_highlight(&self.documents, &self.index, params).await
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> LspResult<Option<PrepareRenameResponse>> {
+        rename::handle_prepare_rename(&self.documents, &self.index, params).await
+    }
+
+    async fn rename(&self, params: RenameParams) -> LspResult<Option<WorkspaceEdit>> {
+        rename::handle_rename(&self.documents, &self.index, params).await
     }
 
     async fn semantic_tokens_full(

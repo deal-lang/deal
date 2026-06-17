@@ -617,6 +617,80 @@ async fn references_finds_cross_file_specializes() {
 }
 
 // ---------------------------------------------------------------------
+// Test 5c: rename_edits_declaration_and_references (P2 WS-C)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn rename_edits_declaration_and_references() {
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(SHOWCASE_ROOT)).await;
+    let needle_path = "interfaces.thermal.ThermallyManaged";
+    let mut waited = 0;
+    while index.references_of(needle_path, false).is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+    assert!(
+        !index.references_of(needle_path, false).is_empty(),
+        "eager_parse did not index the cross-file binding within 10s"
+    );
+
+    let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
+    did_open(&mut service, &uri, &src, 1).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Cursor on the <<specializes>> referent (2nd occurrence).
+    let nm = "ThermallyManaged";
+    let first = src.find(nm).expect("ThermallyManaged in battery.deal");
+    let byte = src[first + nm.len()..]
+        .find(nm)
+        .map(|n| first + nm.len() + n)
+        .expect("second ThermallyManaged");
+    let (line, char_) = byte_to_line_char(&src, byte + 4);
+
+    let params = RenameParams {
+        text_document_position: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position: Position::new(line, char_),
+        },
+        new_name: "ThermalManaged".to_string(),
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    };
+    let edit: Option<WorkspaceEdit> =
+        call_request(&mut service, "textDocument/rename", 13, params).await;
+    let edit = edit.expect("rename returned null");
+    let changes = edit.changes.expect("WorkspaceEdit.changes present");
+
+    // The declaration file (interfaces/thermal.deal) AND the reference file
+    // (battery.deal) must both be edited.
+    assert!(
+        changes.keys().any(|u| u
+            .to_file_path()
+            .map(|p| p.ends_with("interfaces/thermal.deal"))
+            .unwrap_or(false)),
+        "rename missing the ThermallyManaged declaration edit; got {:?}",
+        changes.keys().collect::<Vec<_>>()
+    );
+    let battery_edits = changes
+        .get(&uri)
+        .expect("rename missing the battery.deal <<specializes>> edit");
+    // Every edit replaces with the new name over a precise name-token range
+    // (16 chars == "ThermallyManaged"), NOT the whole def or the `<<…>>` clause.
+    for (_u, edits) in &changes {
+        for e in edits {
+            assert_eq!(e.new_text, "ThermalManaged");
+        }
+    }
+    assert!(
+        battery_edits
+            .iter()
+            .any(|e| e.range.end.character - e.range.start.character == nm.len() as u32),
+        "battery edit range is not the precise terminal-name token; got {battery_edits:?}"
+    );
+}
+
+// ---------------------------------------------------------------------
 // Test 6: hover_renders_jsdoc
 // ---------------------------------------------------------------------
 

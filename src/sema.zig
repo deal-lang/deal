@@ -189,6 +189,10 @@ pub const SymbolEntry = struct {
     id: []const u8,
     kind: SymbolKind,
     span: ast.Span,
+    /// P2 WS-C0: span of the declared NAME token (subset of `span`, which covers
+    /// the whole definition). Empty when unset; used for precise rename of the
+    /// declaration. Consumers fall back to `span` when this is empty.
+    name_span: ast.Span = .{ .start = 0, .end = 0 },
     /// Workspace-relative source path (T-02-11 path traversal mitigation).
     source_file: []const u8,
     /// Dimensional metadata (present when kind == .dimension_def or .unit_def).
@@ -636,6 +640,7 @@ fn collectDefinition(a: *Analyzer, node: *ast.Node) !void {
     // definition in a different package does NOT silently overwrite the alias of
     // the first (which previously pointed bare-name lookups at the wrong entry).
     const entry = try makeEntryWithDim(a, id, effective_kind, node.span, dim_meta);
+    entry.name_span = elem.name_span; // P2 WS-C0: precise decl-name range for rename.
     const bare_key = try a.arena.dupe(u8, elem.name);
     if (a.table.entries.get(elem.name)) |existing_bare| {
         if (existing_bare.kind == .imported or existing_bare.kind == .imported_wildcard_pkg) {
@@ -937,6 +942,14 @@ fn resolveName(a: *Analyzer, name: []const u8, segments: [][]const u8) ?[]const 
 /// canonical fully-qualified id when an entry is known; callers pass the
 /// best-available name otherwise. Appended in Pass-B walk order; the index
 /// emitter sorts for deterministic output.
+/// P2 WS-C0: prefer the precise terminal-name span when the parser set it
+/// (non-empty), else fall back to the broader node span. Lets rename edit an
+/// exact identifier range while staying safe if a construction site never set
+/// the precise span.
+fn preferSpan(precise: ast.Span, fallback: ast.Span) ast.Span {
+    return if (precise.end > precise.start) precise else fallback;
+}
+
 fn recordBinding(a: *Analyzer, span: ast.Span, resolved_path: []const u8, ref_kind: []const u8) !void {
     // `resolved_path` may be borrowed from the EXTERNAL table's arena (for a
     // cross-file binding, it is `entry.id` of a workspace declaration that lives
@@ -1100,7 +1113,7 @@ fn checkDefinition(a: *Analyzer, node: *ast.Node) !void {
             // target, canonicalized to the declaring file's FQ id so cross-file
             // references match (imported names → their qualified sibling).
             const resolved_path = resolveName(a, target_name, spec.target_segments) orelse target_name;
-            try recordBinding(a, spec_node.span, resolved_path, "specializes");
+            try recordBinding(a, preferSpan(spec.target_span, spec_node.span), resolved_path, "specializes");
             // Check for specialization cycle (Check #4, T-02-08 mitigation).
             try checkSpecializationCycle(a, elem.name, target_name, node.span, &[_][]const u8{});
         }
@@ -1338,6 +1351,9 @@ fn checkConstraintDef(a: *Analyzer, node: *ast.Node) !void {
                 Codes.e_name_not_found, .err, spec_node.span,
                 "name `{s}` not found in scope", .{target_name},
             );
+        } else if (resolveName(a, target_name, spec.target_segments)) |resolved| {
+            // P2 WS-A: record the constraint_def <<specializes>> binding.
+            try recordBinding(a, preferSpan(spec.target_span, spec_node.span), resolved, "specializes");
         }
     }
 
@@ -1740,6 +1756,11 @@ fn checkTypeAnnotation(a: *Analyzer, node: *ast.Node) !void {
             "type `{s}` is not defined; use a declared or imported type",
             .{type_name},
         );
+    } else if (resolveName(a, type_name, ta.name_segments)) |resolved| {
+        // P2 WS-A: record a type reference. Built-in types (Real, Voltage, …)
+        // and stdlib types not present in the workspace resolve to null and are
+        // skipped — they have no in-workspace declaration to reference.
+        try recordBinding(a, preferSpan(ta.terminal_span, node.span), resolved, "type_ref");
     }
 }
 
@@ -1774,6 +1795,9 @@ fn checkTraceAnnotation(a: *Analyzer, ann: ast.Annotation, span: ast.Span) !void
             "@trace target `{s}` not found",
             .{target},
         );
+    } else if (resolveName(a, target, ann.target_segments)) |resolved| {
+        // P2 WS-A: record an @trace reference binding.
+        try recordBinding(a, span, resolved, "trace");
     }
 }
 
