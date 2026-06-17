@@ -906,6 +906,75 @@ async fn code_action_suggests_nearest_symbol() {
 }
 
 // ---------------------------------------------------------------------
+// Test 5g: definition_jumps_to_parameter (P2 WS-E2)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn definition_jumps_to_parameter() {
+    // Throwaway workspace with a calc referencing its parameter in the body.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("deal_param_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = "package demo;\n\
+        calc def Scale(factor : Real) : Real {\n\
+        \x20   return factor * 2.0;\n\
+        }\n";
+    let file = dir.join("demo.deal");
+    std::fs::write(&file, src).unwrap();
+
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(dir.to_str().unwrap())).await;
+    let mut waited = 0;
+    while index.workspace_symbols("Scale").is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+
+    let uri = Url::from_file_path(std::fs::canonicalize(&file).unwrap()).unwrap();
+    did_open(&mut service, &uri, src, 1).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Cursor on `factor` in `return factor * 2.0` (the body reference, line 2).
+    let decl_off = src.find("factor").expect("param decl");
+    let body_off = src[decl_off + 6..]
+        .find("factor")
+        .map(|n| decl_off + 6 + n)
+        .expect("body reference");
+    let (line, char_) = byte_to_line_char(src, body_off + 2);
+
+    let params = GotoDefinitionParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position: Position::new(line, char_),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    };
+    let resp: Option<GotoDefinitionResponse> =
+        call_request(&mut service, "textDocument/definition", 51, params).await;
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let loc = match resp.expect("definition returned null") {
+        GotoDefinitionResponse::Scalar(l) => l,
+        other => panic!("expected a scalar location, got {other:?}"),
+    };
+    assert_eq!(loc.uri, uri);
+    // The declaration is on the calc-def line (1), above the body reference (2).
+    let (decl_line, _) = byte_to_line_char(src, decl_off);
+    assert_eq!(
+        loc.range.start.line, decl_line,
+        "goto-def should land on the parameter declaration, not the body reference"
+    );
+    assert!(
+        loc.range.start.line < line,
+        "resolved location must be the decl (earlier line) not the reference"
+    );
+}
+
+// ---------------------------------------------------------------------
 // Test 6: hover_renders_jsdoc
 // ---------------------------------------------------------------------
 

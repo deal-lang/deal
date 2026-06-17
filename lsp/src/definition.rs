@@ -22,7 +22,9 @@
 
 use serde_json::Value;
 use tower_lsp::jsonrpc::Result as LspResult;
-use tower_lsp::lsp_types::{GotoDefinitionParams, GotoDefinitionResponse, Location, Position, Url};
+use tower_lsp::lsp_types::{
+    GotoDefinitionParams, GotoDefinitionResponse, Location, Position, Range, Url,
+};
 
 use crate::documents::Documents;
 use crate::hover; // reuse position_to_byte + node walker (re-exported below)
@@ -47,9 +49,80 @@ async fn definition_for(
     uri: &Url,
     position: Position,
 ) -> Option<Location> {
+    // P2 WS-E2: a parameter reference resolves to its `param_decl` in the same
+    // file. Local scope wins over the global symbol table (correct shadowing),
+    // so this is tried before the workspace lookup.
+    if let Some(loc) = local_param_definition(documents, uri, position).await {
+        return Some(loc);
+    }
     resolved_path_at(documents, index, uri, position)
         .await
         .map(|(_path, loc)| loc)
+}
+
+/// Resolve a parameter reference under the cursor to the `Location` of its
+/// declaring `param_decl` in the same file, or `None` when the cursor is not on
+/// a parameter of the enclosing `calc` / `constraint`.
+async fn local_param_definition(
+    documents: &Documents,
+    uri: &Url,
+    position: Position,
+) -> Option<Location> {
+    let handle_arc = documents.get_handle(uri)?;
+    let rope = documents.get_buffer(uri)?;
+    let byte = hover::position_to_byte_pub(&rope, position)?;
+    let ast_bytes = {
+        let guard = handle_arc.lock().await;
+        deal_ffi::safe::ast_json(&guard)?
+    };
+    if ast_bytes.is_empty() {
+        return None;
+    }
+    let root: Value = serde_json::from_slice(&ast_bytes).ok()?;
+    let entry = if root.get("span").is_some() {
+        &root
+    } else {
+        root.get("root")?
+    };
+    let span = param_decl_span_at(entry, byte)?;
+    Some(Location {
+        uri: uri.clone(),
+        range: Range {
+            start: crate::index::byte_to_position(&rope, span[0]),
+            end: crate::index::byte_to_position(&rope, span[1]),
+        },
+    })
+}
+
+/// Pure core of WS-E2: the span of the `param_decl` a parameter reference at
+/// `byte` resolves to. Finds the innermost `identifier` under the cursor and
+/// the innermost enclosing `calc_def` / `constraint_def`, then matches the
+/// identifier name against that callable's parameter list. `None` when the
+/// identifier is not one of the enclosing callable's parameters.
+fn param_decl_span_at(entry: &Value, byte: usize) -> Option<[usize; 2]> {
+    let mut stack: Vec<&Value> = Vec::new();
+    collect_containing(entry, byte, &mut stack);
+
+    let ident = stack.iter().rev().find_map(|n| {
+        match n.get("k").and_then(|v| v.as_str()) {
+            Some("identifier") => n.get("name").and_then(|v| v.as_str()),
+            _ => None,
+        }
+    })?;
+    let callable = stack.iter().rev().find(|n| {
+        matches!(
+            n.get("k").and_then(|v| v.as_str()),
+            Some("calc_def") | Some("constraint_def")
+        )
+    })?;
+
+    let list = callable.get("params")?.get("params")?.as_array()?;
+    for p in list {
+        if p.get("name").and_then(|v| v.as_str()) == Some(ident) {
+            return p.get("span").and_then(parse_span);
+        }
+    }
+    None
 }
 
 /// Resolve the symbol under the cursor to its canonical fully-qualified path
@@ -310,6 +383,36 @@ mod tests {
             .filter_map(|n| n.get("k").and_then(|v| v.as_str()))
             .collect();
         assert_eq!(kinds, vec!["root", "y"]);
+    }
+
+    #[test]
+    fn param_decl_span_at_resolves_body_reference() {
+        // calc def Drag(velocity : Real) : Real { return velocity * 2; }
+        let ast = json!({
+            "k": "calc_def", "name": "Drag", "span": [0, 60],
+            "params": { "k": "param_list", "span": [13, 30], "params": [
+                { "k": "param_decl", "name": "velocity", "span": [14, 29],
+                  "type_node": { "k": "type_annotation", "name_segments": ["Real"], "span": [25, 29] } }
+            ]},
+            "body": [ { "k": "return_statement", "span": [40, 58],
+                "value": { "k": "identifier", "name": "velocity", "span": [47, 55] } } ]
+        });
+        // Cursor inside the body reference → the param_decl span.
+        assert_eq!(param_decl_span_at(&ast, 50), Some([14, 29]));
+        // Cursor on the calc name (no identifier node there) → None.
+        assert_eq!(param_decl_span_at(&ast, 2), None);
+    }
+
+    #[test]
+    fn param_decl_span_at_ignores_non_parameter_identifiers() {
+        // An identifier that is not one of the callable's params resolves to
+        // None (it falls through to the global lookup).
+        let ast = json!({
+            "k": "calc_def", "name": "F", "span": [0, 40],
+            "params": { "k": "param_list", "span": [5, 7], "params": [] },
+            "body": [ { "k": "identifier", "name": "Other", "span": [20, 25] } ]
+        });
+        assert_eq!(param_decl_span_at(&ast, 22), None);
     }
 
     #[test]

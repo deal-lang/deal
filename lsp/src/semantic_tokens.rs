@@ -63,6 +63,8 @@ pub const SEMANTIC_TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::OPERATOR,    // 6
     SemanticTokenType::ENUM_MEMBER, // 7
     SemanticTokenType::REGEXP,      // 8
+    SemanticTokenType::NUMBER,      // 9
+    SemanticTokenType::STRING,      // 10
 ];
 
 pub const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
@@ -87,6 +89,8 @@ const TT_NAMESPACE: u32 = 5;
 const TT_OPERATOR: u32 = 6;
 const TT_ENUM_MEMBER: u32 = 7;
 const TT_REGEXP: u32 = 8;
+const TT_NUMBER: u32 = 9;
+const TT_STRING: u32 = 10;
 
 // Modifier bitmasks.
 const MOD_DECLARATION: u32 = 1 << 0;
@@ -204,7 +208,6 @@ fn encode_from_ast(root: &Value) -> Vec<SemanticToken> {
     // here via the AST's `filename` field as a fallback.
     let mut raws: Vec<RawToken> = Vec::new();
     collect_tokens(root, &mut raws);
-    raws.sort_by_key(|t| t.start_byte);
 
     // Need source bytes to translate byte offsets to (line, char). The
     // AST's root has a `filename` field; we re-read it.
@@ -217,6 +220,9 @@ fn encode_from_ast(root: &Value) -> Vec<SemanticToken> {
     } else {
         std::fs::read(filename).unwrap_or_default()
     };
+    // G2b: the operator pass needs source; run it before the final sort.
+    collect_operator_tokens(root, &source, &mut raws);
+    raws.sort_by_key(|t| t.start_byte);
     delta_encode(&raws, &source)
 }
 
@@ -226,6 +232,7 @@ fn encode_from_ast(root: &Value) -> Vec<SemanticToken> {
 pub fn encode_from_ast_with_source(root: &Value, source: &[u8]) -> Vec<SemanticToken> {
     let mut raws: Vec<RawToken> = Vec::new();
     collect_tokens(root, &mut raws);
+    collect_operator_tokens(root, source, &mut raws);
     raws.sort_by_key(|t| t.start_byte);
     delta_encode(&raws, source)
 }
@@ -253,6 +260,76 @@ fn emit_keyword(node: &Value, keyword_len: usize, modifiers: u32, out: &mut Vec<
             modifiers,
         });
     }
+}
+
+/// Emit a single token covering a node's whole span.
+fn emit_full_span(node: &Value, token_type: u32, out: &mut Vec<RawToken>) {
+    if let Some(span) = span_of(node) {
+        out.push(RawToken {
+            start_byte: span[0],
+            length_bytes: span[1].saturating_sub(span[0]),
+            token_type,
+            modifiers: 0,
+        });
+    }
+}
+
+/// G2b: a second, source-aware pass that tokenizes binary/unary *operators*.
+/// The AST stores the operator only as a name string (`op`), not a span, so the
+/// operator's source range is recovered from the gap between operands: for a
+/// `binary` it lies between `lhs.span.end` and `rhs.span.start`; for a `unary`
+/// it precedes `operand.span.start`. The non-whitespace run in that gap is the
+/// operator token. Kept separate from `collect_tokens` so that pass needs no
+/// source and its many call sites stay unchanged.
+fn collect_operator_tokens(node: &Value, source: &[u8], out: &mut Vec<RawToken>) {
+    if let Value::Object(map) = node {
+        match map.get("k").and_then(|v| v.as_str()) {
+            Some("binary") => {
+                if let (Some(lhs), Some(rhs)) = (map.get("lhs"), map.get("rhs")) {
+                    if let (Some(l), Some(r)) = (span_of(lhs), span_of(rhs)) {
+                        emit_operator_in_gap(source, l[1], r[0], out);
+                    }
+                }
+            }
+            Some("unary") => {
+                if let (Some(span), Some(operand)) = (span_of(node), map.get("operand")) {
+                    if let Some(o) = span_of(operand) {
+                        emit_operator_in_gap(source, span[0], o[0], out);
+                    }
+                }
+            }
+            _ => {}
+        }
+        for (_k, v) in map.iter() {
+            collect_operator_tokens(v, source, out);
+        }
+    } else if let Value::Array(items) = node {
+        for item in items.iter() {
+            collect_operator_tokens(item, source, out);
+        }
+    }
+}
+
+/// Emit an OPERATOR token over the non-whitespace run inside `[start, end)`.
+fn emit_operator_in_gap(source: &[u8], start: usize, end: usize, out: &mut Vec<RawToken>) {
+    let end = end.min(source.len());
+    if start >= end {
+        return;
+    }
+    let gap = &source[start..end];
+    let Some(lead) = gap.iter().position(|b| !b.is_ascii_whitespace()) else {
+        return;
+    };
+    let trail = gap
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .unwrap_or(lead);
+    out.push(RawToken {
+        start_byte: start + lead,
+        length_bytes: trail - lead + 1,
+        token_type: TT_OPERATOR,
+        modifiers: 0,
+    });
 }
 
 /// Recursively visit every AST node, emitting RawTokens per the §7 mapping.
@@ -392,6 +469,13 @@ fn collect_tokens(node: &Value, out: &mut Vec<RawToken>) {
                 // doc_comment: SKIP — TextMate owns comment styling
                 // per §7 (ambiguity resolution note line 651).
                 "doc_comment" => {}
+
+                // G2b: literals carry their own span, so they tokenize directly.
+                // Numbers → NUMBER, strings/templates → STRING, booleans →
+                // KEYWORD (true/false read as keywords, like most editors).
+                "int_literal" | "real_literal" => emit_full_span(node, TT_NUMBER, out),
+                "string_literal" | "template_literal" => emit_full_span(node, TT_STRING, out),
+                "boolean_literal" => emit_full_span(node, TT_KEYWORD, out),
 
                 _ => {} // Unknown kind — descend without emitting.
             }
@@ -650,10 +734,63 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn legend_has_9_types_and_5_modifiers() {
+    fn legend_has_11_types_and_5_modifiers() {
         let l = semantic_tokens_legend();
-        assert_eq!(l.token_types.len(), 9);
+        assert_eq!(l.token_types.len(), 11);
         assert_eq!(l.token_modifiers.len(), 5);
+    }
+
+    #[test]
+    fn literals_emit_number_string_keyword_tokens() {
+        // int/real → NUMBER, string/template → STRING, boolean → KEYWORD.
+        for (kind, expected) in [
+            ("int_literal", TT_NUMBER),
+            ("real_literal", TT_NUMBER),
+            ("string_literal", TT_STRING),
+            ("template_literal", TT_STRING),
+            ("boolean_literal", TT_KEYWORD),
+        ] {
+            let n = json!({ "k": kind, "span": [4, 9] });
+            let mut raws = Vec::new();
+            collect_tokens(&n, &mut raws);
+            assert_eq!(raws.len(), 1, "{kind} should emit one token");
+            assert_eq!(raws[0].token_type, expected, "{kind} token type");
+            assert_eq!(raws[0].start_byte, 4);
+            assert_eq!(raws[0].length_bytes, 5);
+        }
+    }
+
+    #[test]
+    fn binary_operator_token_lands_on_the_symbol() {
+        // `a + b` — lhs [0,1], rhs [4,5]; the `+` is at byte 2.
+        let source = b"a + b";
+        let ast = json!({
+            "k": "binary", "op": "add", "span": [0, 5],
+            "lhs": { "k": "identifier", "name": "a", "span": [0, 1] },
+            "rhs": { "k": "identifier", "name": "b", "span": [4, 5] }
+        });
+        let mut raws = Vec::new();
+        collect_operator_tokens(&ast, source, &mut raws);
+        assert_eq!(raws.len(), 1);
+        assert_eq!(raws[0].token_type, TT_OPERATOR);
+        assert_eq!(raws[0].start_byte, 2);
+        assert_eq!(raws[0].length_bytes, 1);
+    }
+
+    #[test]
+    fn unary_operator_token_lands_on_the_symbol() {
+        // `-x` — operand [1,2]; the `-` is at byte 0.
+        let source = b"-x";
+        let ast = json!({
+            "k": "unary", "op": "neg", "span": [0, 2],
+            "operand": { "k": "identifier", "name": "x", "span": [1, 2] }
+        });
+        let mut raws = Vec::new();
+        collect_operator_tokens(&ast, source, &mut raws);
+        assert_eq!(raws.len(), 1);
+        assert_eq!(raws[0].token_type, TT_OPERATOR);
+        assert_eq!(raws[0].start_byte, 0);
+        assert_eq!(raws[0].length_bytes, 1);
     }
 
     #[test]
