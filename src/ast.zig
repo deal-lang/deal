@@ -197,6 +197,9 @@ pub const HeaderField = struct {
 pub const ImportItem = struct {
     name: []const u8,
     alias: ?[]const u8,
+    /// P2 WS-C0: span of the imported name token, for precise rename of the
+    /// `import` statement. Empty when unset.
+    name_span: Span = .{ .start = 0, .end = 0 },
 };
 
 pub const ImportKind = enum { simple, named, wildcard, alias };

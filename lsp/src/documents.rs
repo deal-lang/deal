@@ -118,6 +118,17 @@ impl Documents {
         self.handles.get(uri).map(|h| h.clone())
     }
 
+    /// Snapshot every in-memory workspace buffer as `(Url, String)`. After
+    /// `eager_parse` this is the whole workspace, so the rename verify-gate
+    /// (rename.rs) can re-analyze the post-edit workspace against the same
+    /// merged declaration set `eager_parse` used.
+    pub fn snapshot_buffers(&self) -> Vec<(Url, String)> {
+        self.buffers
+            .iter()
+            .map(|kv| (kv.key().clone(), kv.value().to_string()))
+            .collect()
+    }
+
     /// did_open path: parse, install handle + Rope, publish diagnostics.
     ///
     /// On parse failure (OOM) returns Err and publishes no diagnostics —

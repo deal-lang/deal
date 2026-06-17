@@ -1041,6 +1041,21 @@ fn checkImport(a: *Analyzer, node: *ast.Node) !void {
             .{path_str},
         );
     }
+
+    // P2 WS-C: record a binding for each named import item, so a rename of the
+    // imported declaration also updates the `import P.{N}` statement. Only the
+    // terminal-name token is bound (the precise span from WS-C0); the package
+    // prefix `P` is left untouched. Items that don't resolve (e.g. flagged
+    // unresolvable imports) simply record nothing.
+    if (imp.kind == .named) {
+        for (imp.items) |item| {
+            if (item.name.len == 0) continue;
+            var segs = [_][]const u8{item.name};
+            if (resolveName(a, item.name, &segs)) |resolved| {
+                try recordBinding(a, preferSpan(item.name_span, node.span), resolved, "import");
+            }
+        }
+    }
 }
 
 /// Returns true if the import path should be flagged as unresolvable.

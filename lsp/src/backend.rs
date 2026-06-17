@@ -29,6 +29,7 @@ use crate::index::Index;
 use crate::references;
 use crate::rename;
 use crate::semantic_tokens;
+use crate::symbols;
 use crate::workspace::{self, Workspace};
 
 /// D-43 debounce window for did_change → re-parse, in milliseconds.
@@ -76,6 +77,7 @@ impl LanguageServer for Backend {
             text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
             document_formatting_provider: Some(OneOf::Left(true)),
             workspace_symbol_provider: Some(OneOf::Left(true)),
+            document_symbol_provider: Some(OneOf::Left(true)),
             references_provider: Some(OneOf::Left(true)),
             document_highlight_provider: Some(OneOf::Left(true)),
             rename_provider: Some(OneOf::Right(RenameOptions {
@@ -221,6 +223,13 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> LspResult<Option<GotoDefinitionResponse>> {
         definition::handle_definition(&self.documents, &self.index, params).await
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> LspResult<Option<DocumentSymbolResponse>> {
+        symbols::handle_document_symbol(&self.documents, params).await
     }
 
     async fn references(&self, params: ReferenceParams) -> LspResult<Option<Vec<Location>>> {

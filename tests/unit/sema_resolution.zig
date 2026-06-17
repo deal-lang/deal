@@ -122,6 +122,47 @@ test "ADR-0003: built-in type reference records no binding" {
     }
 }
 
+test "P2 WS-C: named import item binds to declaring FQ id (import ref-kind)" {
+    const gpa = std.testing.allocator;
+
+    const interfaces_src =
+        \\package interfaces.thermal;
+        \\interface def ThermallyManaged { }
+    ;
+    const battery_src =
+        \\package vehicle.battery;
+        \\import interfaces.{ThermallyManaged};
+        \\part def BatteryPack <<specializes>> ThermallyManaged { }
+    ;
+
+    const ws = [_]lib.StdlibSource{
+        .{ .source = interfaces_src, .filename = "interfaces/thermal.deal" },
+    };
+    const handle = try lib.deal_parse_internal_with_stdlib(
+        gpa,
+        battery_src,
+        "vehicle/battery.deal",
+        &ws,
+        true,
+    );
+    defer lib.deal_free_internal(handle);
+
+    const table = handle.index_root orelse return error.TestUnexpectedResult;
+    var found = false;
+    for (table.bindings.items) |b| {
+        if (std.mem.eql(u8, b.ref_kind, "import") and
+            std.mem.eql(u8, b.resolved_path, "interfaces.thermal.ThermallyManaged"))
+        {
+            found = true;
+            // The bound span is the bare name token inside `{ … }`, so rename
+            // edits the import item without touching the `interfaces.` prefix.
+            const slice = battery_src[@as(usize, b.from_span.start)..@as(usize, b.from_span.end)];
+            try std.testing.expectEqualStrings("ThermallyManaged", slice);
+        }
+    }
+    try std.testing.expect(found);
+}
+
 test "ADR-0003: same-file specializes binds to local FQ id" {
     const gpa = std.testing.allocator;
     const src =

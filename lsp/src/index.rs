@@ -418,7 +418,7 @@ impl Default for Index {
 /// Map a DEAL element-kind string to the closest LSP `SymbolKind` so the
 /// editor's symbol picker (Ctrl/Cmd+T) shows a sensible icon. Unknown kinds
 /// fall back to `OBJECT`.
-fn map_symbol_kind(kind: &str) -> SymbolKind {
+pub(crate) fn map_symbol_kind(kind: &str) -> SymbolKind {
     match kind {
         "part_def" => SymbolKind::CLASS,
         "port_def" | "interface_def" => SymbolKind::INTERFACE,

@@ -792,7 +792,7 @@ fn parseImportDecl(p: *Parser) !*ast.Node {
                     const alias_tok = try p.expect(.ident);
                     alias = p.tokenText(alias_tok.span);
                 }
-                try items.append(p.arena, .{ .name = name, .alias = alias });
+                try items.append(p.arena, .{ .name = name, .alias = alias, .name_span = name_tok.span });
                 if (p.peek().tag == .comma) _ = p.advance();
             }
             _ = try p.expect(.r_brace);

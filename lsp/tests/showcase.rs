@@ -677,7 +677,7 @@ async fn rename_edits_declaration_and_references() {
         .expect("rename missing the battery.deal <<specializes>> edit");
     // Every edit replaces with the new name over a precise name-token range
     // (16 chars == "ThermallyManaged"), NOT the whole def or the `<<…>>` clause.
-    for (_u, edits) in &changes {
+    for edits in changes.values() {
         for e in edits {
             assert_eq!(e.new_text, "ThermalManaged");
         }
@@ -687,6 +687,58 @@ async fn rename_edits_declaration_and_references() {
             .iter()
             .any(|e| e.range.end.character - e.range.start.character == nm.len() as u32),
         "battery edit range is not the precise terminal-name token; got {battery_edits:?}"
+    );
+    // P2 WS-C import capture: rename must ALSO update the `import interfaces.{…}`
+    // statement (battery.deal line 13, 0-based 12), not just the <<specializes>>
+    // use — otherwise the rename leaves a dangling import and is incomplete.
+    assert!(
+        battery_edits.len() >= 2,
+        "expected both the import-item and the <<specializes>> edit in battery.deal; got {battery_edits:?}"
+    );
+    assert!(
+        battery_edits.iter().any(|e| e.range.start.line == 12),
+        "rename did not update the `import interfaces.{{ThermallyManaged}}` statement; got {battery_edits:?}"
+    );
+}
+
+// ---------------------------------------------------------------------
+// Test 5d: document_symbol_outlines_file (P2 WS-D)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn document_symbol_outlines_file() {
+    let (mut service, _docs, _idx, _sink) = spawn_service_full().await;
+    initialize(&mut service).await;
+
+    let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
+    did_open(&mut service, &uri, &src, 1).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let params = DocumentSymbolParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    };
+    let resp: Option<DocumentSymbolResponse> =
+        call_request(&mut service, "textDocument/documentSymbol", 21, params).await;
+    let syms = match resp.expect("documentSymbol returned null") {
+        DocumentSymbolResponse::Nested(s) => s,
+        DocumentSymbolResponse::Flat(_) => panic!("expected a nested (hierarchical) outline"),
+    };
+    assert!(!syms.is_empty(), "outline is empty");
+
+    // A `part def` (BatteryPack / BatteryCell) must surface as a CLASS, and at
+    // least one definition must carry nested members (the outline is truly
+    // hierarchical, not a flat list).
+    assert!(
+        syms.iter().any(|s| s.kind == SymbolKind::CLASS),
+        "no part_def CLASS symbol in outline; got {syms:?}"
+    );
+    assert!(
+        syms.iter()
+            .any(|s| s.children.as_ref().map(|c| !c.is_empty()).unwrap_or(false)),
+        "no definition has nested members; outline is flat: {syms:?}"
     );
 }
 
