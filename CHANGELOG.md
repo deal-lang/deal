@@ -8,6 +8,44 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — LSP P2: cross-file resolution, navigation, rename, IDE features
+
+Builds compiler-exact cross-file name resolution and the editor features that
+depend on it, plus the remaining IDE capabilities.
+
+- **Authoritative binding index (ADR-0003)** — `sema` now resolves every
+  reference against the workspace-merged declaration set and emits a
+  per-reference record `{ from_span, resolved_path, ref_kind }` into the
+  IR/index envelope; the LSP ingests these into an exact `resolved_path →
+  [sites]` reverse index. Cross-file names bind by the prefix-subtree-unique
+  rule (`import P.{N}`), with ambiguity surfaced as `E2001` rather than guessed.
+- **Precise name spans** — the parser/AST carry terminal-name spans
+  (`terminal_span`, `target_span`, `ElementDef.name_span`, `ImportItem.name_span`)
+  so navigation and rename act on the exact identifier token, never the
+  `<<…>>` operator or whole declaration.
+- **Find-references + document highlight** — `textDocument/references` and
+  `documentHighlight` return compiler-exact cross-file / in-file sites
+  (declaration + `specializes` + `type_ref` + named `import` items).
+- **Rename (verified)** — `textDocument/rename` + `prepareRename` edit every
+  reference kind, including `import` statements, refuse renames into a colliding
+  declaration or a dependency, and run a verify-before-return re-analysis of the
+  post-edit workspace, refusing any rename that would introduce a new error.
+- **documentSymbol** — hierarchical per-file outline built from AST containment
+  with the P1 element-kind icon map.
+- **signatureHelp** — `calc` / `constraint` invocations show the callee
+  signature (cross-file resolved) with the active parameter tracked by a
+  depth-aware comma count.
+- **codeAction** — unresolved-reference diagnostics (`E2000`) offer a
+  did-you-mean quick-fix that replaces the typo with the nearest workspace
+  symbol by edit distance.
+- **Expression + constraint hover** — parameterized `constraint def`s render
+  their full signature, and expression nodes (`binary`/`unary`/`call`/
+  `identifier`/`member_access`/literals) surface their SysML v2 / KerML
+  expression metaclass via the spec's expression rows and literal variants.
+
+Deferred follow-ups: parameter goto-definition (local scope) and semantic
+tokens for literals/operators.
+
 ### Added — LSP P1: drift closure, SysML-mapping hover, behavioral tokens
 
 Brings the language server back in step with the language and surfaces the

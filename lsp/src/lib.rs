@@ -5,6 +5,7 @@
 //! consume the same `Backend` / `Documents` / `Debouncer` types.
 
 pub mod backend;
+pub mod code_action;
 pub mod completion;
 pub mod debounce;
 pub mod definition;
@@ -16,6 +17,7 @@ pub mod index;
 pub mod references;
 pub mod rename;
 pub mod semantic_tokens;
+pub mod signature;
 pub mod symbols;
 pub mod sysml_mapping;
 pub mod workspace;

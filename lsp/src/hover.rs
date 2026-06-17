@@ -107,7 +107,7 @@ fn sysml_suffix(node: &Value) -> String {
         None => return String::new(),
     };
     let mut out = String::new();
-    if let Some(m) = crate::sysml_mapping::mapping_for(kind) {
+    if let Some(m) = crate::sysml_mapping::resolve(kind) {
         out.push_str(&format!(
             "\n\n---\n**SysML v2** · `{}`  ({})",
             m.metaclass, m.clause
@@ -212,7 +212,13 @@ fn node_label(node: &Value) -> Option<String> {
     // this function with constraint_def parameter display and cross-file type
     // resolution — it does NOT refactor the node_label infrastructure.
     if kind == "calc_def" {
-        if let Some(sig) = calc_def_signature(node) {
+        if let Some(sig) = callable_signature(node, "calc def") {
+            return Some(format!("```deal\n{sig}\n```"));
+        }
+    }
+    // G1: parameterized constraint definitions get the same rich signature.
+    if kind == "constraint_def" {
+        if let Some(sig) = callable_signature(node, "constraint def") {
             return Some(format!("```deal\n{sig}\n```"));
         }
     }
@@ -247,31 +253,31 @@ fn node_label(node: &Value) -> Option<String> {
 ///
 /// Returns `None` when the node lacks a name (graceful degradation — caller
 /// falls back to the generic `kind_to_keyword` label).
-fn calc_def_signature(node: &Value) -> Option<String> {
+///
+/// `keyword` is the rendered prefix (`calc def` / `constraint def`). A `calc`
+/// always carries a `param_list`; a `constraint` may have none, in which case
+/// no parens are rendered (matching how it is written). Return type and
+/// contract are emitted only when present, so constraints — which have neither
+/// — degrade to `constraint def Name(params)`.
+fn callable_signature(node: &Value, keyword: &str) -> Option<String> {
     let name = node.get("name")?.as_str()?;
 
-    // Build parameter list.
-    let params_str = if let Some(param_list) = node.get("params") {
-        render_param_list(param_list)
-    } else {
-        "()".to_string()
+    // Parameter list — only when an actual `param_list` node is present.
+    let params_str = match node.get("params") {
+        Some(p) if p.is_object() => render_param_list(p),
+        _ => String::new(),
     };
 
-    // Build return type.
-    let return_type = if let Some(type_node) = node.get("type_node") {
-        render_type_annotation(type_node)
-    } else {
-        String::new()
-    };
+    let return_type = node
+        .get("type_node")
+        .map(render_type_annotation)
+        .unwrap_or_default();
+    let contract_str = node
+        .get("return_contract")
+        .map(render_return_contract)
+        .unwrap_or_default();
 
-    // Build return contract (optional).
-    let contract_str = if let Some(rc) = node.get("return_contract") {
-        render_return_contract(rc)
-    } else {
-        String::new()
-    };
-
-    let mut sig = format!("calc def {name}{params_str}");
+    let mut sig = format!("{keyword} {name}{params_str}");
     if !return_type.is_empty() {
         sig.push_str(" : ");
         sig.push_str(&return_type);
@@ -284,7 +290,7 @@ fn calc_def_signature(node: &Value) -> Option<String> {
 }
 
 /// Render a `param_list` node as `(dir name : Type, ...)`.
-fn render_param_list(param_list: &Value) -> String {
+pub(crate) fn render_param_list(param_list: &Value) -> String {
     let params = match param_list.get("params").and_then(|v| v.as_array()) {
         Some(p) => p,
         None => return "()".to_string(),
@@ -294,7 +300,7 @@ fn render_param_list(param_list: &Value) -> String {
 }
 
 /// Render a single `param_decl` node as `direction name : Type`.
-fn render_param_decl(param: &Value) -> String {
+pub(crate) fn render_param_decl(param: &Value) -> String {
     let dir = param
         .get("direction")
         .and_then(|v| v.as_str())
@@ -312,7 +318,7 @@ fn render_param_decl(param: &Value) -> String {
 }
 
 /// Render a `type_annotation` node to its dotted name.
-fn render_type_annotation(type_node: &Value) -> String {
+pub(crate) fn render_type_annotation(type_node: &Value) -> String {
     if let Some(segs) = join_segments(type_node.get("name_segments")) {
         return segs;
     }
@@ -323,7 +329,7 @@ fn render_type_annotation(type_node: &Value) -> String {
 }
 
 /// Render a `return_contract` node as `=> item1, item2`.
-fn render_return_contract(rc: &Value) -> String {
+pub(crate) fn render_return_contract(rc: &Value) -> String {
     let items = match rc.get("items").and_then(|v| v.as_array()) {
         Some(i) => i,
         None => return String::new(),
@@ -812,6 +818,38 @@ mod tests {
     }
 
     #[test]
+    fn node_label_constraint_def_with_params_renders_signature() {
+        // constraint def WithinLimit(in x : Real, in max : Real)
+        let n = json!({
+            "k": "constraint_def",
+            "span": [0, 60],
+            "name": "WithinLimit",
+            "params": {
+                "k": "param_list",
+                "params": [
+                    { "k": "param_decl", "name": "x", "direction": "in",
+                      "type_node": { "k": "type_annotation", "name_segments": ["Real"] } },
+                    { "k": "param_decl", "name": "max", "direction": "in",
+                      "type_node": { "k": "type_annotation", "name_segments": ["Real"] } }
+                ]
+            }
+        });
+        let label = node_label(&n).unwrap();
+        assert!(
+            label.contains("constraint def WithinLimit(in x : Real, in max : Real)"),
+            "got: {label}"
+        );
+    }
+
+    #[test]
+    fn node_label_constraint_def_without_params_omits_parens() {
+        let n = json!({ "k": "constraint_def", "span": [0, 20], "name": "AlwaysOn" });
+        let label = node_label(&n).unwrap();
+        assert!(label.contains("constraint def AlwaysOn"), "got: {label}");
+        assert!(!label.contains("AlwaysOn("), "should not render empty parens: {label}");
+    }
+
+    #[test]
     fn node_label_calc_def_simple_signature() {
         // calc def Drag(in velocity : Real) : Force
         let n = json!({
@@ -913,7 +951,7 @@ mod tests {
 
     #[test]
     fn node_label_calc_def_no_name_falls_back() {
-        // When name is missing, calc_def_signature returns None and we
+        // When name is missing, callable_signature returns None and we
         // fall through to the generic "calc def" label.
         let n = json!({
             "k": "calc_def",

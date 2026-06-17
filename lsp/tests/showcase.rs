@@ -743,6 +743,169 @@ async fn document_symbol_outlines_file() {
 }
 
 // ---------------------------------------------------------------------
+// Test 5e: signature_help_for_calc_invocation (P2 WS-E)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn signature_help_for_calc_invocation() {
+    // The showcase has no calc invocations, so stand up a throwaway workspace
+    // with one calc calling another. deal.toml is optional for discovery.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("deal_sig_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = "package demo;\n\
+        calc def Drag(rho : Real, v : Real, area : Real, cd : Real) : Real {\n\
+        \x20   return rho;\n\
+        }\n\
+        calc def Wrap(x : Real) : Real {\n\
+        \x20   return Drag(x, 2.0, 3.0, 4.0);\n\
+        }\n";
+    let file = dir.join("demo.deal");
+    std::fs::write(&file, src).unwrap();
+
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(dir.to_str().unwrap())).await;
+
+    // Wait for eager_parse to index the calc declaration.
+    let mut waited = 0;
+    while index.workspace_symbols("Drag").is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+    assert!(
+        !index.workspace_symbols("Drag").is_empty(),
+        "eager_parse did not index the calc within 10s"
+    );
+
+    let uri = Url::from_file_path(std::fs::canonicalize(&file).unwrap()).unwrap();
+    did_open(&mut service, &uri, src, 1).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Cursor right after the first argument comma in `Drag(x, 2.0, ...)`.
+    let inv = src.find("Drag(x").expect("invocation");
+    let comma = src[inv..].find(',').map(|n| inv + n).expect("first arg comma");
+    let (line, char_) = byte_to_line_char(src, comma + 1);
+
+    let params = SignatureHelpParams {
+        context: None,
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position: Position::new(line, char_),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    };
+    let help: Option<SignatureHelp> =
+        call_request(&mut service, "textDocument/signatureHelp", 31, params).await;
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let help = help.expect("signatureHelp returned null inside an invocation");
+    let sig = &help.signatures[0];
+    assert!(
+        sig.label.starts_with("Drag(") && sig.label.contains("rho : Real"),
+        "unexpected signature label: {}",
+        sig.label
+    );
+    assert_eq!(
+        sig.parameters.as_ref().map(|p| p.len()),
+        Some(4),
+        "expected 4 parameters"
+    );
+    // Cursor is after the first comma → second parameter is active.
+    assert_eq!(help.active_parameter, Some(1));
+}
+
+// ---------------------------------------------------------------------
+// Test 5f: code_action_suggests_nearest_symbol (P2 WS-F)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn code_action_suggests_nearest_symbol() {
+    // Throwaway workspace: a correct decl + a typo'd <<specializes>> target,
+    // which fires E2000 (name not found). The quick-fix should offer the
+    // correct symbol by edit distance.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("deal_ca_{}_{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = "package demo;\n\
+        interface def ThermallyManaged { }\n\
+        part def Pack <<specializes>> ThermallyManagd { }\n";
+    let file = dir.join("demo.deal");
+    std::fs::write(&file, src).unwrap();
+
+    let (mut service, _docs, index, sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(dir.to_str().unwrap())).await;
+    let mut waited = 0;
+    while index.workspace_symbols("ThermallyManaged").is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+
+    let uri = Url::from_file_path(std::fs::canonicalize(&file).unwrap()).unwrap();
+    did_open(&mut service, &uri, src, 1).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Pull the real E2000 diagnostic the server published.
+    let pubs = collected_diagnostics(&sink).await;
+    let diag = pubs
+        .iter()
+        .filter(|p| p.uri == uri)
+        .flat_map(|p| p.diagnostics.iter())
+        .find(|d| matches!(&d.code, Some(NumberOrString::String(c)) if c == "E2000"))
+        .cloned();
+    let diag = diag.expect("expected an E2000 diagnostic for the typo'd specializes target");
+
+    let params = CodeActionParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        range: diag.range,
+        context: CodeActionContext {
+            diagnostics: vec![diag.clone()],
+            only: None,
+            trigger_kind: None,
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    };
+    let resp: Option<CodeActionResponse> =
+        call_request(&mut service, "textDocument/codeAction", 41, params).await;
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let actions = resp.expect("codeAction returned null");
+    let action = actions
+        .iter()
+        .find_map(|a| match a {
+            CodeActionOrCommand::CodeAction(ca) => Some(ca),
+            _ => None,
+        })
+        .expect("expected a CodeAction quick-fix");
+    assert!(
+        action.title.contains("ThermallyManaged"),
+        "unexpected action title: {}",
+        action.title
+    );
+    // The edit replaces exactly the typo'd name with the correct symbol.
+    let edits = action
+        .edit
+        .as_ref()
+        .and_then(|e| e.changes.as_ref())
+        .and_then(|c| c.get(&uri))
+        .expect("quick-fix edits the document");
+    assert_eq!(edits.len(), 1);
+    assert_eq!(edits[0].new_text, "ThermallyManaged");
+    let width = edits[0].range.end.character - edits[0].range.start.character;
+    assert_eq!(
+        width,
+        "ThermallyManagd".len() as u32,
+        "edit should replace only the typo'd name token"
+    );
+}
+
+// ---------------------------------------------------------------------
 // Test 6: hover_renders_jsdoc
 // ---------------------------------------------------------------------
 

@@ -19,6 +19,7 @@ use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
+use crate::code_action;
 use crate::completion;
 use crate::debounce::Debouncer;
 use crate::definition;
@@ -29,6 +30,7 @@ use crate::index::Index;
 use crate::references;
 use crate::rename;
 use crate::semantic_tokens;
+use crate::signature;
 use crate::symbols;
 use crate::workspace::{self, Workspace};
 
@@ -78,6 +80,7 @@ impl LanguageServer for Backend {
             document_formatting_provider: Some(OneOf::Left(true)),
             workspace_symbol_provider: Some(OneOf::Left(true)),
             document_symbol_provider: Some(OneOf::Left(true)),
+            code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
             references_provider: Some(OneOf::Left(true)),
             document_highlight_provider: Some(OneOf::Left(true)),
             rename_provider: Some(OneOf::Right(RenameOptions {
@@ -89,6 +92,11 @@ impl LanguageServer for Backend {
                 ..Default::default()
             }),
             hover_provider: Some(HoverProviderCapability::Simple(true)),
+            signature_help_provider: Some(SignatureHelpOptions {
+                trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                retrigger_characters: Some(vec![",".to_string()]),
+                work_done_progress_options: Default::default(),
+            }),
             definition_provider: Some(OneOf::Left(true)),
             semantic_tokens_provider: Some(
                 SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
@@ -230,6 +238,17 @@ impl LanguageServer for Backend {
         params: DocumentSymbolParams,
     ) -> LspResult<Option<DocumentSymbolResponse>> {
         symbols::handle_document_symbol(&self.documents, params).await
+    }
+
+    async fn signature_help(
+        &self,
+        params: SignatureHelpParams,
+    ) -> LspResult<Option<SignatureHelp>> {
+        signature::handle_signature_help(&self.documents, &self.index, params).await
+    }
+
+    async fn code_action(&self, params: CodeActionParams) -> LspResult<Option<CodeActionResponse>> {
+        code_action::handle_code_action(&self.documents, &self.index, params).await
     }
 
     async fn references(&self, params: ReferenceParams) -> LspResult<Option<Vec<Location>>> {

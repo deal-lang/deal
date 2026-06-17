@@ -35,6 +35,9 @@ pub struct Mapping {
     pub injects: Option<String>,
     /// Metadata marker, e.g. `«actor» MetadataFeature (8.3.4.12.3)`.
     pub marker: Option<String>,
+    /// Sub-kind variants, e.g. `literal_expr`'s `real` → `LiteralRational
+    /// (8.3.4.8.13)`. Consumed by `resolve` to refine expression mappings.
+    pub variants: HashMap<String, String>,
 }
 
 static TABLE: OnceLock<HashMap<String, Mapping>> = OnceLock::new();
@@ -49,6 +52,17 @@ fn table() -> &'static HashMap<String, Mapping> {
                 let s = |key: &str| v.get(key).and_then(|x| x.as_str()).map(|x| x.to_string());
                 // metaclass + clause are required; rows lacking them are skipped.
                 if let (Some(metaclass), Some(clause)) = (s("metaclass"), s("clause")) {
+                    let variants = v
+                        .get("variants")
+                        .and_then(|x| x.as_object())
+                        .map(|o| {
+                            o.iter()
+                                .filter_map(|(k, val)| {
+                                    val.as_str().map(|s| (k.clone(), s.to_string()))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     out.insert(
                         kind.clone(),
                         Mapping {
@@ -57,6 +71,7 @@ fn table() -> &'static HashMap<String, Mapping> {
                             kerml: s("kerml").unwrap_or_default(),
                             injects: s("injects"),
                             marker: s("marker"),
+                            variants,
                         },
                     );
                 }
@@ -73,9 +88,95 @@ pub fn mapping_for(kind: &str) -> Option<&'static Mapping> {
     table().get(kind)
 }
 
+/// Map an AST *expression* node kind to its IR mapping key and an optional
+/// `variants` selector. The mapping table is keyed by IR expression names
+/// (`operator_expr`, `literal_expr`, …); the AST emits `binary`/`call`/
+/// `int_literal`/… The spec rows stay the single source of truth — this only
+/// records which IR row (and literal variant) an AST kind corresponds to.
+fn normalize_expr_kind(kind: &str) -> Option<(&'static str, Option<&'static str>)> {
+    Some(match kind {
+        "binary" | "unary" => ("operator_expr", None),
+        "call" => ("invocation_expr", None),
+        "identifier" => ("feature_ref_expr", None),
+        "member_access" => ("feature_ref_expr", Some("dotted_path")),
+        "int_literal" => ("literal_expr", None),
+        "real_literal" => ("literal_expr", Some("real")),
+        "string_literal" | "template_literal" => ("literal_expr", Some("string")),
+        "boolean_literal" => ("literal_expr", Some("boolean")),
+        _ => return None,
+    })
+}
+
+/// Split a variant value like `LiteralRational (8.3.4.8.13)` into
+/// `(metaclass, clause)`. Falls back to the whole string as the metaclass when
+/// it has no parenthesised clause.
+fn split_variant(v: &str) -> (String, String) {
+    match v.split_once(" (") {
+        Some((mc, rest)) => (mc.to_string(), rest.trim_end_matches(')').to_string()),
+        None => (v.to_string(), String::new()),
+    }
+}
+
+/// Resolve a node kind to its SysML mapping, normalizing AST expression kinds
+/// to their IR rows and applying the literal/dotted variant where one applies.
+/// Returns an owned `Mapping` so callers see a uniform shape regardless of
+/// whether a variant override was applied.
+pub fn resolve(kind: &str) -> Option<Mapping> {
+    if let Some(m) = mapping_for(kind) {
+        return Some(m.clone());
+    }
+    let (key, variant) = normalize_expr_kind(kind)?;
+    let mut m = mapping_for(key)?.clone();
+    if let Some(vkey) = variant {
+        if let Some(vstr) = m.variants.get(vkey) {
+            let (mc, clause) = split_variant(vstr);
+            m.metaclass = mc;
+            if !clause.is_empty() {
+                m.clause = clause;
+            }
+            // Variants are leaf expression kinds — operator injects / metadata
+            // markers from the base row do not apply.
+            m.injects = None;
+            m.marker = None;
+        }
+    }
+    Some(m)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_normalizes_ast_expression_kinds() {
+        // Operator/invocation/feature-ref AST kinds map to the IR rows.
+        assert_eq!(resolve("binary").unwrap().metaclass, "OperatorExpression");
+        assert_eq!(resolve("unary").unwrap().metaclass, "OperatorExpression");
+        assert_eq!(resolve("call").unwrap().metaclass, "InvocationExpression");
+        assert_eq!(
+            resolve("identifier").unwrap().metaclass,
+            "FeatureReferenceExpression"
+        );
+    }
+
+    #[test]
+    fn resolve_applies_literal_variants() {
+        // int → base LiteralInteger; typed literals → their variant metaclass.
+        assert_eq!(resolve("int_literal").unwrap().metaclass, "LiteralInteger");
+        assert_eq!(resolve("real_literal").unwrap().metaclass, "LiteralRational");
+        assert_eq!(resolve("string_literal").unwrap().metaclass, "LiteralString");
+        assert_eq!(
+            resolve("boolean_literal").unwrap().metaclass,
+            "LiteralBoolean"
+        );
+    }
+
+    #[test]
+    fn resolve_passes_through_structural_kinds() {
+        // Non-expression kinds resolve exactly as the table row.
+        assert_eq!(resolve("part_def").unwrap().metaclass, "PartDefinition");
+        assert!(resolve("definitely_not_a_kind").is_none());
+    }
 
     #[test]
     fn table_parses_and_is_nonempty() {
