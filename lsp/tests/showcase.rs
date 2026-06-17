@@ -975,6 +975,169 @@ async fn definition_jumps_to_parameter() {
 }
 
 // ---------------------------------------------------------------------
+// Test 5h: folding_ranges_for_definitions (P3 WS-C C1)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn folding_ranges_for_definitions() {
+    let (mut service, _docs, _idx, _sink) = spawn_service_full().await;
+    initialize(&mut service).await;
+
+    let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
+    did_open(&mut service, &uri, &src, 1).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let params = FoldingRangeParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    };
+    let ranges: Option<Vec<FoldingRange>> =
+        call_request(&mut service, "textDocument/foldingRange", 61, params).await;
+    let ranges = ranges.expect("foldingRange returned null");
+    assert!(!ranges.is_empty(), "expected folds for a multi-def file");
+    // Every fold spans more than one line.
+    assert!(
+        ranges.iter().all(|r| r.end_line > r.start_line),
+        "a fold collapsed to a single line: {ranges:?}"
+    );
+    // battery.deal has /** … */ doc comments → at least one Comment-kind fold.
+    assert!(
+        ranges
+            .iter()
+            .any(|r| r.kind == Some(FoldingRangeKind::Comment)),
+        "expected at least one doc-comment fold; got {ranges:?}"
+    );
+}
+
+// ---------------------------------------------------------------------
+// Test 5i: inlay_hints_show_metaclass_badges (P3 WS-C C2)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn inlay_hints_show_metaclass_badges() {
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(SHOWCASE_ROOT)).await;
+
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
+    let mut waited = 0;
+    while index.elements_in_file(&uri).is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+    assert!(
+        !index.elements_in_file(&uri).is_empty(),
+        "eager_parse did not index battery.deal elements within 10s"
+    );
+
+    let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
+    let last_line = src.lines().count() as u32 + 1;
+    let params = InlayHintParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        range: Range {
+            start: Position::new(0, 0),
+            end: Position::new(last_line, 0),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    };
+    let hints: Option<Vec<InlayHint>> =
+        call_request(&mut service, "textDocument/inlayHint", 71, params).await;
+    let hints = hints.expect("inlayHint returned null");
+    assert!(!hints.is_empty(), "expected metaclass badge hints");
+    // BatteryPack/BatteryCell/BatteryModule are `part def`s → «PartDefinition».
+    assert!(
+        hints
+            .iter()
+            .any(|h| matches!(&h.label, InlayHintLabel::String(s) if s == "«PartDefinition»")),
+        "no «PartDefinition» badge among inlay hints: {hints:?}"
+    );
+}
+
+// ---------------------------------------------------------------------
+// Test 5j: code_lens_reference_counts (P3 WS-C C3)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn code_lens_reference_counts() {
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(SHOWCASE_ROOT)).await;
+
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
+    let mut waited = 0;
+    while index.elements_in_file(&uri).is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+
+    let params = CodeLensParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    };
+    let lenses: Option<Vec<CodeLens>> =
+        call_request(&mut service, "textDocument/codeLens", 81, params).await;
+    let lenses = lenses.expect("codeLens returned null");
+    assert!(!lenses.is_empty(), "expected reference-count lenses on definitions");
+    // Every lens routes through the extension bridge command.
+    assert!(
+        lenses
+            .iter()
+            .all(|l| l.command.as_ref().is_some_and(|c| c.command == "deal.showReferences")),
+        "a lens used the wrong command: {lenses:?}"
+    );
+    // At least one definition has ≥1 reference (e.g. BatteryCell used in
+    // BatteryModule) — proves the count is sourced from the real index.
+    assert!(
+        lenses.iter().any(|l| l
+            .command
+            .as_ref()
+            .and_then(|c| c.title.chars().next())
+            .is_some_and(|d| d.is_ascii_digit() && d != '0')),
+        "expected at least one declaration with a non-zero reference count: {lenses:?}"
+    );
+}
+
+// ---------------------------------------------------------------------
+// Test 5k: document_links_for_imports (P3 WS-C C4)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn document_links_for_imports() {
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(SHOWCASE_ROOT)).await;
+
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
+    let mut waited = 0;
+    while index.import_links_in_file(&uri).is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+    assert!(
+        !index.import_links_in_file(&uri).is_empty(),
+        "eager_parse did not index battery.deal import links within 10s"
+    );
+
+    let params = DocumentLinkParams {
+        text_document: TextDocumentIdentifier { uri: uri.clone() },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+        partial_result_params: PartialResultParams::default(),
+    };
+    let links: Option<Vec<DocumentLink>> =
+        call_request(&mut service, "textDocument/documentLink", 91, params).await;
+    let links = links.expect("documentLink returned null");
+    assert!(!links.is_empty(), "expected document links on the import statement");
+    // `import interfaces.{… ThermallyManaged …}` links to the declaring file.
+    assert!(
+        links.iter().any(|l| l
+            .target
+            .as_ref()
+            .is_some_and(|t| t.path().ends_with("interfaces/thermal.deal"))),
+        "no import link targets interfaces/thermal.deal: {links:?}"
+    );
+}
+
+// ---------------------------------------------------------------------
 // Test 6: hover_renders_jsdoc
 // ---------------------------------------------------------------------
 

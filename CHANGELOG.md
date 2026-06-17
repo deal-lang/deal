@@ -8,6 +8,27 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added — LSP P3: editor polish (folding, inlay badges, code lens, doc links)
+
+Four additive capabilities, each a thin consumer of the P1 mapping table and the
+P2 binding index — no compiler changes.
+
+- **Folding ranges** (`folding.rs`) — packages, `*_def` bodies, behavioral
+  blocks, and doc comments fold; doc comments use the `Comment` fold kind.
+- **Inlay hints** (`inlay.rs`) — inline `«Metaclass»` badges after each
+  declaration name (e.g. `«PartDefinition»`), from `sysml_mapping::resolve`;
+  range-scoped and client-toggleable.
+- **Code lens** (`code_lens.rs`) — a "N references" lens above every `*_def`,
+  counted from the P2 reverse index, routed through the `deal.showReferences`
+  extension bridge command.
+- **Document links** (`doc_links.rs`) — `import P.{N}` items link to N's
+  declaring file (via the index's new `import`-ref-kind link map), the only
+  navigation affordance for import items (goto-definition cannot reach them).
+
+All four advertised, handler-wired, exercised by `lsp-smoke`, and covered by
+unit + integration tests. New index queries: `elements_in_file`,
+`import_links_in_file`.
+
 ### Added — LSP P2: cross-file resolution, navigation, rename, IDE features
 
 Builds compiler-exact cross-file name resolution and the editor features that

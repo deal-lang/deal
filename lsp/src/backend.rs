@@ -20,13 +20,17 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
 use crate::code_action;
+use crate::code_lens;
 use crate::completion;
 use crate::debounce::Debouncer;
 use crate::definition;
+use crate::doc_links;
 use crate::documents::Documents;
+use crate::folding;
 use crate::formatting;
 use crate::hover;
 use crate::index::Index;
+use crate::inlay;
 use crate::references;
 use crate::rename;
 use crate::semantic_tokens;
@@ -80,6 +84,15 @@ impl LanguageServer for Backend {
             document_formatting_provider: Some(OneOf::Left(true)),
             workspace_symbol_provider: Some(OneOf::Left(true)),
             document_symbol_provider: Some(OneOf::Left(true)),
+            folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+            inlay_hint_provider: Some(OneOf::Left(true)),
+            code_lens_provider: Some(CodeLensOptions {
+                resolve_provider: Some(false),
+            }),
+            document_link_provider: Some(DocumentLinkOptions {
+                resolve_provider: Some(false),
+                work_done_progress_options: Default::default(),
+            }),
             code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
             references_provider: Some(OneOf::Left(true)),
             document_highlight_provider: Some(OneOf::Left(true)),
@@ -238,6 +251,28 @@ impl LanguageServer for Backend {
         params: DocumentSymbolParams,
     ) -> LspResult<Option<DocumentSymbolResponse>> {
         symbols::handle_document_symbol(&self.documents, params).await
+    }
+
+    async fn folding_range(
+        &self,
+        params: FoldingRangeParams,
+    ) -> LspResult<Option<Vec<FoldingRange>>> {
+        folding::handle_folding_range(&self.documents, params).await
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> LspResult<Option<Vec<InlayHint>>> {
+        inlay::handle_inlay_hint(&self.index, params).await
+    }
+
+    async fn code_lens(&self, params: CodeLensParams) -> LspResult<Option<Vec<CodeLens>>> {
+        code_lens::handle_code_lens(&self.index, params).await
+    }
+
+    async fn document_link(
+        &self,
+        params: DocumentLinkParams,
+    ) -> LspResult<Option<Vec<DocumentLink>>> {
+        doc_links::handle_document_link(&self.index, params).await
     }
 
     async fn signature_help(

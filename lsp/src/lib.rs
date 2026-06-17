@@ -6,14 +6,18 @@
 
 pub mod backend;
 pub mod code_action;
+pub mod code_lens;
 pub mod completion;
 pub mod debounce;
 pub mod definition;
 pub mod diagnostics;
+pub mod doc_links;
 pub mod documents;
+pub mod folding;
 pub mod formatting;
 pub mod hover;
 pub mod index;
+pub mod inlay;
 pub mod references;
 pub mod rename;
 pub mod semantic_tokens;

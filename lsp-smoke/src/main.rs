@@ -474,6 +474,45 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
             partial_result_params: Default::default(),
         }
     );
+    smoke_request!(
+        14,
+        "textDocument/foldingRange",
+        FoldingRangeParams {
+            text_document: td.clone(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    );
+    smoke_request!(
+        15,
+        "textDocument/inlayHint",
+        InlayHintParams {
+            text_document: td.clone(),
+            range: Range {
+                start: pos0,
+                end: Position { line: 100_000, character: 0 },
+            },
+            work_done_progress_params: Default::default(),
+        }
+    );
+    smoke_request!(
+        16,
+        "textDocument/codeLens",
+        CodeLensParams {
+            text_document: td.clone(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    );
+    smoke_request!(
+        17,
+        "textDocument/documentLink",
+        DocumentLinkParams {
+            text_document: td.clone(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        }
+    );
 
     // 7. shutdown handshake.
     let shutdown_req = JsonRpcRequest::build("shutdown")

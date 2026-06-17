@@ -53,6 +53,21 @@ use tower_lsp::lsp_types::{Location, Position, Range, SymbolInformation, SymbolK
 /// (PLAN.md verify-gate substring `DashMap<String`).
 pub type PathString = String;
 
+/// P3 WS-C: a declaration's locations + kind within one file, as returned by
+/// [`Index::elements_in_file`]. Consumed by the inlay-hint and code-lens
+/// providers.
+#[derive(Debug, Clone)]
+pub struct ElementInfo {
+    /// Canonical fully-qualified path (e.g. `vehicle.battery.BatteryPack`).
+    pub path: PathString,
+    /// Range of the whole definition (keyword through closing brace).
+    pub decl_range: Range,
+    /// Range of the declared name token (falls back to `decl_range`).
+    pub name_range: Range,
+    /// Element kind string (e.g. `part_def`).
+    pub kind: String,
+}
+
 /// In-memory workspace symbol index.
 ///
 /// Concurrent reads from completion / hover / definition providers share the
@@ -75,6 +90,11 @@ pub struct Index {
     /// `name_span`), keyed by FQ path. Used by rename / documentHighlight to
     /// edit/mark the declaration's identifier token rather than its whole span.
     decl_names: DashMap<PathString, (Url, Range)>,
+    /// P3 WS-C: per-file `import`-item reference sites paired with the canonical
+    /// path they resolve to (`ref_kind == "import"` from the envelope). Keyed by
+    /// the importing file's Url. Powers `documentLink` (import → declaring file)
+    /// — kept separate from `usages` because that map drops the ref-kind.
+    import_links: DashMap<Url, Vec<(Range, PathString)>>,
     /// PS-5: short → long PathString prefix expansions from
     /// `[workspace.aliases]` in deal.toml. Wrapped in RwLock so the
     /// `backend::initialized` handler can swap the table once the
@@ -118,7 +138,6 @@ struct RefEntry {
     /// Reference kind ("specializes", "type_ref", …). Retained for future
     /// filtering; not yet used by the query API.
     #[serde(default)]
-    #[allow(dead_code)]
     ref_kind: String,
 }
 
@@ -129,6 +148,7 @@ impl Index {
             kinds: DashMap::new(),
             usages: DashMap::new(),
             decl_names: DashMap::new(),
+            import_links: DashMap::new(),
             aliases: RwLock::new(Arc::new(HashMap::new())),
         }
     }
@@ -139,6 +159,7 @@ impl Index {
             kinds: DashMap::new(),
             usages: DashMap::new(),
             decl_names: DashMap::new(),
+            import_links: DashMap::new(),
             aliases: RwLock::new(Arc::new(aliases)),
         }
     }
@@ -244,10 +265,20 @@ impl Index {
             }
             let start = byte_to_position(rope, r.from_span[0]);
             let end = byte_to_position(rope, r.from_span[1]);
+            let range = Range { start, end };
+            // P3 WS-C: an `import P.{N}` item — record it for documentLink so the
+            // import statement can navigate to N's declaring file (goto-definition
+            // does not reach import items: they are payload strings, not AST nodes).
+            if r.ref_kind == "import" {
+                self.import_links
+                    .entry(uri.clone())
+                    .or_default()
+                    .push((range, r.resolved_path.clone()));
+            }
             self.usages
                 .entry(r.resolved_path)
                 .or_default()
-                .push((uri.clone(), Range { start, end }));
+                .push((uri.clone(), range));
         }
     }
 
@@ -262,6 +293,8 @@ impl Index {
             sites.retain(|(u, _)| u != uri);
             !sites.is_empty()
         });
+        // P3 WS-C: import links are keyed by the importing file.
+        self.import_links.remove(uri);
     }
 
     /// P2 WS-A: find-references. Returns the declaration (when `include_decl`)
@@ -354,6 +387,54 @@ impl Index {
             let (u, r) = v.clone();
             Location { uri: u, range: r }
         })
+    }
+
+    /// P3 WS-C: `import`-item links in `uri` — each `(import_item_range,
+    /// declaration_location)` pair, for `documentLink`. Items whose target is
+    /// not (yet) in the index are skipped, so no dead links are produced.
+    pub fn import_links_in_file(&self, uri: &Url) -> Vec<(Range, Location)> {
+        self.import_links
+            .get(uri)
+            .map(|sites| {
+                sites
+                    .value()
+                    .iter()
+                    .filter_map(|(range, path)| {
+                        self.declaration_location(path).map(|loc| (*range, loc))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// P3 WS-C: every declaration in `uri` with its full-definition range, its
+    /// precise declared-name range (falling back to the full span), and its
+    /// element kind. Shared by inlay hints (metaclass badge at the name) and
+    /// code lens (reference count + emit, anchored at the definition).
+    pub fn elements_in_file(&self, uri: &Url) -> Vec<ElementInfo> {
+        self.kinds
+            .iter()
+            .filter(|e| &e.value().0 == uri)
+            .filter_map(|e| {
+                let path = e.key().clone();
+                let kind = e.value().1.clone();
+                let decl_range = self
+                    .symbols
+                    .get(&path)
+                    .and_then(|v| if &v.0 == uri { Some(v.1) } else { None })?;
+                let name_range = self
+                    .decl_names
+                    .get(&path)
+                    .and_then(|v| if &v.0 == uri { Some(v.1) } else { None })
+                    .unwrap_or(decl_range);
+                Some(ElementInfo {
+                    path,
+                    decl_range,
+                    name_range,
+                    kind,
+                })
+            })
+            .collect()
     }
 
     /// Build LSP `SymbolInformation` entries for the `workspace/symbol`
