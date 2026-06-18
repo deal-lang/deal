@@ -23,13 +23,17 @@ use tower_lsp::lsp_types::{
 };
 
 use crate::documents::Documents;
-use crate::index::byte_to_position;
+use crate::index::{byte_to_position, Index};
 
 /// Implementation of `textDocument/hover`.
-pub async fn handle_hover(documents: &Documents, params: HoverParams) -> LspResult<Option<Hover>> {
+pub async fn handle_hover(
+    documents: &Documents,
+    index: &Index,
+    params: HoverParams,
+) -> LspResult<Option<Hover>> {
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
-    Ok(hover_for(documents, uri, position).await)
+    Ok(hover_for(documents, index, uri, position).await)
 }
 
 /// Inner helper — returns `Option<Hover>` so the LSP-error mapping stays
@@ -42,7 +46,12 @@ pub async fn handle_hover(documents: &Documents, params: HoverParams) -> LspResu
 ///      label — `part def BatteryPack`, `type vehicle.battery.BatteryPack`,
 ///      etc. — so hover fires on any definition or identifier, not only on
 ///      doc-commented declarations.
-async fn hover_for(documents: &Documents, uri: &Url, position: Position) -> Option<Hover> {
+async fn hover_for(
+    documents: &Documents,
+    index: &Index,
+    uri: &Url,
+    position: Position,
+) -> Option<Hover> {
     let handle_arc = documents.get_handle(uri)?;
     let rope = documents.get_buffer(uri)?;
 
@@ -71,6 +80,30 @@ async fn hover_for(documents: &Documents, uri: &Url, position: Position) -> Opti
         return None;
     }
 
+    // Tier 0 (P3 WS-C5): if the cursor is on a resolvable reference — a type
+    // reference or a name that binds to a declaration — show the *declaration's*
+    // hover (signature + doc + SysML mapping), the way goto-definition resolves
+    // it. The hover range stays on the reference token under the cursor. Hovering
+    // a declaration's own name yields no candidate here, so it falls through to
+    // the local rendering below (which renders the declaration itself).
+    if let Some(value) = declaration_hover_value(documents, index, uri, position).await {
+        // `stack` is non-empty; the innermost node is the reference token.
+        return Some(make_hover(&rope, stack[stack.len() - 1], value));
+    }
+
+    // Tier 1/2: render the innermost local node (declarations, and anything not
+    // resolvable to another declaration).
+    if let Some((value, node)) = hover_value_for_stack(&stack) {
+        return Some(make_hover(&rope, node, value));
+    }
+    None
+}
+
+/// Render the hover value for the innermost meaningful node in a containing
+/// chain: prefer the innermost node carrying a doc comment (signature + doc),
+/// else the innermost node we can label by kind. Returns the value and the node
+/// it came from (so the caller can range the hover to that node).
+fn hover_value_for_stack<'a>(stack: &[&'a Value]) -> Option<(String, &'a Value)> {
     // Tier 1: innermost node carrying a doc comment.
     for node in stack.iter().rev() {
         if let Some(doc) = extract_doc_text(node) {
@@ -79,20 +112,52 @@ async fn hover_for(documents: &Documents, uri: &Url, position: Position) -> Opti
                 None => doc,
             };
             value.push_str(&sysml_suffix(node));
-            return Some(make_hover(&rope, node, value));
+            return Some((value, node));
         }
     }
-
     // Tier 2: innermost node we can label by kind (+ name).
     for node in stack.iter().rev() {
         if let Some(sig) = node_label(node) {
-            let mut value = sig;
+            let mut value = sig.clone();
             value.push_str(&sysml_suffix(node));
-            return Some(make_hover(&rope, node, value));
+            return Some((value, node));
         }
     }
-
     None
+}
+
+/// P3 WS-C5: resolve the reference under the cursor to its declaration (reusing
+/// goto-definition's resolver) and render *that* declaration's hover value, so
+/// hovering a use shows the same rich content as hovering the definition.
+/// Returns `None` when the cursor is not on a resolvable reference (e.g. it is
+/// on a declaration name, a keyword, or an unresolved symbol).
+async fn declaration_hover_value(
+    documents: &Documents,
+    index: &Index,
+    uri: &Url,
+    position: Position,
+) -> Option<String> {
+    let (_path, decl) = crate::definition::resolved_path_at(documents, index, uri, position).await?;
+
+    let handle_arc = documents.get_handle(&decl.uri)?;
+    let rope = documents.get_buffer(&decl.uri)?;
+    let byte = position_to_byte(&rope, decl.range.start)?;
+    let ast_bytes = {
+        let guard = handle_arc.lock().await;
+        deal_ffi::safe::ast_json(&guard)?
+    };
+    if ast_bytes.is_empty() {
+        return None;
+    }
+    let root: Value = serde_json::from_slice(&ast_bytes).ok()?;
+    let entry = if root.get("span").is_some() {
+        &root
+    } else {
+        root.get("root")?
+    };
+    let mut stack: Vec<&Value> = Vec::new();
+    collect_containing(entry, byte, &mut stack);
+    hover_value_for_stack(&stack).map(|(value, _)| value)
 }
 
 /// Build the trailing SysML-v2-mapping block for a node (P1 WS-C), or an empty

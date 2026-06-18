@@ -236,7 +236,7 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
-        hover::handle_hover(&self.documents, params).await
+        hover::handle_hover(&self.documents, &self.index, params).await
     }
 
     async fn goto_definition(

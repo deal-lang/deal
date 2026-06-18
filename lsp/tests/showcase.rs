@@ -1138,6 +1138,59 @@ async fn document_links_for_imports() {
 }
 
 // ---------------------------------------------------------------------
+// Test 5l: hover_on_reference_shows_declaration (P3 WS-C5)
+// ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn hover_on_reference_shows_declaration() {
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root(&mut service, Some(SHOWCASE_ROOT)).await;
+
+    let uri = Url::from_file_path(std::fs::canonicalize(SHOWCASE_BATTERY).unwrap()).unwrap();
+    let needle = "interfaces.thermal.ThermallyManaged";
+    let mut waited = 0;
+    while index.references_of(needle, false).is_empty() && waited < 100 {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        waited += 1;
+    }
+    assert!(
+        !index.references_of(needle, false).is_empty(),
+        "eager_parse did not index the ThermallyManaged binding within 10s"
+    );
+
+    // Hover the `<<specializes>> ThermallyManaged` reference (a USE, in a
+    // different file from the `interface def` declaration).
+    let src = std::fs::read_to_string(SHOWCASE_BATTERY).expect("battery.deal");
+    let spec = src
+        .find("<<specializes>> ThermallyManaged")
+        .expect("specializes use in battery.deal");
+    let name_off = spec + "<<specializes>> ".len() + 3; // a few chars into the name
+    let (line, char_) = byte_to_line_char(&src, name_off);
+
+    let params = HoverParams {
+        text_document_position_params: TextDocumentPositionParams {
+            text_document: TextDocumentIdentifier { uri: uri.clone() },
+            position: Position::new(line, char_),
+        },
+        work_done_progress_params: WorkDoneProgressParams::default(),
+    };
+    let hover: Option<Hover> =
+        call_request(&mut service, "textDocument/hover", 101, params).await;
+    let hover = hover.expect("hover returned null on the specializes reference");
+    let text = match hover.contents {
+        HoverContents::Markup(m) => m.value,
+        other => panic!("expected markup hover, got {other:?}"),
+    };
+    assert!(text.contains("ThermallyManaged"), "hover text: {text}");
+    // The reference itself carries no SysML mapping; `InterfaceDefinition` only
+    // appears if the hover resolved cross-file to the declaration (WS-C5).
+    assert!(
+        text.contains("InterfaceDefinition"),
+        "hover on the reference did not resolve to the declaration's mapping; got: {text}"
+    );
+}
+
+// ---------------------------------------------------------------------
 // Test 6: hover_renders_jsdoc
 // ---------------------------------------------------------------------
 
