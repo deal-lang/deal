@@ -286,6 +286,30 @@ pub fn analyze(
     return analyzeWithExternalTable(arena, root, diag_list, source_file, null);
 }
 
+/// ADR-0004 P0: deep-copy an external (stdlib/dependency) `SymbolEntry` into
+/// `arena` so the result table owns it independently of the external table's
+/// (temporary) arena. The three owned slices — `id`, `source_file`, and (for
+/// units) `dim_meta.unit.dim_name` — are duped; `kind`, `span`, `name_span`,
+/// and `DimMeta.dimension` (a `[7]i8` `DimVector`) are inline and copy by value.
+fn cloneExternalEntry(arena: std.mem.Allocator, src: *const SymbolEntry) !*SymbolEntry {
+    const e = try arena.create(SymbolEntry);
+    e.* = .{
+        .id = try arena.dupe(u8, src.id),
+        .kind = src.kind,
+        .span = src.span,
+        .name_span = src.name_span,
+        .source_file = try arena.dupe(u8, src.source_file),
+        .dim_meta = if (src.dim_meta) |dm| switch (dm) {
+            .dimension => |v| DimMeta{ .dimension = v },
+            .unit => |u| DimMeta{ .unit = .{
+                .dim_name = try arena.dupe(u8, u.dim_name),
+                .is_conversion = u.is_conversion,
+            } },
+        } else null,
+    };
+    return e;
+}
+
 /// Run all 7 semantic checks, optionally seeding the symbol table with entries
 /// from an external (e.g. stdlib-wide) symbol table collected beforehand.
 ///
@@ -317,7 +341,21 @@ pub fn analyzeWithExternalTable(
 
     // Seed from external table (stdlib) if provided.
     // All entries from the external table are available for Check #7 dimension/unit lookup.
+    //
+    // ADR-0004 P0 — self-contained handles. Both the key AND the entry are
+    // deep-copied into `arena` (this analysis's arena). The external table's
+    // entries live in a *temporary* arena that the FFI caller
+    // (`deal_check_with_stdlib`) frees on return; sharing the borrowed
+    // `*SymbolEntry` left `entry.id` / `entry.source_file` dangling, so a later
+    // `deal_index_json` on the handle read freed memory (UAF / SIGSEGV — this
+    // only surfaced once the stdlib, which declares dimensions/units, was fed
+    // in). Cloning makes the handle own its whole symbol table, so the external
+    // arena may be freed immediately after this call.
     if (external_table) |ext| {
+        // Memoize so a source entry seeded under both its bare and qualified
+        // keys (e.g. `kg` and `deal.std.units.kg`) is cloned once and reused —
+        // preserving the prior aliasing and avoiding duplicate copies.
+        var clone_memo = std.AutoHashMap(*const SymbolEntry, *SymbolEntry).init(arena);
         var it = ext.entries.iterator();
         while (it.next()) |kv| {
             // Only copy dimension_def and unit_def entries — these are the only ones
@@ -325,11 +363,14 @@ pub fn analyzeWithExternalTable(
             // stdlib could shadow local declarations.
             const entry = kv.value_ptr.*;
             if (entry.kind == .dimension_def or entry.kind == .unit_def) {
+                const cloned = clone_memo.get(entry) orelse blk: {
+                    const c = try cloneExternalEntry(arena, entry);
+                    try clone_memo.put(entry, c);
+                    break :blk c;
+                };
                 // Dupe the key into the arena so it outlives the external table.
                 const key_copy = try arena.dupe(u8, kv.key_ptr.*);
-                // Share the entry pointer — it lives in the external table's arena.
-                // Safe because the caller guarantees the external table outlives this analysis.
-                try table.entries.put(key_copy, entry);
+                try table.entries.put(key_copy, cloned);
             }
         }
     }
