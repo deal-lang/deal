@@ -1625,6 +1625,15 @@ fn parseDefinitionBody(
         const tok = p.peek();
         const tok_start = tok.span.start;
         switch (tok.tag) {
+            // Nested import (ADR-0004 R5): a `.deal` definition body may contain
+            // an `import`, binding into the enclosing scope. P2 parses and places
+            // the node here; scoped binding is implemented in P3. `import` is its
+            // own keyword, distinct from the visibility-wrapper keywords below, so
+            // no lookahead is needed to disambiguate.
+            .kw_import => {
+                const imp = try parseImportDecl(p);
+                try members.append(p.arena, imp);
+            },
             // Visibility wrappers
             .kw_public, .kw_protected, .kw_private => {
                 const vw = try parseVisibilityWrapper(p);

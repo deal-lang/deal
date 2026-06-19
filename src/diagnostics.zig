@@ -96,6 +96,9 @@ pub const Codes = struct {
     pub const e_mismatched_close_tag = "E0302";
     pub const e_nesting_too_deep_tag = "E0303";
     pub const e_unclosed_tag_at_eof = "E0304";
+    // E0305 — ADR-0004 R5: an `import` appears after composition content in a
+    // `.dealx` file; imports must be at the top of the file (before any tags).
+    pub const e_dealx_import_after_content = "E0305";
 
     // Recovery / structural (E0400..E0499)
     pub const e_sync_dropped_tokens = "E0400";

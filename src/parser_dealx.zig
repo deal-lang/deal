@@ -190,6 +190,18 @@ fn parseDealxFile(p: *Parser) !*ast.Node {
             p.restoreMode(prev_close);
             const close_span = ast.Span{ .start = close_open.span.start, .end = close_tok.span.end };
             p.popTag(close_name, close_span);
+        } else if (tok.tag == .kw_import) {
+            // ADR-0004 R5: in `.dealx`, imports are top-of-file only. An import
+            // after composition content is a placement error. Parse-and-discard
+            // the statement (clean recovery) and emit a specific diagnostic
+            // instead of the generic "expected composition tag".
+            const bad = try parseImportDecl(p);
+            try p.diags.append(p.arena, .{
+                .code = "E0305",
+                .severity = .err,
+                .message = "import must appear at the top of a .dealx file, before any composition content",
+                .span = bad.span,
+            });
         } else {
             // Unknown leading token at composition body — D-17 tag-tier
             // recovery. Emit one E0101 and sync to next `[<` / `[</`.

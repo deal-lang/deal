@@ -844,6 +844,11 @@ fn collectMember(a: *Analyzer, node: *ast.Node) !void {
                 try collectMember(a, m);
             }
         },
+        // ADR-0004 R5 (P2): a nested `import` inside a `.deal` definition body is
+        // parsed and placed by the parser, but scoped binding is intentionally
+        // deferred to P3. Explicit no-op (not a silent `else` drop) so the inert
+        // state is deliberate and P3 has a hook to bind it into the local scope.
+        .import_decl => {},
         else => {},
     }
 }

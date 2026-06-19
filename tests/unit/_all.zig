@@ -27,6 +27,7 @@ comptime {
     _ = @import("parser_dealx_snapshot.zig");
     _ = @import("parser_dealx_tag_balance.zig");
     _ = @import("parser_dealx_coverage.zig");
+    _ = @import("parser_import_placement.zig");
     _ = @import("recovery_statement.zig");
     _ = @import("recovery_definition.zig");
     _ = @import("recovery_dealx_tag.zig");
