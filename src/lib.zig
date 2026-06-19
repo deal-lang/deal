@@ -371,6 +371,20 @@ fn mergeStdlibSourceInto(
             merged.entries.put(key_copy, entry) catch continue;
         }
     }
+
+    // ADR-0004 P3 (WS-1): carry `export` re-export edges into the merged table
+    // so the surface-precompute can build cross-file package surfaces. Strings
+    // are deep-copied into `alloc` (which owns `merged`), mirroring the key dupe
+    // above. Only meaningful when `all_decls` (workspace resolution); harmless
+    // otherwise.
+    for (sub_table.exports.items) |edge| {
+        merged.exports.append(alloc, .{
+            .package = alloc.dupe(u8, edge.package) catch continue,
+            .mod = alloc.dupe(u8, edge.mod) catch continue,
+            .item = alloc.dupe(u8, edge.item) catch continue,
+            .span = edge.span,
+        }) catch continue;
+    }
 }
 
 /// Test-only variant of `deal_parse_internal` that seeds the sema with
@@ -419,6 +433,11 @@ pub fn deal_parse_internal_with_stdlib(
     for (stdlib_sources) |src| {
         mergeStdlibSourceInto(merged, stdlib_alloc, src.source, src.filename, all_decls);
     }
+
+    // ADR-0004 P3 (WS-1): precompute package public surfaces on the merged table
+    // so import-scoped resolution (Pass B) can resolve wildcard/named imports via
+    // surface-lookup. Best-effort, like stdlib seeding.
+    sema.computeSurfaces(stdlib_alloc, merged) catch {};
 
     // ── Phase 2: Analyze the target file with stdlib seeding ──────────────
     var arena = std.heap.ArenaAllocator.init(backing_allocator);
@@ -646,6 +665,11 @@ pub export fn deal_check_with_stdlib(
                 file_idx += 1;
             }
         }
+
+        // ADR-0004 P3 (WS-1): precompute package public surfaces on the merged
+        // table so import-scoped resolution (Pass B) resolves wildcard/named
+        // imports via surface-lookup. Best-effort, like stdlib seeding.
+        sema.computeSurfaces(stdlib_alloc, merged) catch {};
     }
 
     // Step 7: Parse the target source.

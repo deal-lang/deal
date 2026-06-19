@@ -225,6 +225,25 @@ pub const ImportEdge = struct {
     is_wildcard: bool,
 };
 
+/// ADR-0004 P3 (WS-1): one re-export edge, collected in Pass A from each
+/// `export mod.{items};`. `package` is the re-exporting file's package (e.g.
+/// "spacecraft"); `mod` is relative to it (e.g. "eps"). The edge resolves to
+/// `package.mod.item` if that declaration exists, else `package.item` — which
+/// covers both the sub-package barrel form (cubesat) and the flat single-package
+/// form (stdlib, where `mod` is an organizational file stem). Arena-owned.
+pub const ExportEdge = struct {
+    package: []const u8,
+    mod: []const u8,
+    item: []const u8,
+    span: ast.Span,
+};
+
+/// ADR-0004 P3 (WS-1): a package's importable public surface — visible name →
+/// declaring FQ id. e.g. surface("spacecraft")["BatteryPack"] =
+/// "spacecraft.eps.BatteryPack". Built by the surface-precompute pass from a
+/// package's own top-level declarations plus its (transitively) resolved exports.
+pub const PackageSurface = std.StringHashMap([]const u8);
+
 /// The workspace-wide symbol table produced by the analyzer.
 pub const SymbolTable = struct {
     /// Map from fully-qualified ID → symbol entry. Arena-owned.
@@ -238,6 +257,13 @@ pub const SymbolTable = struct {
     /// P2 WS-A: resolved reference bindings, in Pass-B walk order. Arena-owned;
     /// emitted in the index envelope as `references[]`.
     bindings: std.ArrayList(Binding),
+    /// ADR-0004 P3 (WS-1): raw `export` edges collected in Pass A. Defaulted so
+    /// existing construction sites need no change.
+    exports: std.ArrayList(ExportEdge) = .empty,
+    /// ADR-0004 P3 (WS-1): package FQ → precomputed public surface. Null until
+    /// the surface-precompute pass runs (lazy; pointer keeps construction sites
+    /// untouched).
+    surfaces: ?*std.StringHashMap(*PackageSurface) = null,
 };
 
 /// Internal analyzer state — not exposed.
@@ -420,6 +446,12 @@ fn passA(a: *Analyzer, root: *ast.Node) !void {
             for (f.definitions) |def| {
                 try collectDefinition(a, def);
             }
+            // ADR-0004 P3 (WS-1): collect `export` re-export edges. `.dealx`
+            // compositions have no exports (they are application roots, not
+            // importable surfaces), so this is `.deal`-only.
+            for (f.exports) |e| {
+                try collectExports(a, e);
+            }
         },
         .dealx_file => |f| {
             if (f.package_decl) |pd| {
@@ -525,6 +557,98 @@ fn collectImport(a: *Analyzer, node: *ast.Node) !void {
             try a.import_edges.append(a.arena, edge);
         },
     }
+}
+
+/// ADR-0004 P3 (WS-1): collect the re-export edges from one `export mod.{items};`
+/// declaration into the table's `exports` list. Pure collection — targets are
+/// resolved later by the surface-precompute pass. `a.pkg_prefix` is the
+/// re-exporting file's package (set in Pass A before this runs).
+fn collectExports(a: *Analyzer, node: *ast.Node) !void {
+    const ex = node.payload.export_decl;
+    for (ex.items) |item| {
+        try a.table.exports.append(a.arena, .{
+            .package = a.pkg_prefix,
+            .mod = ex.module,
+            .item = item,
+            .span = node.span,
+        });
+    }
+}
+
+/// ADR-0004 P3 (WS-1): true for a real declaration entry (not an import marker).
+fn isSurfaceDecl(e: *const SymbolEntry) bool {
+    return e.kind != .imported and e.kind != .imported_wildcard_pkg;
+}
+
+/// ADR-0004 P3 (WS-1): get-or-create a package's surface map within `arena`.
+fn surfaceFor(
+    arena: std.mem.Allocator,
+    surfaces: *std.StringHashMap(*PackageSurface),
+    pkg: []const u8,
+) !*PackageSurface {
+    if (surfaces.get(pkg)) |s| return s;
+    const s = try arena.create(PackageSurface);
+    s.* = PackageSurface.init(arena);
+    try surfaces.put(pkg, s);
+    return s;
+}
+
+/// ADR-0004 P3 (WS-1): compute per-package public surfaces on `table`.
+/// surface(P) = P's own top-level declarations + P's `export` edges resolved
+/// (transitively) to their declaring FQ ids. An edge (P, mod, item) resolves to
+/// `P.mod.item` if that is a declared entry, else `P.item`, else `item` in
+/// surface(P.mod) (a barrel re-exporting another barrel). Iterates to a fixpoint,
+/// bounded so a cyclic re-export terminates (left simply un-surfaced for now).
+pub fn computeSurfaces(arena: std.mem.Allocator, table: *SymbolTable) !void {
+    const surfaces = try arena.create(std.StringHashMap(*PackageSurface));
+    surfaces.* = std.StringHashMap(*PackageSurface).init(arena);
+
+    // Step 1 — own top-level declarations. `entries` holds both bare-alias and
+    // FQ-id keys for one entry; process each once via its FQ key. First decl wins.
+    var it = table.entries.iterator();
+    while (it.next()) |kv| {
+        const e = kv.value_ptr.*;
+        if (!isSurfaceDecl(e)) continue;
+        if (!std.mem.eql(u8, kv.key_ptr.*, e.id)) continue; // FQ key only
+        const parts = splitId(e.id);
+        if (parts.pkg.len == 0) continue; // top-level, no package → not a surface member
+        const s = try surfaceFor(arena, surfaces, parts.pkg);
+        if (!s.contains(parts.terminal)) try s.put(parts.terminal, e.id);
+    }
+
+    // Step 2 — apply export edges to a bounded fixpoint.
+    var changed = true;
+    var guard: usize = 0;
+    while (changed and guard < 64) : (guard += 1) {
+        changed = false;
+        for (table.exports.items) |edge| {
+            const s = try surfaceFor(arena, surfaces, edge.package);
+            if (s.contains(edge.item)) continue;
+            const full = try std.fmt.allocPrint(arena, "{s}.{s}.{s}", .{ edge.package, edge.mod, edge.item });
+            const flat = try std.fmt.allocPrint(arena, "{s}.{s}", .{ edge.package, edge.item });
+            var resolved: ?[]const u8 = null;
+            if (table.entries.get(full)) |e| {
+                if (isSurfaceDecl(e)) resolved = e.id;
+            }
+            if (resolved == null) {
+                if (table.entries.get(flat)) |e| {
+                    if (isSurfaceDecl(e)) resolved = e.id;
+                }
+            }
+            if (resolved == null) {
+                const sub = try std.fmt.allocPrint(arena, "{s}.{s}", .{ edge.package, edge.mod });
+                if (surfaces.get(sub)) |subs| {
+                    if (subs.get(edge.item)) |id| resolved = id;
+                }
+            }
+            if (resolved) |id| {
+                try s.put(edge.item, id);
+                changed = true;
+            }
+        }
+    }
+
+    table.surfaces = surfaces;
 }
 
 fn collectDefinition(a: *Analyzer, node: *ast.Node) !void {
@@ -2400,4 +2524,48 @@ test "isDottedPrefix respects dot boundaries" {
     try std.testing.expect(!isDottedPrefix("interfaces", "vehicle.battery"));
     // A longer prefix never matches a shorter package.
     try std.testing.expect(!isDottedPrefix("interfaces.thermal", "interfaces"));
+}
+
+test "P3 WS-1: computeSurfaces surfaces own decls + resolves export edges" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const al = arena.allocator();
+
+    var table: SymbolTable = .{
+        .entries = std.StringHashMap(*SymbolEntry).init(al),
+        .imported_packages = std.StringHashMap(void).init(al),
+        .imports_graph = &.{},
+        .package_segments = &.{},
+        .bindings = .empty,
+    };
+    // A declaration in sub-package spacecraft.eps.
+    const bp = try al.create(SymbolEntry);
+    bp.* = .{
+        .id = "spacecraft.eps.BatteryPack",
+        .kind = .part_def,
+        .span = .{ .start = 0, .end = 0 },
+        .source_file = "eps.deal",
+    };
+    try table.entries.put("spacecraft.eps.BatteryPack", bp);
+    // `export eps.{BatteryPack};` in package spacecraft (a barrel).
+    try table.exports.append(al, .{
+        .package = "spacecraft",
+        .mod = "eps",
+        .item = "BatteryPack",
+        .span = .{ .start = 0, .end = 0 },
+    });
+
+    try computeSurfaces(al, &table);
+    const surfaces = table.surfaces.?;
+
+    // Own-decl surface of the sub-package.
+    try std.testing.expectEqualStrings(
+        "spacecraft.eps.BatteryPack",
+        surfaces.get("spacecraft.eps").?.get("BatteryPack").?,
+    );
+    // Re-exported into the parent package's surface via the export edge.
+    try std.testing.expectEqualStrings(
+        "spacecraft.eps.BatteryPack",
+        surfaces.get("spacecraft").?.get("BatteryPack").?,
+    );
 }
