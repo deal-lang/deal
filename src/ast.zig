@@ -301,9 +301,17 @@ pub const ImportDecl = struct {
     items: []ImportItem,
 };
 
+/// ADR-0004 P3: one re-exported item in an `export mod.{A, B};` declaration.
+/// `name_span` is the item's name token (for precise rename / goto-def on barrel
+/// items, mirroring ImportItem.name_span).
+pub const ExportItem = struct {
+    name: []const u8,
+    name_span: Span = .{ .start = 0, .end = 0 },
+};
+
 pub const ExportDecl = struct {
     module: []const u8,
-    items: [][]const u8,
+    items: []ExportItem,
 };
 
 /// Shared shape for all 14 element definition kinds.

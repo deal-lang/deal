@@ -309,9 +309,14 @@ fn writePayload(allocator: std.mem.Allocator, buf: *std.ArrayList(u8), payload: 
             try writeStringArray(allocator, buf, p.path);
         },
         .export_decl => |p| {
-            // items, module
-            try buf.appendSlice(allocator, ",\"items\":");
-            try writeStringArray(allocator, buf, p.items);
+            // items (string array of names — name_span is internal, not serialized
+            // here, so the AST-JSON shape is unchanged), module
+            try buf.appendSlice(allocator, ",\"items\":[");
+            for (p.items, 0..) |item, i| {
+                if (i > 0) try buf.append(allocator, ',');
+                try writeStr(allocator, buf, item.name);
+            }
+            try buf.append(allocator, ']');
             try buf.appendSlice(allocator, ",\"module\":");
             try writeStr(allocator, buf, p.module);
         },

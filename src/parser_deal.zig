@@ -846,10 +846,10 @@ fn parseExportDecl(p: *Parser) !*ast.Node {
     _ = try p.expect(.dot);
     _ = try p.expect(.l_brace);
 
-    var names: std.ArrayList([]const u8) = .empty;
+    var names: std.ArrayList(ast.ExportItem) = .empty;
     while (p.peek().tag != .r_brace and p.peek().tag != .eof) {
         const n_tok = try p.expect(.ident);
-        try names.append(p.arena, p.tokenText(n_tok.span));
+        try names.append(p.arena, .{ .name = p.tokenText(n_tok.span), .name_span = n_tok.span });
         if (p.peek().tag == .comma) _ = p.advance();
     }
     _ = try p.expect(.r_brace);

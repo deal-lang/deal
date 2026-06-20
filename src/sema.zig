@@ -236,6 +236,9 @@ pub const ExportEdge = struct {
     mod: []const u8,
     item: []const u8,
     span: ast.Span,
+    /// ADR-0004 P3: span of the re-exported item's name token (for precise rename
+    /// / goto-def on barrel items). Empty when unset.
+    item_span: ast.Span = .{ .start = 0, .end = 0 },
 };
 
 /// ADR-0004 P3 (WS-1): a package's importable public surface — visible name →
@@ -575,9 +578,35 @@ fn collectExports(a: *Analyzer, node: *ast.Node) !void {
         try a.table.exports.append(a.arena, .{
             .package = a.pkg_prefix,
             .mod = ex.module,
-            .item = item,
+            .item = item.name,
             .span = node.span,
+            .item_span = item.name_span,
         });
+    }
+}
+
+/// ADR-0004 P3: Pass-B — record a reference binding for each `export` item,
+/// resolved to its declaring FQ id (the same target the surface-precompute uses:
+/// `pkg.mod.item` else `pkg.item`). This makes barrel items first-class
+/// references: goto-definition, find-references, and rename all see them, so a
+/// rename of a re-exported symbol updates the barrel (keeping the package surface
+/// consistent). Requires the workspace external table; a no-op single-file.
+fn checkExports(a: *Analyzer) !void {
+    const ext = a.external orelse return;
+    for (a.table.exports.items) |edge| {
+        if (edge.item_span.start == edge.item_span.end) continue;
+        const full = try std.fmt.allocPrint(a.arena, "{s}.{s}.{s}", .{ edge.package, edge.mod, edge.item });
+        const flat = try std.fmt.allocPrint(a.arena, "{s}.{s}", .{ edge.package, edge.item });
+        var target: ?[]const u8 = null;
+        if (ext.entries.get(full)) |e| {
+            if (isSurfaceDecl(e)) target = e.id;
+        }
+        if (target == null) {
+            if (ext.entries.get(flat)) |e| {
+                if (isSurfaceDecl(e)) target = e.id;
+            }
+        }
+        if (target) |id| try recordBinding(a, edge.item_span, id, "export");
     }
 }
 
@@ -1245,6 +1274,9 @@ fn passB(a: *Analyzer, root: *ast.Node) !void {
             for (f.definitions) |def| {
                 try checkDefinition(a, def);
             }
+            // ADR-0004 P3: record bindings for `export` items (barrel re-exports)
+            // so they are renamable / navigable references.
+            try checkExports(a);
         },
         .dealx_file => |f| {
             for (f.imports) |imp| {

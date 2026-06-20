@@ -345,7 +345,7 @@ const FormatContext = struct {
             try ctx.write(".{");
             for (p.items, 0..) |item, i| {
                 if (i > 0) try ctx.write(", ");
-                try ctx.write(item);
+                try ctx.write(item.name);
             }
             try ctx.write("}");
         }
