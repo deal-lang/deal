@@ -1032,24 +1032,6 @@ fn isDottedPrefix(prefix: []const u8, pkg: []const u8) bool {
         pkg[prefix.len] == '.';
 }
 
-/// Collect every workspace declaration whose terminal name is `terminal` and
-/// whose package is within the `prefix` subtree, deduped by FQ id into `out`.
-fn collectSubtreeMatches(
-    ext: *const SymbolTable,
-    prefix: []const u8,
-    terminal: []const u8,
-    out: *std.StringHashMap(void),
-) void {
-    var it = ext.entries.iterator();
-    while (it.next()) |kv| {
-        const e = kv.value_ptr.*;
-        if (e.kind == .imported or e.kind == .imported_wildcard_pkg) continue;
-        const parts = splitId(e.id);
-        if (!std.mem.eql(u8, parts.terminal, terminal)) continue;
-        if (!isDottedPrefix(prefix, parts.pkg)) continue;
-        out.put(e.id, {}) catch {};
-    }
-}
 
 /// ADR-0003 cross-file name resolution. A referenced name binds to:
 ///   1. a locally-declared (non-imported) symbol → its `entry.id`; otherwise

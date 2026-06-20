@@ -1689,6 +1689,23 @@ pub fn writeIndexJson(
     }
     try buf.append(allocator, '}');
 
+    // exports array (ADR-0004 P3 / WS-8): this file's `export` re-export edges,
+    // so P4 (CLI closure loader) and P5 (LSP) can aggregate workspace package
+    // surfaces without re-deriving them. Pass-A collection order is deterministic.
+    try buf.appendSlice(allocator, ",\"exports\":[");
+    for (table.exports.items, 0..) |edge, i| {
+        if (i > 0) try buf.append(allocator, ',');
+        // Fields (alphabetical): item, mod, package.
+        try buf.appendSlice(allocator, "{\"item\":");
+        try writeStr(allocator, &buf, edge.item);
+        try buf.appendSlice(allocator, ",\"mod\":");
+        try writeStr(allocator, &buf, edge.mod);
+        try buf.appendSlice(allocator, ",\"package\":");
+        try writeStr(allocator, &buf, edge.package);
+        try buf.append(allocator, '}');
+    }
+    try buf.append(allocator, ']');
+
     // imports_graph array.
     try buf.appendSlice(allocator, ",\"imports_graph\":[");
     for (table.imports_graph, 0..) |edge, i| {
