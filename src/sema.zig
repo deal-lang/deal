@@ -291,6 +291,12 @@ const Analyzer = struct {
     /// states). Non-null only while inside an action_def / state_def body;
     /// succession / transition / control-block targets resolve against it.
     current_steps: ?*const std.StringHashMap(void) = null,
+    /// ADR-0004 P3 (WS-4): lexical scope stack for nested `.deal` imports. Each
+    /// frame is the import edges declared directly in the definition body
+    /// currently being checked; resolution consults frames innermost→outermost
+    /// before file-level imports, so a nested import binds only within its scope.
+    /// Defaulted so the Analyzer literal needs no change.
+    scope_stack: std.ArrayList([]const ImportEdge) = .empty,
     /// P2 WS-A / ADR-0003: the workspace-merged declaration table used for
     /// cross-file name resolution. When present, `resolveName` resolves bare
     /// imported names to the unique declaration in the imported package's
@@ -1093,44 +1099,45 @@ fn resolveNameResult(a: *Analyzer, name: []const u8, segments: [][]const u8) Nam
     // Tier 3 (ADR-0004 P3): import-scoped surface resolution.
     const surfaces = ext.surfaces orelse return .not_found;
 
-    var matches = std.StringHashMap(void).init(a.arena);
-
     if (segments.len > 1) {
         // Qualified ref `pkg.sub.Foo`: resolves only if the written prefix is
-        // itself import-reachable (NO auto-descend — R4) and its surface holds
-        // the terminal.
+        // import-reachable (in a nested scope or at file level; NO auto-descend,
+        // R4) and its surface holds the terminal.
         const written = std.mem.join(a.arena, ".", segments[0 .. segments.len - 1]) catch
             return .not_found;
         if (importReaches(a, written)) {
             if (surfaces.get(written)) |s| {
-                if (s.get(terminal)) |id| matches.put(id, {}) catch {};
+                if (s.get(terminal)) |id| return .{ .found = id };
             }
         }
-    } else {
-        // Bare ref `Foo`: each import edge that BINDS Foo contributes a candidate
-        // from that package's surface — wildcard binds the whole surface, a named
-        // import binds only its listed items (R4). (Pass A sealed the edges into
-        // `table.imports_graph`; `import_edges` is emptied by then.)
-        for (a.table.imports_graph) |edge| {
-            const binds = edge.is_wildcard or containsStr(edge.items, terminal);
-            if (!binds) continue;
-            if (surfaces.get(edge.import_path)) |s| {
-                if (s.get(terminal)) |id| matches.put(id, {}) catch {};
-            }
-        }
+        return .not_found;
     }
 
-    const n = matches.count();
-    if (n == 0) return .not_found;
-    if (n > 1) return .ambiguous;
-    var kit = matches.keyIterator();
-    return .{ .found = kit.next().?.* };
+    // Bare ref `Foo`: consult nested scope frames innermost→outermost (lexical
+    // shadowing — the first scope that binds wins), then file-level imports.
+    // Wildcard binds the package surface, named binds only its listed items (R4).
+    var fi = a.scope_stack.items.len;
+    while (fi > 0) {
+        fi -= 1;
+        switch (resolveInEdges(a, a.scope_stack.items[fi], surfaces, terminal)) {
+            .found => |id| return .{ .found = id },
+            .ambiguous => return .ambiguous,
+            .not_found => {},
+        }
+    }
+    return resolveInEdges(a, a.table.imports_graph, surfaces, terminal);
 }
 
 /// ADR-0004 P3 (WS-1c): is package `pkg` directly import-reachable in this module?
 /// True iff some import edge names exactly `pkg` (wildcard or named). No
 /// auto-descent into sub-packages (R4): `import p.*` does not make `p.sub` reachable.
 fn importReaches(a: *Analyzer, pkg: []const u8) bool {
+    // Nested-scope imports (innermost-first order is irrelevant for reachability).
+    for (a.scope_stack.items) |frame| {
+        for (frame) |edge| {
+            if (std.mem.eql(u8, edge.import_path, pkg)) return true;
+        }
+    }
     for (a.table.imports_graph) |edge| {
         if (std.mem.eql(u8, edge.import_path, pkg)) return true;
     }
@@ -1142,6 +1149,68 @@ fn containsStr(haystack: []const []const u8, needle: []const u8) bool {
         if (std.mem.eql(u8, s, needle)) return true;
     }
     return false;
+}
+
+/// ADR-0004 P3 (WS-4): resolve a bare `terminal` against one list of import edges
+/// via package surfaces — wildcard binds the whole surface, named binds its listed
+/// items. Returns ambiguous if two edges in the SAME list bind it differently.
+fn resolveInEdges(
+    a: *Analyzer,
+    edges: []const ImportEdge,
+    surfaces: *std.StringHashMap(*PackageSurface),
+    terminal: []const u8,
+) NameResolution {
+    var matches = std.StringHashMap(void).init(a.arena);
+    for (edges) |edge| {
+        const binds = edge.is_wildcard or containsStr(edge.items, terminal);
+        if (!binds) continue;
+        if (surfaces.get(edge.import_path)) |s| {
+            if (s.get(terminal)) |id| matches.put(id, {}) catch {};
+        }
+    }
+    const n = matches.count();
+    if (n == 0) return .not_found;
+    if (n > 1) return .ambiguous;
+    var kit = matches.keyIterator();
+    return .{ .found = kit.next().?.* };
+}
+
+/// ADR-0004 P3 (WS-4): build a lexical scope frame from a body's direct
+/// `import_decl` members (the nested imports that bind only within this body).
+fn nestedImportFrame(a: *Analyzer, members: []*ast.Node) ![]const ImportEdge {
+    var edges: std.ArrayList(ImportEdge) = .empty;
+    for (members) |m| {
+        if (m.payload == .import_decl) {
+            try edges.append(a.arena, try importEdgeOf(a, m));
+        }
+    }
+    return edges.toOwnedSlice(a.arena);
+}
+
+/// ADR-0004 P3 (WS-4): build an ImportEdge from an `import_decl` node WITHOUT
+/// registering it in the global table (used for nested/scoped imports). Mirrors
+/// the edge shapes `collectImport` records for file-level imports.
+fn importEdgeOf(a: *Analyzer, node: *ast.Node) !ImportEdge {
+    const imp = node.payload.import_decl;
+    const path_str = try std.mem.join(a.arena, ".", imp.path);
+    switch (imp.kind) {
+        .wildcard => return .{ .from_file = a.source_file, .import_path = path_str, .items = &.{}, .is_wildcard = true },
+        .named => {
+            var items: std.ArrayList([]const u8) = .empty;
+            for (imp.items) |item| try items.append(a.arena, item.name);
+            return .{ .from_file = a.source_file, .import_path = path_str, .items = try items.toOwnedSlice(a.arena), .is_wildcard = false };
+        },
+        .simple => {
+            if (imp.path.len > 1) {
+                const pkg = try std.mem.join(a.arena, ".", imp.path[0 .. imp.path.len - 1]);
+                const name = imp.path[imp.path.len - 1];
+                const items = try a.arena.dupe([]const u8, &[_][]const u8{name});
+                return .{ .from_file = a.source_file, .import_path = pkg, .items = items, .is_wildcard = false };
+            }
+            return .{ .from_file = a.source_file, .import_path = path_str, .items = &.{}, .is_wildcard = false };
+        },
+        .alias => return .{ .from_file = a.source_file, .import_path = path_str, .items = &.{}, .is_wildcard = false },
+    }
 }
 
 /// P2 WS-A: resolve a referenced name to its canonical fully-qualified id for
@@ -1361,6 +1430,17 @@ fn checkDefinition(a: *Analyzer, node: *ast.Node) !void {
     if (is_behavioral) {
         try collectStepNames(a, elem.members, &step_set);
         a.current_steps = &step_set;
+    }
+
+    // ADR-0004 P3 (WS-4): push a lexical scope frame for this body's nested
+    // imports (if any), so references in the body resolve through them; the frame
+    // vanishes on exit (enclosing-scope-only, R5). Popped at function return.
+    const nested_frame = try nestedImportFrame(a, elem.members);
+    if (nested_frame.len > 0) try a.scope_stack.append(a.arena, nested_frame);
+    defer {
+        if (nested_frame.len > 0) {
+            _ = a.scope_stack.pop();
+        }
     }
 
     // Check members.

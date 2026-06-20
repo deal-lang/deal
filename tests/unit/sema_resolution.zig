@@ -236,6 +236,51 @@ test "ADR-0004 P3: un-imported cross-file type is rejected (E2100); importing it
     }
 }
 
+test "ADR-0004 P3 (WS-4): nested .deal import binds within its scope only" {
+    const gpa = std.testing.allocator;
+    const lib_src =
+        \\package lib.parts;
+        \\part def Cell { }
+    ;
+    const lib_barrel =
+        \\package lib;
+        \\export parts.{Cell};
+    ;
+    // `Inner` imports Cell in its body and uses it (resolves); `Outer` uses Cell
+    // with no in-scope import → E2100. The nested import must not leak out.
+    const app_src =
+        \\package app;
+        \\part def Inner {
+        \\  import lib.{Cell};
+        \\  part c : Cell;
+        \\}
+        \\part def Outer {
+        \\  part d : Cell;
+        \\}
+    ;
+    const ws = [_]lib.StdlibSource{
+        .{ .source = lib_src, .filename = "lib/parts.deal" },
+        .{ .source = lib_barrel, .filename = "lib/index.deal" },
+    };
+    const handle = try lib.deal_parse_internal_with_stdlib(gpa, app_src, "app.deal", &ws, true);
+    defer lib.deal_free_internal(handle);
+
+    const table = handle.index_root orelse return error.TestUnexpectedResult;
+    // Inner's `Cell` resolved cross-file via the nested import.
+    var inner_bound = false;
+    for (table.bindings.items) |b| {
+        if (std.mem.eql(u8, b.ref_kind, "type_ref") and
+            std.mem.eql(u8, b.resolved_path, "lib.parts.Cell")) inner_bound = true;
+    }
+    try std.testing.expect(inner_bound);
+    // Outer's `Cell` is out of scope → exactly one E2100 (Outer only).
+    var e2100_count: usize = 0;
+    for (handle.diagnostics.items) |d| {
+        if (std.mem.eql(u8, d.code, "E2100")) e2100_count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), e2100_count);
+}
+
 test "ADR-0003: same-file specializes binds to local FQ id" {
     const gpa = std.testing.allocator;
     const src =
