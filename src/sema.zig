@@ -1060,32 +1060,63 @@ fn resolveNameResult(a: *Analyzer, name: []const u8, segments: [][]const u8) Nam
             return .{ .found = e.id };
         }
     }
+    // ADR-0004 P3 (WS-1c): cross-file resolution is import-scoped. A name resolves
+    // only through an import whose package SURFACE contains it (R2/R4/R6) — no more
+    // subtree-match escape hatch. Requires the workspace external table + its
+    // precomputed surfaces.
     const ext = a.external orelse return .not_found;
     const terminal = segments[segments.len - 1];
+
+    // Tier 2 (ADR-0004 P3): same-package declarations are visible without import
+    // (a package may span multiple files). If the writer's own package declares
+    // `terminal`, it resolves directly from the workspace table — bare, or
+    // qualified with the writer's own package as the written prefix.
+    if (a.pkg_prefix.len > 0) {
+        var own_fq: ?[]const u8 = null;
+        if (segments.len == 1) {
+            own_fq = std.fmt.allocPrint(a.arena, "{s}.{s}", .{ a.pkg_prefix, terminal }) catch null;
+        } else {
+            const wr = std.mem.join(a.arena, ".", segments[0 .. segments.len - 1]) catch null;
+            if (wr) |w| {
+                if (std.mem.eql(u8, w, a.pkg_prefix)) {
+                    own_fq = std.fmt.allocPrint(a.arena, "{s}.{s}", .{ a.pkg_prefix, terminal }) catch null;
+                }
+            }
+        }
+        if (own_fq) |fq| {
+            if (ext.entries.get(fq)) |e| {
+                if (isSurfaceDecl(e)) return .{ .found = e.id };
+            }
+        }
+    }
+
+    // Tier 3 (ADR-0004 P3): import-scoped surface resolution.
+    const surfaces = ext.surfaces orelse return .not_found;
 
     var matches = std.StringHashMap(void).init(a.arena);
 
     if (segments.len > 1) {
-        // Already qualified: the written prefix is the search root.
+        // Qualified ref `pkg.sub.Foo`: resolves only if the written prefix is
+        // itself import-reachable (NO auto-descend — R4) and its surface holds
+        // the terminal.
         const written = std.mem.join(a.arena, ".", segments[0 .. segments.len - 1]) catch
             return .not_found;
-        collectSubtreeMatches(ext, written, terminal, &matches);
-    } else {
-        // Bare name: candidate prefixes are the import paths that brought it in.
-        // Named imports register a qualified `P.terminal` entry (kind .imported).
-        var nit = a.table.entries.iterator();
-        while (nit.next()) |kv| {
-            const e = kv.value_ptr.*;
-            if (e.kind != .imported) continue;
-            const parts = splitId(kv.key_ptr.*);
-            if (parts.pkg.len == 0) continue;
-            if (!std.mem.eql(u8, parts.terminal, terminal)) continue;
-            collectSubtreeMatches(ext, parts.pkg, terminal, &matches);
+        if (importReaches(a, written)) {
+            if (surfaces.get(written)) |s| {
+                if (s.get(terminal)) |id| matches.put(id, {}) catch {};
+            }
         }
-        // Wildcard imports contribute every imported package as a prefix.
-        var wit = a.table.imported_packages.iterator();
-        while (wit.next()) |kv| {
-            collectSubtreeMatches(ext, kv.key_ptr.*, terminal, &matches);
+    } else {
+        // Bare ref `Foo`: each import edge that BINDS Foo contributes a candidate
+        // from that package's surface — wildcard binds the whole surface, a named
+        // import binds only its listed items (R4). (Pass A sealed the edges into
+        // `table.imports_graph`; `import_edges` is emptied by then.)
+        for (a.table.imports_graph) |edge| {
+            const binds = edge.is_wildcard or containsStr(edge.items, terminal);
+            if (!binds) continue;
+            if (surfaces.get(edge.import_path)) |s| {
+                if (s.get(terminal)) |id| matches.put(id, {}) catch {};
+            }
         }
     }
 
@@ -1094,6 +1125,23 @@ fn resolveNameResult(a: *Analyzer, name: []const u8, segments: [][]const u8) Nam
     if (n > 1) return .ambiguous;
     var kit = matches.keyIterator();
     return .{ .found = kit.next().?.* };
+}
+
+/// ADR-0004 P3 (WS-1c): is package `pkg` directly import-reachable in this module?
+/// True iff some import edge names exactly `pkg` (wildcard or named). No
+/// auto-descent into sub-packages (R4): `import p.*` does not make `p.sub` reachable.
+fn importReaches(a: *Analyzer, pkg: []const u8) bool {
+    for (a.table.imports_graph) |edge| {
+        if (std.mem.eql(u8, edge.import_path, pkg)) return true;
+    }
+    return false;
+}
+
+fn containsStr(haystack: []const []const u8, needle: []const u8) bool {
+    for (haystack) |s| {
+        if (std.mem.eql(u8, s, needle)) return true;
+    }
+    return false;
 }
 
 /// P2 WS-A: resolve a referenced name to its canonical fully-qualified id for
@@ -2331,37 +2379,71 @@ fn extractCalleeNameIfUnit(a: *Analyzer, node: *ast.Node) ?[]const u8 {
 ///   (c) a built-in scalar type (Real, Integer, String, Boolean, etc.),
 ///   (d) a qualified path whose first segment is an imported package.
 fn isKnownType(a: *Analyzer, type_name: []const u8, segments: [][]const u8) bool {
-    return isKnownName(a, type_name, segments) or isBuiltinType(type_name);
+    if (isKnownName(a, type_name, segments)) return true;
+    if (isBuiltinType(type_name)) return true; // primitive intrinsics (both modes)
+    // Single-file leniency: recognize the legacy prelude quantity/actor names
+    // (now stdlib types) so a standalone file using them bare does not E2000.
+    // Under the workspace path these must be imported (strict — not recognized here).
+    if (a.external == null and isLegacyPreludeType(type_name)) return true;
+    return false;
+}
+
+/// ADR-0004 P3 (WS-2): names that were implicit prelude types before P3 and now
+/// live in the stdlib (`deal.std.units` dimensions, `deal.std.actors` actors).
+/// Recognized only in single-file mode so standalone files stay clean; the
+/// workspace path requires them to be imported.
+fn isLegacyPreludeType(name: []const u8) bool {
+    const legacy = [_][]const u8{
+        "Voltage",     "Current",     "Power",          "Energy",
+        "Mass",        "Length",      "Duration",       "Temperature",
+        "Resistance",  "Pressure",    "Frequency",      "Velocity",
+        "Force",       "Torque",      "Volume",         "Density",
+        "Angle",       "AngularVelocity", "SpecificEnergy", "SpecificPower",
+        "Acceleration", "VolumeFlowRate",
+        "Person",      "Organization", "System",        "ExternalSystem",
+    };
+    for (legacy) |b| {
+        if (std.mem.eql(u8, name, b)) return true;
+    }
+    return false;
 }
 
 /// Returns true if a name is known in the current scope.
+/// ADR-0004 P3 (WS-3): a name is "known" iff it actually resolves through the
+/// import-scoped resolver — a local/same-package declaration, or an import whose
+/// package surface contains it. This replaces the old loose logic (which
+/// rubber-stamped any qualified path whose first segment merely `startsWith` an
+/// imported prefix). Unifying the verdict here makes `isKnownType`/E2000 fire
+/// exactly when resolution fails, at every check site (incl. flow/escape types).
 fn isKnownName(a: *Analyzer, name: []const u8, segments: [][]const u8) bool {
-    // Direct lookup.
+    // Workspace mode (external table present): strict — a name is known iff it
+    // actually resolves through the import-scoped resolver. This is where
+    // ADR-0004 enforcement lives (CLI `deal check`, LSP eager-parse / cached
+    // did-change).
+    if (a.external != null) {
+        return resolveName(a, name, segments) != null;
+    }
+    // Single-file mode (no workspace): cannot authoritatively resolve cross-file
+    // names, so recognize local declarations + names an import statement brought
+    // into scope, avoiding false E2000 — while still catching genuinely-undefined
+    // names (neither local nor imported). The legacy prelude quantity/actor names
+    // are handled by `isLegacyPreludeType` in `isKnownType`.
     if (a.table.entries.contains(name)) return true;
-
-    // For qualified paths, check if the first segment is from an imported package.
     if (segments.len > 1) {
         const first = segments[0];
-        // If we have a wildcard import for the package, accept the name.
         var it = a.table.imported_packages.iterator();
         while (it.next()) |entry| {
             if (std.mem.eql(u8, entry.key_ptr.*, first)) return true;
-            // Check if the full path starts with the imported package.
             if (std.mem.startsWith(u8, name, entry.key_ptr.*)) return true;
         }
-        // Also check if first segment is registered as an imported symbol.
         if (a.table.entries.get(first)) |e| {
             if (e.kind == .imported or e.kind == .imported_wildcard_pkg) return true;
         }
-    }
-
-    // For single-segment names, check if they came from a named import.
-    if (segments.len == 1) {
+    } else {
         if (a.table.entries.get(name)) |e| {
             if (e.kind == .imported) return true;
         }
     }
-
     return false;
 }
 
@@ -2369,19 +2451,15 @@ fn isKnownName(a: *Analyzer, name: []const u8, segments: [][]const u8) bool {
 /// These are implicitly available from the DEAL standard library (deal.std.units.*
 /// and deal.std.types.*) without an explicit import statement.
 fn isBuiltinType(name: []const u8) bool {
+    // ADR-0004 P3 (WS-2): the prelude is PRIMITIVES ONLY. Physical-quantity
+    // dimensions (Voltage, Energy, Mass, …) now live in `deal.std.units` and
+    // actor types (Person, Organization, System, ExternalSystem) in
+    // `deal.std.actors`; both must be imported. Only the intrinsic scalar/abstract
+    // value types remain implicit.
     const builtins = [_][]const u8{
-        // Core scalar types (deal.std.types)
-        "Real", "Integer", "String", "Boolean", "Rational",
-        "Number", "Complex", "Natural", "ScalarValue",
-        // Physical quantity types (deal.std.units) — used in showcase without import.
-        "Voltage", "Current", "Power", "Energy", "Mass", "Length", "Duration",
-        "Temperature", "Resistance", "Pressure", "Frequency", "Velocity",
-        "Force", "Torque", "Volume", "Density", "Angle", "AngularVelocity",
-        "SpecificEnergy", "SpecificPower",
-        // Additional physical quantities found in showcase files.
-        "Acceleration", "VolumeFlowRate",
-        // DEAL use-case built-in actor types (deal.std.actors).
-        "Person", "Organization", "System", "ExternalSystem",
+        "Real",   "Integer", "String",  "Boolean",
+        "Rational", "Number", "Complex", "Natural",
+        "ScalarValue",
     };
     for (builtins) |b| {
         if (std.mem.eql(u8, name, b)) return true;

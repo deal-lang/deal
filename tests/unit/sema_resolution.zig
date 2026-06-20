@@ -25,9 +25,17 @@ test "ADR-0003: cross-file specializes binds to declaring FQ id (prefix-subtree)
         \\import interfaces.{ThermallyManaged};
         \\part def BatteryPack <<specializes>> ThermallyManaged { }
     ;
+    // ADR-0004 R6 barrel: package `interfaces` re-exports the sub-package decl,
+    // so a named/wildcard import of `interfaces` sees ThermallyManaged via its
+    // public surface (no more subtree auto-descent).
+    const interfaces_barrel =
+        \\package interfaces;
+        \\export thermal.{ThermallyManaged};
+    ;
 
     const ws = [_]lib.StdlibSource{
         .{ .source = interfaces_src, .filename = "interfaces/thermal.deal" },
+        .{ .source = interfaces_barrel, .filename = "interfaces/index.deal" },
     };
     const handle = try lib.deal_parse_internal_with_stdlib(
         gpa,
@@ -62,7 +70,7 @@ test "ADR-0003: cross-file type reference binds (type_ref)" {
         \\package lib.parts;
         \\part def Cell { }
     ;
-    // Consumer imports Cell via the prefix package `lib` and uses it as a type.
+    // Consumer imports Cell via the package `lib` and uses it as a type.
     const consumer_src =
         \\package vehicle.battery;
         \\import lib.{Cell};
@@ -70,9 +78,15 @@ test "ADR-0003: cross-file type reference binds (type_ref)" {
         \\  part cell : Cell;
         \\}
     ;
+    // ADR-0004 R6 barrel: `lib` re-exports the sub-package decl so the import resolves.
+    const lib_barrel =
+        \\package lib;
+        \\export parts.{Cell};
+    ;
 
     const ws = [_]lib.StdlibSource{
         .{ .source = lib_src, .filename = "lib/parts.deal" },
+        .{ .source = lib_barrel, .filename = "lib/index.deal" },
     };
     const handle = try lib.deal_parse_internal_with_stdlib(
         gpa,
@@ -134,9 +148,17 @@ test "P2 WS-C: named import item binds to declaring FQ id (import ref-kind)" {
         \\import interfaces.{ThermallyManaged};
         \\part def BatteryPack <<specializes>> ThermallyManaged { }
     ;
+    // ADR-0004 R6 barrel: package `interfaces` re-exports the sub-package decl,
+    // so a named/wildcard import of `interfaces` sees ThermallyManaged via its
+    // public surface (no more subtree auto-descent).
+    const interfaces_barrel =
+        \\package interfaces;
+        \\export thermal.{ThermallyManaged};
+    ;
 
     const ws = [_]lib.StdlibSource{
         .{ .source = interfaces_src, .filename = "interfaces/thermal.deal" },
+        .{ .source = interfaces_barrel, .filename = "interfaces/index.deal" },
     };
     const handle = try lib.deal_parse_internal_with_stdlib(
         gpa,
@@ -161,6 +183,56 @@ test "P2 WS-C: named import item binds to declaring FQ id (import ref-kind)" {
         }
     }
     try std.testing.expect(found);
+}
+
+test "ADR-0004 P3: un-imported cross-file ref is E2000; importing it resolves" {
+    const gpa = std.testing.allocator;
+
+    const lib_src =
+        \\package lib.parts;
+        \\part def Cell { }
+    ;
+    const lib_barrel =
+        \\package lib;
+        \\export parts.{Cell};
+    ;
+    const ws = [_]lib.StdlibSource{
+        .{ .source = lib_src, .filename = "lib/parts.deal" },
+        .{ .source = lib_barrel, .filename = "lib/index.deal" },
+    };
+
+    // (1) Consumer references `Cell` WITHOUT importing it → E2000 (import-scoped).
+    {
+        const bad_src =
+            \\package app;
+            \\part def Pack {
+            \\  part cell : Cell;
+            \\}
+        ;
+        const handle = try lib.deal_parse_internal_with_stdlib(gpa, bad_src, "app.deal", &ws, true);
+        defer lib.deal_free_internal(handle);
+        var saw_e2000 = false;
+        for (handle.diagnostics.items) |d| {
+            if (std.mem.eql(u8, d.code, "E2000")) saw_e2000 = true;
+        }
+        try std.testing.expect(saw_e2000);
+    }
+
+    // (2) The same reference WITH the import resolves — no E2000.
+    {
+        const good_src =
+            \\package app;
+            \\import lib.{Cell};
+            \\part def Pack {
+            \\  part cell : Cell;
+            \\}
+        ;
+        const handle = try lib.deal_parse_internal_with_stdlib(gpa, good_src, "app.deal", &ws, true);
+        defer lib.deal_free_internal(handle);
+        for (handle.diagnostics.items) |d| {
+            try std.testing.expect(!std.mem.eql(u8, d.code, "E2000"));
+        }
+    }
 }
 
 test "ADR-0003: same-file specializes binds to local FQ id" {
