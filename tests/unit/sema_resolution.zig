@@ -185,7 +185,7 @@ test "P2 WS-C: named import item binds to declaring FQ id (import ref-kind)" {
     try std.testing.expect(found);
 }
 
-test "ADR-0004 P3: un-imported cross-file ref is E2000; importing it resolves" {
+test "ADR-0004 P3: un-imported cross-file type is rejected (E2100); importing it resolves" {
     const gpa = std.testing.allocator;
 
     const lib_src =
@@ -201,7 +201,8 @@ test "ADR-0004 P3: un-imported cross-file ref is E2000; importing it resolves" {
         .{ .source = lib_barrel, .filename = "lib/index.deal" },
     };
 
-    // (1) Consumer references `Cell` WITHOUT importing it → E2000 (import-scoped).
+    // (1) Consumer uses `Cell` as a type WITHOUT importing it → E2100 "type not
+    // defined" (import-scoped enforcement under the workspace path).
     {
         const bad_src =
             \\package app;
@@ -211,14 +212,14 @@ test "ADR-0004 P3: un-imported cross-file ref is E2000; importing it resolves" {
         ;
         const handle = try lib.deal_parse_internal_with_stdlib(gpa, bad_src, "app.deal", &ws, true);
         defer lib.deal_free_internal(handle);
-        var saw_e2000 = false;
+        var saw_reject = false;
         for (handle.diagnostics.items) |d| {
-            if (std.mem.eql(u8, d.code, "E2000")) saw_e2000 = true;
+            if (std.mem.eql(u8, d.code, "E2100")) saw_reject = true;
         }
-        try std.testing.expect(saw_e2000);
+        try std.testing.expect(saw_reject);
     }
 
-    // (2) The same reference WITH the import resolves — no E2000.
+    // (2) The same reference WITH the import resolves — no E2100.
     {
         const good_src =
             \\package app;
@@ -230,7 +231,7 @@ test "ADR-0004 P3: un-imported cross-file ref is E2000; importing it resolves" {
         const handle = try lib.deal_parse_internal_with_stdlib(gpa, good_src, "app.deal", &ws, true);
         defer lib.deal_free_internal(handle);
         for (handle.diagnostics.items) |d| {
-            try std.testing.expect(!std.mem.eql(u8, d.code, "E2000"));
+            try std.testing.expect(!std.mem.eql(u8, d.code, "E2100"));
         }
     }
 }
