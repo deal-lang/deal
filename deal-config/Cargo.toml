@@ -1,0 +1,19 @@
+[package]
+name = "deal-config"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# ADR-0004 P4 (WS-A): the shared deal.toml + deal.lock SCHEMA, consumed by the
+# CLI (P4 closure loader) and the LSP (P5). Schema + discovery/closure helpers
+# only — deliberately LIGHT: no git2, no network/clone logic (that stays in the
+# CLI / a future deal-resolve), so the LSP can depend on this without dragging
+# libgit2 into the language server.
+
+[lib]
+name = "deal_config"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }

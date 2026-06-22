@@ -452,6 +452,7 @@ dependencies = [
  "anstream",
  "anyhow",
  "clap",
+ "deal-config",
  "deal-ffi",
  "git2",
  "hex",
@@ -470,6 +471,14 @@ dependencies = [
  "uuid",
  "walkdir",
  "zip",
+]
+
+[[package]]
+name = "deal-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
 ]
 
 [[package]]

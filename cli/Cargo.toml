@@ -22,6 +22,9 @@ path = "src/lib.rs"
 # cli/src/ffi.rs was deleted in Plan 03-03 Task 1; cli now does
 # `use deal_ffi as ffi` so existing `ffi::deal_*` call-sites keep compiling.
 deal-ffi = { path = "../deal-ffi" }
+# Shared deal.toml/deal.lock schema (ADR-0004 P4 WS-A). Schema types only; the
+# git2-backed resolution (resolve_all) stays here in cli.
+deal-config = { path = "../deal-config" }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

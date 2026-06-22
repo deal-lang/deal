@@ -27,100 +27,21 @@
 //!   - Absolute paths that are not system prefixes are also rejected to enforce
 //!     portability. Users should use relative paths for all local dependencies.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{anyhow, Context as _};
 use git2::Repository;
-use serde::{Deserialize, Serialize};
 
-// ─── deal.toml structures ─────────────────────────────────────────────────────
-
-/// Top-level `deal.toml` manifest.
-///
-/// Only the fields relevant to the resolver are parsed here.
-/// Additional sections (`[workspace]`, `[build.targets]`, etc.) are
-/// deserialized into the catch-all `extra` to avoid failing on unknown keys.
-#[derive(Debug, Deserialize)]
-pub struct DealToml {
-    pub project: ProjectSection,
-    #[serde(default)]
-    pub workspace: WorkspaceSection,
-    /// D-18: BTreeMap ensures alphabetical key order; HashMap is forbidden for
-    /// any serialized map (Pitfall 6 mitigation).
-    #[serde(default)]
-    pub dependencies: BTreeMap<String, Dependency>,
-}
-
-/// `[project]` section — required fields only (name, version are the minimum).
-#[derive(Debug, Deserialize)]
-pub struct ProjectSection {
-    pub name: String,
-    pub version: String,
-}
-
-/// `[workspace]` section — optional, defaults to no packages list.
-#[derive(Debug, Deserialize, Default)]
-pub struct WorkspaceSection {
-    #[serde(default)]
-    pub packages: Vec<String>,
-    /// Paths (relative to the project root) excluded from `deal check` directory
-    /// expansion — e.g. frontier/draft packages that intentionally do not parse
-    /// on the current grammar.
-    #[serde(default)]
-    pub exclude: Vec<String>,
-}
-
-/// A single dependency entry in `[dependencies]`.
-///
-/// Serde `untagged` deserialization: tries `Git` first, then `Path`.
-/// Inline table: `dep = { git = "...", tag = "v1.0" }` → `Dependency::Git`.
-/// Inline table: `dep = { path = "../sibling" }` → `Dependency::Path`.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-pub enum Dependency {
-    /// A git-based dependency (D-66 vendor clone).
-    Git {
-        git: String,
-        tag: Option<String>,
-        rev: Option<String>,
-        branch: Option<String>,
-    },
-    /// A local-path dependency (D-66 in-place reference, no clone).
-    Path { path: String },
-}
-
-// ─── deal.lock structures ─────────────────────────────────────────────────────
-
-/// The `deal.lock` file structure.
-///
-/// `version` is always written as `1` for this format revision.
-/// `package` is sorted alphabetically by `name` for D-18 byte-stability.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct LockFile {
-    pub version: u32,
-    /// ALPHABETICAL sort by `name` before serializing — D-18 invariant.
-    pub package: Vec<LockedPackage>,
-}
-
-/// A single locked package entry in `deal.lock`.
-///
-/// Fields are listed in ALPHABETICAL order (D-18): git, name, path, rev, tag.
-/// The `Ord` derive combined with alphabetical field declaration ensures that
-/// `package.sort()` produces a deterministic, alphabetically-keyed TOML output.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LockedPackage {
-    // ALPHABETICAL field order for D-18 — do not reorder.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub git: Option<String>,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub rev: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<String>,
-}
+// ─── Schema (re-exported from deal-config) ─────────────────────────────────────
+//
+// ADR-0004 P4 (WS-A): the deal.toml / deal.lock SCHEMA now lives in the shared
+// `deal-config` crate (light — no git2 — so the LSP can depend on it in P5).
+// Re-exported here so existing `resolver::DealToml` / `resolver::Dependency`
+// call-sites in this crate keep compiling. The git2-backed RESOLUTION
+// (resolve_all / resolve_git_dep) stays in this module.
+pub use deal_config::{
+    Dependency, DealToml, LockFile, LockedPackage, ProjectSection, WorkspaceSection,
+};
 
 // ─── Security validation ──────────────────────────────────────────────────────
 
@@ -393,6 +314,16 @@ pub fn resolve_all(project_dir: &Path) -> anyhow::Result<LockFile> {
                     rev: None,
                     tag: None,
                 });
+            }
+            // ADR-0004 P4: registry version deps are reserved in the schema but
+            // not yet resolvable — fail clearly rather than silently skip.
+            Dependency::Version(v) => {
+                return Err(anyhow!(
+                    "registry dependency '{} = \"{}\"' is not supported yet — \
+                     use a git ({{ git = \"…\" }}) or path ({{ path = \"…\" }}) dependency",
+                    name,
+                    v
+                ));
             }
         }
     }
