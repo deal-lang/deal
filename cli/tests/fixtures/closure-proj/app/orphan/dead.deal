@@ -1,0 +1,12 @@
+// UNREACHABLE from the app.main entry (nothing imports app.orphan) AND
+// deliberately broken: `NoSuchType` is undefined, so analyzing this file would
+// emit E2100. The closure guarantee is that, when checking the app.main entry,
+// this error must NOT surface (the package is never reached). Checking this
+// file directly DOES surface the error (see the targeted test).
+package app.orphan;
+
+part def Broken {
+    public (
+        attribute oops : NoSuchType [1];
+    )
+}

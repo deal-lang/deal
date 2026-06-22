@@ -1,0 +1,17 @@
+// Sub-package app.geo.shapes — the concrete definitions re-exported by the
+// app.geo barrel (index.deal).
+package app.geo.shapes;
+
+part def Point {
+    public (
+        attribute x : Real [1] = 0.0;
+        attribute y : Real [1] = 0.0;
+    )
+}
+
+part def Vector {
+    public (
+        attribute dx : Real [1] = 0.0;
+        attribute dy : Real [1] = 0.0;
+    )
+}

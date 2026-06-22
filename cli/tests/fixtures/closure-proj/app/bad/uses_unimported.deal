@@ -1,0 +1,11 @@
+// Uses the type `Point` from package app.geo.shapes WITHOUT importing it.
+// Under strict import-scoped resolution this is an error (E2100 / E2000):
+// a cross-package reference must be imported. Used to prove the checker still
+// flags genuine un-imported references.
+package app.bad;
+
+part def NeedsPoint {
+    public (
+        attribute p : Point [1];
+    )
+}

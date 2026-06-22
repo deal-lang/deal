@@ -1,0 +1,7 @@
+// Barrel for package app.geo: re-exports the concrete defs that live in the
+// sub-package app.geo.shapes. A consumer importing app.geo sees Point/Vector
+// without importing app.geo.shapes directly (transitive barrel target — the
+// closure must pull in app.geo.shapes's declaring file).
+package app.geo;
+
+export shapes.{Point, Vector};

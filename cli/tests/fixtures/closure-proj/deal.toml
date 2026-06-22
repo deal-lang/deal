@@ -1,0 +1,6 @@
+[project]
+name = "closure-proj"
+version = "0.1.0"
+schema = "deal/0.1"
+marking = "Unclassified"
+description = "ADR-0004 P4 WS-F closure fixture — import-clean reachable model plus an unreachable broken file and an un-imported-reference file."

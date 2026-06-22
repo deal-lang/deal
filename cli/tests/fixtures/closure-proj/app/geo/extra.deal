@@ -1,0 +1,12 @@
+// SAME-PACKAGE sibling of app.geo (second file declaring `package app.geo`,
+// like vehicle.behaviors spanning two files in the showcase). Package-complete
+// closure loading must pull this file in whenever app.geo is reached, even
+// though nothing imports it by name. It is import-clean on its own.
+package app.geo;
+
+part def BoundingBox {
+    public (
+        attribute width : Real [1] = 1.0;
+        attribute height : Real [1] = 1.0;
+    )
+}

@@ -1,0 +1,14 @@
+// WS-F entry module. Imports the app.geo barrel and uses two re-exported
+// types — exercises wildcard/selective import of a barrel (computeSurfaces)
+// and is fully import-clean.
+package app.main;
+
+import app.geo.{Point, Vector};
+
+part def Assembly {
+    public (
+        attribute origin : Point [1];
+        attribute heading : Vector [1];
+        attribute label : String [1] = "assembly";
+    )
+}
