@@ -20,6 +20,7 @@ use std::io::Write;
 // This re-export keeps every existing `ffi::deal_*` call-site compiling
 // without per-site edits.
 use deal_ffi as ffi;
+pub mod closure;
 pub mod evidence;
 pub mod model_values;
 pub mod render;
@@ -262,116 +263,103 @@ fn run_check(
         }
     }
 
-    // Expand directory arguments, then drop files under [workspace].exclude.
-    let mut resolved_paths = apply_workspace_excludes(paths, expand_path_args(paths)?);
+    // ── ADR-0004 P4 (WS-D): closure-driven loading ──────────────────────────
+    //
+    // Replaces the former "flat-merge the whole tree + all deps into one blob"
+    // model with entry-point + package-complete import-closure loading: discover
+    // the project (workspace roots) and dependency roots, build a module map,
+    // pick entry points (Decision 4), compute the reachable-package closure, and
+    // analyze ONLY the project files in that closure (each with externals =
+    // closure ∖ self). Unreachable, cleanly-parsed files are not analyzed.
+    let project_root =
+        find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
+    let manifest: Option<resolver::DealToml> = std::fs::read(project_root.join("deal.toml"))
+        .ok()
+        .and_then(|b| String::from_utf8(b).ok())
+        .and_then(|s| toml::from_str::<resolver::DealToml>(&s).ok());
 
-    if resolved_paths.is_empty() {
+    // Explicit file arguments are entry points (Decision 4) and are always part
+    // of the project file set, even when they live outside [workspace].roots.
+    let explicit_files: Vec<std::path::PathBuf> =
+        paths.iter().filter(|p| p.is_file()).cloned().collect();
+
+    // Project discovery roots: [workspace].roots (or the deprecated `packages`
+    // alias) resolved against the project root when a manifest is present;
+    // otherwise fall back to argument-scoped expansion (so ad-hoc
+    // `deal check foo.deal` / `deal check somedir/` still work without a
+    // manifest). Workspace excludes are applied either way.
+    let project_files: Vec<std::path::PathBuf> = {
+        let roots: Vec<std::path::PathBuf> = match &manifest {
+            Some(m) => {
+                let mut rs: Vec<String> = m.workspace.roots.clone();
+                rs.extend(m.workspace.packages.iter().cloned()); // deprecated alias
+                rs.into_iter().map(|r| project_root.join(r)).collect()
+            }
+            None => Vec::new(),
+        };
+        let discovered = if roots.is_empty() {
+            expand_path_args(paths)?
+        } else {
+            closure::discover_files(&roots)
+        };
+        let mut pf = apply_workspace_excludes(paths, discovered);
+        // Ensure explicitly-named files are present even if outside the roots.
+        pf.extend(explicit_files.iter().cloned());
+        pf.sort();
+        pf.dedup();
+        pf
+    };
+
+    if project_files.is_empty() {
         return Err(CliError::User(format!(
             "no .deal or .dealx files found under {paths:?}"
         )));
     }
 
-    // D-49: assemble vendored stdlib sources into the analysis file set.
-    //
-    // For each resolved dependency found in `.deal/deps/<dep>/`, glob
-    // `.deal/deps/<dep>/packages/**/*.deal` and append to resolved_paths.
-    // This makes stdlib unit/dimension declarations available to the sema
-    // (Check #7 dimensional algebra) alongside the project sources.
-    //
-    // If a dependency directory is present but contains no parseable sources,
-    // emit a warning (not a fatal error) so the user knows the dep may be empty.
-    //
-    // D-88 (Phase 5 Plan 04): dep sources are also concatenated into stdlib_bytes
-    // so the per-file loop can call deal_check_with_stdlib for cross-file
-    // dimensional resolution via analyzeWithExternalTable. Dep files whose
-    // sources cannot be read are skipped silently (their paths remain in
-    // resolved_paths so the index is still attempted).
-    let mut dep_file_set: std::collections::HashSet<std::path::PathBuf> =
-        std::collections::HashSet::new();
-    let mut stdlib_bytes: Vec<u8> = Vec::new();
+    // Dependency roots → dep files (git deps under .deal/deps/<name>/packages,
+    // path deps under <path>/packages). These are EXTERNAL sources in the
+    // closure; only reachable dep packages actually load per file. The E2402
+    // not-installed gate already ran above.
+    let mut dep_roots: Vec<std::path::PathBuf> = Vec::new();
     {
-        let check_root: std::path::PathBuf = paths
-            .iter()
-            .find(|p| p.is_dir())
-            .cloned()
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
-        let deps_base = check_root.join(".deal").join("deps");
-        if deps_base.is_dir() {
-            if let Ok(dep_entries) = std::fs::read_dir(&deps_base) {
-                let stderr_choice = color_choice(color);
-                let mut stderr = anstream::AutoStream::new(std::io::stderr(), stderr_choice);
-                for dep_entry in dep_entries.flatten() {
-                    let dep_dir = dep_entry.path();
-                    if !dep_dir.is_dir() {
-                        continue;
-                    }
-                    // Glob .deal/deps/<dep>/packages/**/*.deal
-                    let packages_dir = dep_dir.join("packages");
-                    if packages_dir.is_dir() {
-                        let dep_sources = collect_deal_files_recursive(&packages_dir);
-                        if dep_sources.is_empty() {
-                            let dep_name =
-                                dep_dir.file_name().unwrap_or_default().to_string_lossy();
-                            let _ = writeln!(
-                                stderr,
-                                "warning: dependency '{}' has no .deal sources under packages/",
-                                dep_name
-                            );
-                        } else {
-                            // Collect dep source bytes for stdlib seeding (D-88).
-                            // NUL (0x00) separates files: the FFI splits on NUL and
-                            // parses each independently. A newline join would let the
-                            // single parser run past the first file into the second
-                            // file's @header and fail (empty stdlib table).
-                            for dep_path in &dep_sources {
-                                if let Ok(src) = std::fs::read(dep_path) {
-                                    if !stdlib_bytes.is_empty() {
-                                        stdlib_bytes.push(0u8);
-                                    }
-                                    stdlib_bytes.extend_from_slice(&src);
-                                }
-                                dep_file_set.insert(dep_path.clone());
-                            }
-                            resolved_paths.extend(dep_sources);
-                        }
+        let deps_base = project_root.join(".deal").join("deps");
+        if let Ok(entries) = std::fs::read_dir(&deps_base) {
+            for e in entries.flatten() {
+                let pkgs = e.path().join("packages");
+                if pkgs.is_dir() {
+                    dep_roots.push(pkgs);
+                }
+            }
+        }
+        if let Some(m) = &manifest {
+            for dep in m.dependencies.values() {
+                if let resolver::Dependency::Path { path } = dep {
+                    let pkgs = project_root.join(path).join("packages");
+                    if pkgs.is_dir() {
+                        dep_roots.push(pkgs);
                     }
                 }
             }
+        }
+    }
+    let dep_files = closure::discover_files(&dep_roots);
+
+    // Entry points + package-complete closure (Decision 4 / WS-C).
+    let plan = closure::plan_load(&project_files, &dep_files, &explicit_files)
+        .map_err(CliError::User)?;
+
+    // Pre-read every closure file's source once for per-file external assembly.
+    let mut source_cache: std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> =
+        std::collections::BTreeMap::new();
+    for p in &plan.closure {
+        if let Ok(b) = std::fs::read(p) {
+            source_cache.insert(p.clone(), b);
         }
     }
 
-    // D-66: path dependencies are referenced in-place (no clone), so the
-    // `.deal/deps/<name>/` glob above never sees them. Resolve `path` deps
-    // declared in deal.toml (relative to the project root) and seed their
-    // unit/dimension sources into stdlib_bytes as well, so in-repo examples can
-    // depend on a sibling deal-stdlib without `deal install`. NUL-separated for
-    // the same per-file-parse reason as the git-dep path.
-    {
-        let project_root =
-            find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
-        let toml_path = project_root.join("deal.toml");
-        if let Ok(toml_bytes) = std::fs::read(&toml_path) {
-            if let Ok(toml_str) = std::str::from_utf8(&toml_bytes) {
-                if let Ok(manifest) = toml::from_str::<resolver::DealToml>(toml_str) {
-                    for dep in manifest.dependencies.values() {
-                        if let resolver::Dependency::Path { path } = dep {
-                            let packages_dir = project_root.join(path).join("packages");
-                            if packages_dir.is_dir() {
-                                for dep_path in collect_deal_files_recursive(&packages_dir) {
-                                    if let Ok(src) = std::fs::read(&dep_path) {
-                                        if !stdlib_bytes.is_empty() {
-                                            stdlib_bytes.push(0u8);
-                                        }
-                                        stdlib_bytes.extend_from_slice(&src);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // (Dependency sources — git deps under .deal/deps and path deps — are now
+    // discovered as `dep_files` above and enter the analysis only through the
+    // package-complete closure, replacing the former flat `stdlib_bytes` blob.)
 
     // Workspace root for `.deal/index.json`. Only set when the caller passed
     // an explicit directory arg (signaling workspace-mode intent). Single-file
@@ -391,78 +379,64 @@ fn run_check(
     let stderr_choice = color_choice(color);
     let mut stderr = anstream::AutoStream::new(std::io::stderr(), stderr_choice);
 
-    for path in &resolved_paths {
-        // Read source bytes — I/O failures are Internal errors.
-        let source_bytes = std::fs::read(path)
-            .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e)))?;
-
+    for path in &plan.analyze {
+        let source_bytes = match source_cache.get(path) {
+            Some(b) => b.clone(),
+            None => std::fs::read(path).map_err(|e| {
+                CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e))
+            })?,
+        };
         let filename = path.to_string_lossy();
 
-        // D-88 (Phase 5 Plan 04): For project source files when stdlib deps are
-        // present, use deal_check_with_stdlib to seed analyzeWithExternalTable
-        // with the stdlib dimension/unit table — enabling cross-file E2500
-        // dimensional-mismatch detection via the CLI. Dep files (the stdlib
-        // itself) use deal_parse as before so their index entries are captured.
-        //
-        // T-05-10 (Clone-Before-Free): clone diagnostic JSON bytes BEFORE
-        // calling deal_free in both paths — the arena pointer is invalid after free.
-        let use_stdlib_check = !stdlib_bytes.is_empty() && !dep_file_set.contains(path);
+        // External table = every OTHER closure file's source, NUL-separated
+        // (the FFI splits on NUL and parses each independently). Calling
+        // deal_check_with_stdlib — even with an empty external blob — puts sema
+        // in STRICT workspace mode: import-scoped resolution, E2000 on
+        // un-imported cross-file references (ADR-0004 P3/P4).
+        let mut externals: Vec<u8> = Vec::new();
+        for other in &plan.closure {
+            if other == path {
+                continue;
+            }
+            if let Some(src) = source_cache.get(other) {
+                if !externals.is_empty() {
+                    externals.push(0u8);
+                }
+                externals.extend_from_slice(src);
+            }
+        }
 
-        let handle = if use_stdlib_check {
-            // SAFETY: all slices are alive for the duration of the call.
-            // Returns non-null on success; null on OOM.
+        // SAFETY: all slices live for the duration of the call; null on OOM.
+        let handle = unsafe {
             let mut _out_diag_ptr: *const u8 = std::ptr::null();
             let mut _out_diag_len: usize = 0;
-            unsafe {
-                ffi::deal_check_with_stdlib(
-                    source_bytes.as_ptr(),
-                    source_bytes.len(),
-                    filename.as_bytes().as_ptr(),
-                    filename.len(),
-                    stdlib_bytes.as_ptr(),
-                    stdlib_bytes.len(),
-                    &mut _out_diag_ptr,
-                    &mut _out_diag_len,
-                )
-            }
-        } else {
-            // No stdlib deps resolved or this file IS a dep file: use deal_parse.
-            // SAFETY: deal_parse takes ptr+len; source_bytes is alive for the duration.
-            unsafe {
-                ffi::deal_parse(
-                    source_bytes.as_ptr(),
-                    source_bytes.len(),
-                    filename.as_bytes().as_ptr(),
-                    filename.len(),
-                )
-            }
+            ffi::deal_check_with_stdlib(
+                source_bytes.as_ptr(),
+                source_bytes.len(),
+                filename.as_bytes().as_ptr(),
+                filename.len(),
+                externals.as_ptr(),
+                externals.len(),
+                &mut _out_diag_ptr,
+                &mut _out_diag_len,
+            )
         };
-
         if handle.is_null() {
-            let fn_name = if use_stdlib_check {
-                "deal_check_with_stdlib"
-            } else {
-                "deal_parse"
-            };
             return Err(CliError::Internal(anyhow::anyhow!(
-                "{} returned null for {:?} (OOM)",
-                fn_name,
+                "deal_check_with_stdlib returned null for {:?} (OOM)",
                 path
             )));
         }
 
-        // T-02-13 mitigation (Pitfall 3): clone diagnostic JSON bytes BEFORE
-        // calling deal_free. The arena-owned pointer is invalidated by deal_free.
+        // T-02-13 / T-05-10 (Clone-Before-Free): clone diagnostic JSON BEFORE
+        // deal_free — the arena-owned pointer is invalid afterward.
         let diag_json_owned: Vec<u8>;
         let has_errors: bool;
-
         unsafe {
             has_errors = ffi::deal_has_errors(handle);
-
             let mut out_ptr: *const u8 = std::ptr::null();
             let mut out_len: usize = 0;
             let ok = ffi::deal_diagnostics_json(handle, &mut out_ptr, &mut out_len);
-
             if !ok {
                 ffi::deal_free(handle);
                 return Err(CliError::Internal(anyhow::anyhow!(
@@ -470,45 +444,28 @@ fn run_check(
                     path
                 )));
             }
-
-            // Clone bytes while arena is alive.
             diag_json_owned = std::slice::from_raw_parts(out_ptr, out_len).to_vec();
-
-            // Clone index JSON too, if sema produced a symbol table for this
-            // file (parse failures leave index_root null → deal_index_json
-            // returns false; we just skip and move on). Workspace merge below
-            // unions whatever indexes we got.
-            //
-            // NOTE (D-88): For handles from deal_check_with_stdlib, do NOT call
-            // deal_index_json — the symbol table entries in the handle share
-            // pointers into the (now-freed) stdlib_arena inside
-            // deal_check_with_stdlib. Calling deal_index_json on those handles
-            // would access freed memory (segfault). Index building uses deal_parse
-            // handles which own all their entry allocations.
-            if !use_stdlib_check {
-                let mut idx_ptr: *const u8 = std::ptr::null();
-                let mut idx_len: usize = 0;
-                if ffi::deal_index_json(handle, &mut idx_ptr, &mut idx_len) {
-                    let bytes = std::slice::from_raw_parts(idx_ptr, idx_len).to_vec();
-                    per_file_indexes.push(bytes);
-                }
-            }
-
-            // Free arena — pointers are now invalid.
             ffi::deal_free(handle);
+        }
+
+        // Index: reuse the map's already-parsed envelope (produced by deal_parse,
+        // which owns its arena) instead of calling deal_index_json on the check
+        // handle (whose entries alias the now-freed external arena — D-88 hazard).
+        // Files that produced no symbol table contribute nothing.
+        if let Some(m) = plan.map.modules.get(path) {
+            if !m.index_json.is_empty() {
+                per_file_indexes.push(m.index_json.clone());
+            }
         }
 
         if has_errors {
             any_errors = true;
         }
 
-        // Parse the diagnostic JSON array from Zig's output.
-        // The Zig side guarantees a JSON array of diagnostic objects.
         let diag_array: serde_json::Value =
             serde_json::from_slice(&diag_json_owned).map_err(|e| {
                 CliError::Internal(anyhow::anyhow!("diagnostic JSON parse error: {}", e))
             })?;
-
         let diags = match diag_array.as_array() {
             Some(a) => a,
             None => {
@@ -519,10 +476,8 @@ fn run_check(
         };
 
         if json_mode {
-            // Collect all diagnostics for envelope assembly below.
             all_diagnostics.extend(diags.iter().cloned());
         } else {
-            // Human mode: render each diagnostic to stderr.
             let source_str = std::str::from_utf8(&source_bytes).unwrap_or("");
             for diag in diags {
                 render::render_diagnostic(&mut stderr, source_str, diag)
@@ -633,7 +588,7 @@ fn run_check(
     // rendered to stderr above.
     if !json_mode && !any_errors {
         let rep = reporter::Reporter::new(color_pref(color));
-        let project_file_count = resolved_paths.len().saturating_sub(dep_file_set.len());
+        let project_file_count = plan.analyze.len();
         // Count resolved symbols across per-file indexes (display only).
         let mut symbol_count = 0usize;
         for bytes in &per_file_indexes {
@@ -1102,32 +1057,6 @@ fn run_parse(
 /// builds — D-24 emits one consolidated workspace JSON, and the IR JSON is
 /// already alphabetical-keyed, but lower-pass arena allocation order can leak
 /// into element order without this sort.
-/// Recursively collect all `.deal` (not `.dealx`) files under `dir`.
-///
-/// Used by `run_check` to glob vendored stdlib sources from
-/// `.deal/deps/<dep>/packages/**/*.deal` (D-49 cross-file resolution).
-/// Returns an empty Vec if the directory does not exist or is unreadable.
-fn collect_deal_files_recursive(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let mut out = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(p) = stack.pop() {
-        if let Ok(entries) = std::fs::read_dir(&p) {
-            let mut children: Vec<std::path::PathBuf> =
-                entries.flatten().map(|e| e.path()).collect();
-            children.sort();
-            for child in children.into_iter().rev() {
-                let meta = child.metadata();
-                if meta.as_ref().map(|m| m.is_dir()).unwrap_or(false) {
-                    stack.push(child);
-                } else if child.extension().and_then(|e| e.to_str()) == Some("deal") {
-                    out.push(child);
-                }
-            }
-        }
-    }
-    out
-}
-
 fn expand_path_args(paths: &[std::path::PathBuf]) -> Result<Vec<std::path::PathBuf>, CliError> {
     let mut out = Vec::new();
     let mut stack: Vec<std::path::PathBuf> = paths.iter().rev().cloned().collect();

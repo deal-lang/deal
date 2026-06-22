@@ -33,7 +33,7 @@ pub struct ExportEdge {
 }
 
 /// The subset of the index_json envelope the closure walker consumes.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct Envelope {
     #[serde(default)]
     package: String,
@@ -50,6 +50,11 @@ pub struct ParsedModule {
     pub package: String,
     pub imports: Vec<ImportEdge>,
     pub exports: Vec<ExportEdge>,
+    /// The full index_json envelope bytes (owned; arena already freed). Reused
+    /// by `deal check` for workspace-index emission so the analysis loop does
+    /// not re-`deal_parse` every file (WS-D). Empty when the file parsed but
+    /// produced no symbol table.
+    pub index_json: Vec<u8>,
 }
 
 /// Discover all `.deal`/`.dealx` files under the given roots (recursive).
@@ -80,13 +85,18 @@ pub fn parse_module(path: &Path) -> Option<ParsedModule> {
     let source = std::fs::read(path).ok()?;
     let filename = path.to_str()?;
     let handle = deal_ffi::safe::parse(&source, filename)?;
-    let env_bytes = deal_ffi::safe::index_json(&handle)?;
-    let env: Envelope = serde_json::from_slice(&env_bytes).ok()?;
+    // index_json is None when the file parsed but produced no symbol table
+    // (e.g. parse errors). Such a file still belongs in the map under package
+    // "" so the analysis loop reports its diagnostics rather than silently
+    // dropping it; it simply contributes no index/imports/exports.
+    let env_bytes = deal_ffi::safe::index_json(&handle).unwrap_or_default();
+    let env: Envelope = serde_json::from_slice(&env_bytes).unwrap_or_default();
     Some(ParsedModule {
         path: path.to_path_buf(),
         package: env.package,
         imports: env.imports_graph,
         exports: env.exports,
+        index_json: env_bytes,
     })
 }
 
@@ -191,4 +201,204 @@ pub fn closure_files(map: &ModuleMap, entries: &[PathBuf]) -> Vec<PathBuf> {
         files.insert(e.clone());
     }
     files.into_iter().collect()
+}
+
+/// The resolved workspace-loading context for one CLI invocation (WS-D): the
+/// parsed module map, the package-complete import closure, and the subset of
+/// files to actually analyze + report.
+#[derive(Debug)]
+pub struct LoadPlan {
+    pub map: ModuleMap,
+    /// Every reachable file (project + dep), package-complete.
+    pub closure: Vec<PathBuf>,
+    /// Project files to analyze/report/emit: the reachable closure restricted
+    /// to project files, PLUS any project file that failed to parse or yielded
+    /// no symbol table (so its diagnostics still surface rather than being
+    /// silently dropped). Unreachable, cleanly-parsed project files are
+    /// excluded — their errors must not surface (entry-point semantics).
+    pub analyze: Vec<PathBuf>,
+}
+
+/// Build the load plan (WS-D): discover is done by the caller (so workspace
+/// excludes stay in the CLI); this picks entry points, computes the closure,
+/// and restricts the analyze set.
+///
+/// Entry points (ADR-0004 P4 Decision 4): explicit file args are entries (any
+/// extension); otherwise the project's `.dealx` files; failing that, all
+/// project files (`.deal`-only fallback). Empty entries → `Err` (never a
+/// silent exit-0).
+pub fn plan_load(
+    project_files: &[PathBuf],
+    dep_files: &[PathBuf],
+    explicit_files: &[PathBuf],
+) -> Result<LoadPlan, String> {
+    if project_files.is_empty() {
+        return Err("no .deal or .dealx files found".to_string());
+    }
+
+    // Build the map over the full discovered set (project + deps), once.
+    let mut all_files: Vec<PathBuf> = Vec::with_capacity(project_files.len() + dep_files.len());
+    all_files.extend_from_slice(project_files);
+    all_files.extend_from_slice(dep_files);
+    all_files.sort();
+    all_files.dedup();
+    let map = ModuleMap::build(&all_files);
+
+    // Entry points (Decision 4).
+    let entries: Vec<PathBuf> = if !explicit_files.is_empty() {
+        explicit_files.to_vec()
+    } else {
+        let dealx: Vec<PathBuf> = project_files
+            .iter()
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("dealx"))
+            .cloned()
+            .collect();
+        if dealx.is_empty() {
+            project_files.to_vec()
+        } else {
+            dealx
+        }
+    };
+    if entries.is_empty() {
+        return Err("no entry points (.dealx or .deal) found".to_string());
+    }
+
+    let closure = closure_files(&map, &entries);
+    let closure_set: BTreeSet<PathBuf> = closure.iter().cloned().collect();
+    let project_set: BTreeSet<PathBuf> = project_files.iter().cloned().collect();
+
+    // analyze = reachable project files ∪ project files whose parse yielded no
+    // symbol table (parse errors / hard failures), so their diagnostics surface.
+    let mut analyze: Vec<PathBuf> = project_files
+        .iter()
+        .filter(|p| {
+            closure_set.contains(*p)
+                || match map.modules.get(*p) {
+                    None => true,                          // parse returned None
+                    Some(m) => m.index_json.is_empty(),    // parsed to no table
+                }
+        })
+        .cloned()
+        .collect();
+    // Explicit file-arg entries are always analyzed even if they live outside
+    // the discovered project roots.
+    for e in explicit_files {
+        if !analyze.contains(e) && project_set.contains(e) {
+            analyze.push(e.clone());
+        }
+    }
+    analyze.sort();
+    analyze.dedup();
+
+    Ok(LoadPlan {
+        map,
+        closure,
+        analyze,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a synthetic `ParsedModule` (no FFI) for walker tests.
+    /// `exports` is a list of `(package, mod, item)` barrel edges.
+    fn pm(
+        path: &str,
+        package: &str,
+        imports: &[&str],
+        exports: &[(&str, &str, &str)],
+    ) -> ParsedModule {
+        ParsedModule {
+            path: PathBuf::from(path),
+            package: package.to_string(),
+            imports: imports
+                .iter()
+                .map(|p| ImportEdge {
+                    import_path: p.to_string(),
+                    is_wildcard: false,
+                    items: vec![],
+                })
+                .collect(),
+            exports: exports
+                .iter()
+                .map(|(p, m, i)| ExportEdge {
+                    package: p.to_string(),
+                    module: m.to_string(),
+                    item: i.to_string(),
+                })
+                .collect(),
+            // Non-empty so the analyze-set filter treats it as cleanly parsed.
+            index_json: b"{}".to_vec(),
+        }
+    }
+
+    fn map_of(mods: Vec<ParsedModule>) -> ModuleMap {
+        let mut map = ModuleMap::default();
+        for m in mods {
+            map.by_package
+                .entry(m.package.clone())
+                .or_default()
+                .push(m.path.clone());
+            map.modules.insert(m.path.clone(), m);
+        }
+        map
+    }
+
+    fn names(files: &[PathBuf]) -> BTreeSet<String> {
+        files
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    /// Risk F: a single `import app.geo` must pull in EVERY file of `app.geo`
+    /// (same-package siblings), and an unreachable package must be excluded.
+    #[test]
+    fn closure_is_package_complete_and_excludes_unreachable() {
+        let map = map_of(vec![
+            pm("main.deal", "app", &["app.geo"], &[]),
+            pm("geo/p1.deal", "app.geo", &[], &[]),
+            pm("geo/p2.deal", "app.geo", &[], &[]), // sibling — not separately imported
+            pm("dead/d.deal", "app.dead", &[], &[]), // unreachable
+        ]);
+        let entries = vec![PathBuf::from("main.deal")];
+        let got = names(&closure_files(&map, &entries));
+        assert!(got.contains("main.deal"));
+        assert!(got.contains("geo/p1.deal"));
+        assert!(got.contains("geo/p2.deal"), "same-package sibling must load");
+        assert!(!got.contains("dead/d.deal"), "unreachable must not load");
+    }
+
+    /// Risk B: a wildcard import of a barrel must transitively pull in the
+    /// declaring package of everything the barrel re-exports.
+    #[test]
+    fn closure_follows_barrel_export_targets_transitively() {
+        let map = map_of(vec![
+            pm("main.deal", "app", &["app.lib"], &[]),
+            // app.lib is a barrel re-exporting Thing from sub-package app.lib.impl.
+            pm("lib/index.deal", "app.lib", &[], &[("app.lib", "impl", "Thing")]),
+            pm("lib/impl.deal", "app.lib.impl", &[], &[]),
+        ]);
+        let entries = vec![PathBuf::from("main.deal")];
+        let got = names(&closure_files(&map, &entries));
+        assert!(got.contains("lib/index.deal"));
+        assert!(
+            got.contains("lib/impl.deal"),
+            "transitive barrel target package must load"
+        );
+    }
+
+    /// Flat single-package barrel (stdlib style): `export` edge whose `mod` is
+    /// empty resolves to the package itself.
+    #[test]
+    fn export_target_package_falls_back_to_package_for_empty_mod() {
+        let map = map_of(vec![pm("u/index.deal", "deal.std.units", &[], &[])]);
+        let edge = ExportEdge {
+            package: "deal.std.units".to_string(),
+            module: String::new(),
+            item: "Mass".to_string(),
+        };
+        assert_eq!(map.export_target_package(&edge), "deal.std.units");
+    }
 }
