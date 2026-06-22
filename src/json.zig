@@ -1731,6 +1731,17 @@ pub fn writeIndexJson(
     }
     try buf.append(allocator, ']');
 
+    // package (ADR-0004 P4 WS-B): the file's declared package FQ (dot-joined), or
+    // "" when there is no package decl. Lets the closure walker key a file by its
+    // package WITHOUT re-deriving from element ids — essential for pure barrels
+    // (`index.deal` with only `export` lines), whose `elements` map is empty.
+    // Alphabetical position: between imports_graph and references.
+    try buf.appendSlice(allocator, ",\"package\":");
+    {
+        const pkg = try std.mem.join(allocator, ".", table.package_segments);
+        try writeStr(allocator, &buf, pkg);
+    }
+
     // references array (P2 WS-A): resolved reference bindings. Keyed position in
     // the alphabetical top-level order is between imports_graph and v. Sorted by
     // (from_span.start, resolved_path, ref_kind) for byte-deterministic output

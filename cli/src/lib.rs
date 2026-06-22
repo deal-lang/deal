@@ -4,6 +4,7 @@
 //! in `cli/tests/` can call them directly via `deal::resolver::resolve_all`.
 //! The binary entry point (`main.rs`) is a separate compilation unit.
 
+pub mod closure;
 pub mod evidence;
 pub mod model_values;
 pub mod reporter;
