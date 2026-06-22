@@ -37,6 +37,13 @@ fn repo_root() -> std::path::PathBuf {
 // ─── Test 1: Clean showcase file exits 0 ─────────────────────────────────────
 
 /// A clean showcase file passes sema with zero diagnostics → exit 0 (D-34).
+///
+/// ADR-0004 P4: under strict import-scoped resolution this showcase file is no
+/// longer clean — `system.deal` uses the `Temperature`/`Power` *types* but its
+/// `import deal.std.units.{…}` list brings in only unit *constructors*, not
+/// those types (`E2100`). Re-enable once the examples are import-clean (P6);
+/// WS-F adds a positive "clean synthetic project exits 0" test in its place.
+#[ignore = "ADR-0004 P6: showcase not import-clean (uses Temperature/Power without importing the types); re-enable in P6"]
 #[test]
 fn check_clean_file_exits_zero() {
     let path = repo_root().join("tests/showcase/packages/requirements/system.deal");

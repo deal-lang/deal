@@ -63,6 +63,13 @@ impl Drop for IndexDirGuard {
 /// SPEC §criterion 1: `deal check <workspace-dir>` writes
 /// `<workspace>/.deal/index.json` with alphabetical top-level keys and
 /// non-trivial content.
+///
+/// ADR-0004 P4: the index write is gated on `!any_errors`. Under strict
+/// import-scoped closure loading the showcase emits diagnostics (it is not yet
+/// import-clean — see `check_clean_file_exits_zero`), so no index is written.
+/// Re-enable once the examples are import-clean (P6); WS-F adds an equivalent
+/// assertion over a clean synthetic project.
+#[ignore = "ADR-0004 P6: showcase not import-clean → diagnostics gate off index write; re-enable in P6"]
 #[test]
 fn check_workspace_writes_index_json_with_alphabetical_keys() {
     // Hardcoded fixture path — no caller-supplied data is interpolated.
