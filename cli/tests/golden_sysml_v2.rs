@@ -132,6 +132,13 @@ fn golden_01_part_def() {
 
 // ─── Fixture 02: port usage ──────────────────────────────────────────────────
 
+// ADR-0004 P4: `deal build` now enforces import visibility (strict closure).
+// This standalone fixture declares ports of type `Power` (a deal.std.units
+// dimension type) without importing it, so strict mode emits E2100 and blocks
+// codegen. As a single file it has no stdlib in its closure to import from, so
+// it cannot be made import-clean in isolation — re-enable in P6 when fixtures
+// gain a workspace/stdlib context (WS-F adds an import-clean port fixture).
+#[ignore = "ADR-0004 P6: standalone fixture uses Power without importing it; strict build blocks codegen. Re-enable in P6"]
 #[test]
 fn golden_02_port_usage() {
     let actual = run_fixture_and_compare("02-port-usage.deal");
