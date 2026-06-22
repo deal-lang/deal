@@ -69,6 +69,14 @@ pub struct WorkspaceSection {
     /// treat as `roots`). Modeled explicitly so strict parsing accepts it.
     #[serde(default)]
     pub packages: Vec<String>,
+    /// Deprecated location for import aliases. ADR-0004 R1 / P1 makes top-level
+    /// `[aliases]` the preferred form, but real manifests (showcase, cubesat)
+    /// still carry `[workspace.aliases]`. Modeled here (mirroring `packages` as
+    /// a deprecated alias) so strict `deny_unknown_fields` parsing accepts them;
+    /// top-level `[aliases]` is authoritative. The example manifests migrate to
+    /// `[aliases]` in P6.
+    #[serde(default)]
+    pub aliases: BTreeMap<String, String>,
 }
 
 /// A `[dependencies]` entry: git, path, or a registry version string.
@@ -273,5 +281,70 @@ rootz = ["packages"]
         let m: DealToml = toml::from_str(FULL).unwrap();
         let keys: Vec<&String> = m.dependencies.keys().collect();
         assert_eq!(keys, vec!["deal-std", "deal-stdlib", "some-git"]);
+    }
+
+    /// ADR-0004 P4 WS-E regression: the real showcase/cubesat manifest shapes
+    /// must parse under strict schema — glob `packages/*` roots, the deprecated
+    /// `[workspace.aliases]` location, a registry version dependency, and a path
+    /// dependency. Before WS-E `[workspace.aliases]` was rejected by
+    /// `deny_unknown_fields`, silently dropping the whole manifest (no excludes,
+    /// no path-dep seeding).
+    #[test]
+    fn parses_real_world_workspace_shapes() {
+        let src = r#"
+[project]
+name = "ev-platform"
+version = "0.1.0"
+
+[workspace]
+packages = ["packages/*"]
+exclude = ["packages/behaviors"]
+
+[workspace.aliases]
+vehicle    = "packages/vehicle"
+interfaces = "packages/interfaces"
+
+[dependencies]
+deal-std = "0.1"
+deal-stdlib = { path = "../../../deal-stdlib" }
+"#;
+        let m: DealToml = toml::from_str(src).expect("real-world manifest must parse");
+        assert_eq!(m.workspace.packages, vec!["packages/*"]);
+        assert_eq!(m.workspace.exclude, vec!["packages/behaviors"]);
+        assert_eq!(
+            m.workspace.aliases.get("vehicle").map(String::as_str),
+            Some("packages/vehicle")
+        );
+        match m.dependencies.get("deal-std").unwrap() {
+            Dependency::Version(v) => assert_eq!(v, "0.1"),
+            other => panic!("expected Version, got {other:?}"),
+        }
+        match m.dependencies.get("deal-stdlib").unwrap() {
+            Dependency::Path { path } => assert_eq!(path, "../../../deal-stdlib"),
+            other => panic!("expected Path, got {other:?}"),
+        }
+    }
+
+    /// `[aliases]` (preferred) and `[workspace.aliases]` (deprecated) are both
+    /// accepted; top-level is authoritative and the two are distinct fields.
+    #[test]
+    fn both_alias_locations_parse() {
+        let src = r#"
+[project]
+name = "x"
+version = "0.1.0"
+
+[aliases]
+top = "packages/top"
+
+[workspace.aliases]
+nested = "packages/nested"
+"#;
+        let m: DealToml = toml::from_str(src).unwrap();
+        assert_eq!(m.aliases.get("top").map(String::as_str), Some("packages/top"));
+        assert_eq!(
+            m.workspace.aliases.get("nested").map(String::as_str),
+            Some("packages/nested")
+        );
     }
 }

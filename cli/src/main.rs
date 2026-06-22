@@ -1044,21 +1044,24 @@ fn plan_load_from_paths(paths: &[std::path::PathBuf]) -> Result<closure::LoadPla
     let explicit_files: Vec<std::path::PathBuf> =
         paths.iter().filter(|p| p.is_file()).cloned().collect();
 
-    // Project discovery roots: [workspace].roots (+ deprecated `packages`)
-    // when a manifest is present; otherwise argument-scoped expansion.
+    // Layout-agnostic discovery (locked decision: discover *.deal/*.dealx
+    // anywhere; never hardcode/require dir names). `[workspace].roots`/`packages`
+    // are ADVISORY only — real manifests use globs (`packages/*`) and place
+    // `.dealx` entries outside the listed package dirs, so they must NOT restrict
+    // discovery. The manifest is consulted only for `[workspace].exclude` (via
+    // apply_workspace_excludes) and dependency seeding (below).
+    //
+    // - dir args expand recursively;
+    // - a file-only invocation inside a project discovers the WHOLE project tree
+    //   so the entry file's cross-package import closure resolves (the explicit
+    //   files remain the entry points; only their reachable closure is analyzed);
+    // - a standalone file with no manifest discovers just the given files.
     let project_files: Vec<std::path::PathBuf> = {
-        let roots: Vec<std::path::PathBuf> = match &manifest {
-            Some(m) => {
-                let mut rs: Vec<String> = m.workspace.roots.clone();
-                rs.extend(m.workspace.packages.iter().cloned());
-                rs.into_iter().map(|r| project_root.join(r)).collect()
-            }
-            None => Vec::new(),
-        };
-        let discovered = if roots.is_empty() {
+        let has_dir_arg = paths.iter().any(|p| p.is_dir());
+        let discovered = if has_dir_arg || manifest.is_none() {
             expand_path_args(paths)?
         } else {
-            closure::discover_files(&roots)
+            expand_path_args(std::slice::from_ref(&project_root))?
         };
         let mut pf = apply_workspace_excludes(paths, discovered);
         pf.extend(explicit_files.iter().cloned());
