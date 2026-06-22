@@ -46,6 +46,16 @@ pub struct Documents {
     /// `semanticTokens/full/delta` requests can compute diffs (or fall
     /// back to a full response on cache eviction).
     tokens_cache: DashMap<Url, (String, Vec<tower_lsp::lsp_types::SemanticToken>)>,
+    /// One-shot hand-off slot for a configured stdlib path (ADR-0004 P5 WS-B):
+    /// `initialize` reads it from `initializationOptions` and stashes it here for
+    /// `initialized` → `eager_parse` to seed the stdlib into the closure.
+    pending_stdlib_path: StdMutex<Option<PathBuf>>,
+    /// Cached external source set (ADR-0004 P5 WS-B/WS-7): the source bytes of
+    /// every file in the workspace import closure (workspace + reachable deps,
+    /// incl. stdlib). Built once by `eager_parse`; `did_change` re-analyzes the
+    /// edited file against this durable blob (the salsa "global derived data"
+    /// boundary) instead of re-parsing it alone. `Arc` so readers clone cheaply.
+    closure_external: StdMutex<Option<Arc<Vec<Vec<u8>>>>>,
 }
 
 impl Documents {
@@ -56,7 +66,37 @@ impl Documents {
             parse_count: AtomicUsize::new(0),
             pending_workspace_root: StdMutex::new(None),
             tokens_cache: DashMap::new(),
+            pending_stdlib_path: StdMutex::new(None),
+            closure_external: StdMutex::new(None),
         }
+    }
+
+    /// Stash a configured stdlib path for `initialized` to consume (WS-B).
+    pub fn set_pending_stdlib_path(&self, path: PathBuf) {
+        if let Ok(mut slot) = self.pending_stdlib_path.lock() {
+            *slot = Some(path);
+        }
+    }
+
+    /// One-shot consume of the configured stdlib path.
+    pub fn take_pending_stdlib_path(&self) -> Option<PathBuf> {
+        self.pending_stdlib_path
+            .lock()
+            .ok()
+            .and_then(|mut s| s.take())
+    }
+
+    /// Install the cached closure external set (WS-B). Replaces any prior cache
+    /// (closure rebuilds overwrite).
+    pub fn set_closure_external(&self, external: Vec<Vec<u8>>) {
+        if let Ok(mut slot) = self.closure_external.lock() {
+            *slot = Some(Arc::new(external));
+        }
+    }
+
+    /// Read the cached closure external set, if built (WS-7 did-change path).
+    pub fn closure_external(&self) -> Option<Arc<Vec<Vec<u8>>>> {
+        self.closure_external.lock().ok().and_then(|s| s.clone())
     }
 
     /// Store the most recently emitted (result_id, data) pair for

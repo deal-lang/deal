@@ -79,6 +79,19 @@ impl LanguageServer for Backend {
             self.documents.set_pending_workspace_root(root);
         }
 
+        // ADR-0004 P5 WS-B: a configured stdlib path (initializationOptions
+        // `stdlibPath`) lets the editor point the server at the stdlib so
+        // hover/goto into `deal.std.units` resolves without `deal install`.
+        if let Some(p) = params
+            .initialization_options
+            .as_ref()
+            .and_then(|o| o.get("stdlibPath"))
+            .and_then(|v| v.as_str())
+        {
+            self.documents
+                .set_pending_stdlib_path(std::path::PathBuf::from(p));
+        }
+
         let capabilities = ServerCapabilities {
             text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
             document_formatting_provider: Some(OneOf::Left(true)),
@@ -144,6 +157,7 @@ impl LanguageServer for Backend {
         };
         let documents = self.documents.clone();
         let index = self.index.clone();
+        let stdlib_path = self.documents.take_pending_stdlib_path();
         tokio::spawn(async move {
             let ws = match Workspace::discover(&root) {
                 Ok(w) => w,
@@ -156,7 +170,7 @@ impl LanguageServer for Backend {
             // Index::with_aliases would mean a new instance — use a setter
             // path to keep the shared Arc<Index> stable.
             index.replace_aliases(ws.aliases.clone());
-            workspace::eager_parse(Arc::new(ws), documents, index).await;
+            workspace::eager_parse(Arc::new(ws), documents, index, stdlib_path).await;
         });
     }
 

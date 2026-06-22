@@ -242,52 +242,134 @@ pub fn extract_aliases(deal_toml: &str) -> Option<HashMap<String, String>> {
     }
 }
 
-/// Eagerly parse every workspace file (silently — no publishDiagnostics)
-/// and populate the symbol index. Invoked as a background tokio task from
-/// `backend::initialized` so the LSP responds to `initialized` immediately.
+/// Resolve dependency package roots whose `.deal` files become EXTERNAL sources
+/// in the workspace import closure (ADR-0004 P5 WS-B). Three sources, in order:
+///   1. vendored git deps under `.deal/deps/<name>/packages` (after `deal install`);
+///   2. `path` dependencies from `deal.toml` (`<path>/packages`);
+///   3. a configured stdlib path (`initializationOptions.stdlibPath`) — prefer its
+///      `packages/` subdir — so hover/goto into `deal.std.units` resolves without
+///      requiring `deal install`.
+/// Only the *reachable* packages actually enter the closure (`closure_files`).
+fn dependency_roots(root: &Path, stdlib_path: Option<&Path>) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = Vec::new();
+
+    let deps_base = root.join(".deal").join("deps");
+    if let Ok(entries) = std::fs::read_dir(&deps_base) {
+        for e in entries.flatten() {
+            let pkgs = e.path().join("packages");
+            if pkgs.is_dir() {
+                roots.push(pkgs);
+            }
+        }
+    }
+
+    if let Ok(text) = std::fs::read_to_string(root.join("deal.toml")) {
+        if let Ok(manifest) = toml::from_str::<deal_config::DealToml>(&text) {
+            for dep in manifest.dependencies.values() {
+                if let deal_config::Dependency::Path { path } = dep {
+                    let pkgs = root.join(path).join("packages");
+                    if pkgs.is_dir() {
+                        roots.push(pkgs);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(sp) = stdlib_path {
+        let pkgs = sp.join("packages");
+        roots.push(if pkgs.is_dir() { pkgs } else { sp.to_path_buf() });
+    }
+
+    roots
+}
+
+/// Eagerly parse every workspace file (silently — no publishDiagnostics) against
+/// the workspace **import closure** (workspace files + reachable dependency
+/// packages, including the stdlib) and populate the symbol index. Invoked as a
+/// background tokio task from `backend::initialized` so the LSP responds to
+/// `initialized` immediately.
 ///
-/// Per-file failures are logged and skipped — the rest of the workspace
-/// still gets indexed.
-pub async fn eager_parse(workspace: Arc<Workspace>, documents: Arc<Documents>, index: Arc<Index>) {
-    let files = workspace.enumerate_files();
-    let total = files.len();
+/// The closure's source bytes are cached on `Documents` (`set_closure_external`)
+/// as the durable external table the live-strict `did_change` path re-analyzes
+/// against (WS-7). Per-file failures are logged and skipped.
+pub async fn eager_parse(
+    workspace: Arc<Workspace>,
+    documents: Arc<Documents>,
+    index: Arc<Index>,
+    stdlib_path: Option<PathBuf>,
+) {
+    let workspace_files = workspace.enumerate_files();
+    let total = workspace_files.len();
     tracing::info!(
-        "eager_parse: starting on {} files under {}",
+        "eager_parse: starting on {} workspace files under {}",
         total,
         workspace.root.display()
     );
 
-    // ADR-0003 two-phase analysis. Phase 1: read every workspace source.
-    let mut entries: Vec<(tower_lsp::lsp_types::Url, String)> = Vec::with_capacity(total);
-    for path in files {
-        let text = match std::fs::read_to_string(&path) {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("eager_parse: read {} failed: {e}", path.display());
+    // Dependency/stdlib package files become EXTERNAL sources; only the
+    // reachable packages enter the closure (computed below).
+    let dep_roots = dependency_roots(&workspace.root, stdlib_path.as_deref());
+    let dep_files = deal_closure::discover_files(&dep_roots);
+    tracing::info!(
+        "eager_parse: {} dependency file(s) under {} root(s)",
+        dep_files.len(),
+        dep_roots.len()
+    );
+
+    // Build the module map over workspace + deps, then compute the import
+    // closure seeded from every workspace file (so the whole project is indexed
+    // and only the imported dependency packages — e.g. deal.std.units — load).
+    let mut all_files = workspace_files.clone();
+    all_files.extend(dep_files.iter().cloned());
+    all_files.sort();
+    all_files.dedup();
+    let map = deal_closure::ModuleMap::build(&all_files);
+    let closure = deal_closure::closure_files(&map, &workspace_files);
+
+    // Read each closure file's source once.
+    let mut source_by_path: HashMap<PathBuf, Vec<u8>> = HashMap::with_capacity(closure.len());
+    for path in &closure {
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                source_by_path.insert(path.clone(), bytes);
+            }
+            Err(e) => tracing::warn!("eager_parse: read {} failed: {e}", path.display()),
+        }
+    }
+
+    // Cache the external blob (workspace + reachable deps incl. stdlib) for the
+    // did-change live-strict path. Deterministic order = closure order.
+    let closure_sources: Vec<Vec<u8>> = closure
+        .iter()
+        .filter_map(|p| source_by_path.get(p).cloned())
+        .collect();
+    documents.set_closure_external(closure_sources.clone());
+
+    // Phase 2: analyze each workspace file against the closure external set so
+    // cross-file AND stdlib references resolve; populate the index.
+    let external_refs: Vec<&[u8]> = closure_sources.iter().map(|v| v.as_slice()).collect();
+    let mut indexed = 0usize;
+    for path in &workspace_files {
+        let Some(bytes) = source_by_path.get(path) else {
+            continue;
+        };
+        let text = match std::str::from_utf8(bytes) {
+            Ok(t) => t.to_string(),
+            Err(_) => {
+                tracing::warn!("eager_parse: {} is not valid UTF-8 — skipping", path.display());
                 continue;
             }
         };
-        let Ok(uri) = tower_lsp::lsp_types::Url::from_file_path(&path) else {
+        let Ok(uri) = tower_lsp::lsp_types::Url::from_file_path(path) else {
             tracing::warn!(
                 "eager_parse: cannot build file:// URL for {}",
                 path.display()
             );
             continue;
         };
-        entries.push((uri, text));
-    }
-
-    // The workspace-merged declaration set: every file's bytes. Each file is
-    // analyzed against the whole set so cross-file references resolve to the
-    // declaring FQ id (local declarations still win, so self-inclusion is fine).
-    let all_sources: Vec<&[u8]> = entries.iter().map(|(_, t)| t.as_bytes()).collect();
-
-    // Phase 2: analyze each file with the merged set; populate the index
-    // (incl. cross-file references[]).
-    let mut indexed = 0usize;
-    for (uri, text) in &entries {
         if let Err(e) = documents
-            .open_silent_with_external(uri.clone(), text.clone(), &all_sources, &index)
+            .open_silent_with_external(uri.clone(), text, &external_refs, &index)
             .await
         {
             tracing::warn!("eager_parse: analyze {uri} failed: {e}");
@@ -296,7 +378,8 @@ pub async fn eager_parse(workspace: Arc<Workspace>, documents: Arc<Documents>, i
         indexed += 1;
     }
     tracing::info!(
-        "eager_parse: completed — {indexed}/{total} files parsed; index size = {}",
+        "eager_parse: completed — {indexed}/{total} workspace files; closure = {} files; index size = {}",
+        closure.len(),
         index.len()
     );
 }
