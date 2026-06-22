@@ -452,6 +452,7 @@ dependencies = [
  "anstream",
  "anyhow",
  "clap",
+ "deal-closure",
  "deal-config",
  "deal-ffi",
  "git2",
@@ -471,6 +472,16 @@ dependencies = [
  "uuid",
  "walkdir",
  "zip",
+]
+
+[[package]]
+name = "deal-closure"
+version = "0.1.0"
+dependencies = [
+ "deal-ffi",
+ "serde",
+ "serde_json",
+ "walkdir",
 ]
 
 [[package]]
@@ -499,6 +510,8 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dashmap 6.2.1",
+ "deal-closure",
+ "deal-config",
  "deal-ffi",
  "futures",
  "insta",

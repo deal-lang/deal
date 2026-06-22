@@ -17,6 +17,12 @@ path = "src/lib.rs"
 [dependencies]
 # Shared FFI surface (9 extern "C" exports + OwnedDealHandle + safe wrappers).
 deal-ffi = { path = "../deal-ffi" }
+# Shared deal.toml schema (ADR-0004 P5 WS-A): the LSP parses the manifest via
+# deal_config::DealToml instead of hand-rolling it, honoring top-level [aliases].
+deal-config = { path = "../deal-config" }
+# Shared import-closure walker (ADR-0004 P5): the LSP loads the same reachable
+# package set the CLI does (used by the P5 closure loader, WS-B).
+deal-closure = { path = "../deal-closure" }
 tower-lsp = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }

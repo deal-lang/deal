@@ -205,17 +205,41 @@ impl Workspace {
     }
 }
 
-/// Parse `[workspace.aliases]` from a deal.toml string. Public for tests.
+/// Parse import aliases from a deal.toml string (ADR-0004 P5 WS-A). Honors the
+/// authoritative top-level `[aliases]` over the deprecated `[workspace.aliases]`
+/// via the shared `deal_config::DealToml` schema (single source of truth with
+/// the CLI). Falls back to a lenient scan if the manifest has an unrelated error
+/// elsewhere — a manifest typo must not break the editor's alias navigation.
+/// Public for tests.
 pub fn extract_aliases(deal_toml: &str) -> Option<HashMap<String, String>> {
-    let val: toml::Value = toml::from_str(deal_toml).ok()?;
-    let aliases = val.get("workspace")?.get("aliases")?.as_table()?;
-    let mut out = HashMap::new();
-    for (k, v) in aliases.iter() {
-        if let Some(s) = v.as_str() {
-            out.insert(k.clone(), s.to_string());
+    let mut out: HashMap<String, String> = HashMap::new();
+    if let Ok(manifest) = toml::from_str::<deal_config::DealToml>(deal_toml) {
+        // Deprecated [workspace.aliases] first; authoritative top-level overlays.
+        for (k, v) in &manifest.workspace.aliases {
+            out.insert(k.clone(), v.clone());
+        }
+        for (k, v) in &manifest.aliases {
+            out.insert(k.clone(), v.clone());
+        }
+    } else if let Ok(val) = toml::from_str::<toml::Value>(deal_toml) {
+        for loc in [
+            val.get("workspace").and_then(|w| w.get("aliases")),
+            val.get("aliases"),
+        ] {
+            if let Some(tbl) = loc.and_then(|v| v.as_table()) {
+                for (k, v) in tbl {
+                    if let Some(s) = v.as_str() {
+                        out.insert(k.clone(), s.to_string());
+                    }
+                }
+            }
         }
     }
-    Some(out)
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
 }
 
 /// Eagerly parse every workspace file (silently — no publishDiagnostics)

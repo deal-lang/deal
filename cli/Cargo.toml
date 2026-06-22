@@ -25,6 +25,9 @@ deal-ffi = { path = "../deal-ffi" }
 # Shared deal.toml/deal.lock schema (ADR-0004 P4 WS-A). Schema types only; the
 # git2-backed resolution (resolve_all) stays here in cli.
 deal-config = { path = "../deal-config" }
+# Shared import-closure walker (ADR-0004 P5 WS-A). Extracted from cli so the LSP
+# reuses the identical reachability logic; cli/src/closure.rs re-exports it.
+deal-closure = { path = "../deal-closure" }
 clap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

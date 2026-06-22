@@ -1,0 +1,25 @@
+[package]
+name = "deal-closure"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Shared import-closure walker (ADR-0004): module discovery, the workspace
+# module map, and the package-complete closure walker. Extracted from the CLI
+# (P4) so the LSP (P5) reuses the IDENTICAL reachability logic — no drift
+# between the CLI checker and the editor.
+#
+# Depends on deal-ffi because the walker extracts package/import/export edges
+# from each file's index_json envelope via the FFI (no Rust-side DEAL parsing).
+# This is why the walker cannot live in deal-config (the light, native-dep-free
+# schema crate): it inherently needs the native analyzer.
+
+[lib]
+name = "deal_closure"
+path = "src/lib.rs"
+
+[dependencies]
+deal-ffi = { path = "../deal-ffi" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+walkdir = { workspace = true }

@@ -4,7 +4,7 @@ resolver = "2"
 # claimant; consumed by both `cli/` and `lsp/`). Task 1 landed cli + deal-ffi
 # + tests/ffi; Task 2 adds `lsp/` after lsp/Cargo.toml exists (listing it
 # earlier makes `cargo build --workspace` fail at the workspace-resolve step).
-members = ["cli", "deal-config", "deal-ffi", "lsp", "lsp-smoke", "tests/ffi"]
+members = ["cli", "deal-closure", "deal-config", "deal-ffi", "lsp", "lsp-smoke", "tests/ffi"]
 
 [workspace.dependencies]
 # CLI argument parsing + subcommands + help generation
