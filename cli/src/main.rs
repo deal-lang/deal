@@ -22,6 +22,7 @@ use std::io::Write;
 use deal_ffi as ffi;
 pub mod closure;
 pub mod evidence;
+pub mod fix_imports;
 pub mod model_values;
 pub mod render;
 pub mod reporter;
@@ -168,6 +169,20 @@ enum Command {
     Evidence {
         #[command(subcommand)]
         subcommand: evidence::EvidenceCommand,
+    },
+    /// Insert missing imports into `.deal` files under strict import-scoping
+    /// (ADR-0004). For each file, resolves the type names it uses but does not
+    /// import against the workspace + dependency symbol index and adds the
+    /// `import pkg.{Name};` lines (named imports, merged into existing lines).
+    /// Names declared in more than one package, or nowhere, are reported, not
+    /// guessed.
+    FixImports {
+        /// Files or directories to fix (defaults to the current directory).
+        paths: Vec<std::path::PathBuf>,
+        /// Report needed changes without writing; exit 1 if any file is not
+        /// import-clean (CI gate).
+        #[arg(long)]
+        check: bool,
     },
 }
 
@@ -1881,6 +1896,144 @@ fn run_install(_json: bool, color: ColorMode) -> Result<(), CliError> {
     Ok(())
 }
 
+/// Run the `deal fix-imports` subcommand (ADR-0004 P6).
+///
+/// Builds a global name→package index from the whole discovered closure
+/// (project + dependencies, incl. stdlib), then for each target `.deal` file
+/// resolves its used-but-unimported type names against that index and inserts
+/// the missing `import pkg.{Name};` lines (merged into existing lines). With
+/// `--check`, reports without writing and exits 1 if any file is not
+/// import-clean. Names declared in >1 package, or nowhere, are reported.
+fn run_fix_imports(
+    paths: &[std::path::PathBuf],
+    check: bool,
+    color: ColorMode,
+) -> Result<(), CliError> {
+    // Default to the current directory when no paths are given.
+    let owned_default = [std::path::PathBuf::from(".")];
+    let paths: &[std::path::PathBuf] = if paths.is_empty() {
+        owned_default.as_slice()
+    } else {
+        paths
+    };
+
+    // Global symbol index from every discovered module (project + deps/stdlib).
+    let plan = plan_load_from_paths(paths)?;
+    let mut element_maps: Vec<serde_json::Value> = Vec::new();
+    for m in plan.map.modules.values() {
+        if m.index_json.is_empty() {
+            continue;
+        }
+        if let Ok(env) = serde_json::from_slice::<serde_json::Value>(&m.index_json) {
+            if let Some(elems) = env.get("elements") {
+                element_maps.push(elems.clone());
+            }
+        }
+    }
+    let global = fix_imports::build_global_index(&element_maps);
+
+    // Target files: the `.deal` files under the given paths (honoring excludes).
+    let targets: Vec<std::path::PathBuf> = apply_workspace_excludes(
+        paths,
+        expand_path_args(paths)?
+            .into_iter()
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("deal"))
+            .collect(),
+    );
+
+    let stderr_choice = color_choice(color);
+    let mut stderr = anstream::AutoStream::new(std::io::stderr(), stderr_choice);
+
+    let mut changed = 0usize;
+    let mut added_total = 0usize;
+    let mut needs_attention = false;
+
+    for path in &targets {
+        let source = std::fs::read_to_string(path)
+            .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read {:?}: {}", path, e)))?;
+        let filename = path.to_string_lossy();
+
+        let handle = match deal_ffi::safe::parse(source.as_bytes(), &filename) {
+            Some(h) => h,
+            None => {
+                let _ = writeln!(stderr, "warning: {} did not parse — skipping", path.display());
+                needs_attention = true;
+                continue;
+            }
+        };
+        let ast: serde_json::Value =
+            match deal_ffi::safe::ast_json(&handle).and_then(|b| serde_json::from_slice(&b).ok()) {
+                Some(v) => v,
+                None => continue,
+            };
+        let env: serde_json::Value = deal_ffi::safe::index_json(&handle)
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or(serde_json::Value::Null);
+
+        let referenced = fix_imports::collect_referenced_types(&ast);
+        let own_package = env
+            .get("package")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let edges: Vec<deal_closure::ImportEdge> = env
+            .get("imports_graph")
+            .cloned()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
+
+        let fix = fix_imports::plan_file_fix(&source, &referenced, &own_package, &edges, &global);
+
+        for name in &fix.unresolved {
+            let _ = writeln!(
+                stderr,
+                "warning: {}: `{name}` is not declared in any known package (typo, or missing dependency?)",
+                path.display()
+            );
+            needs_attention = true;
+        }
+        for (name, pkgs) in &fix.ambiguous {
+            let _ = writeln!(
+                stderr,
+                "warning: {}: `{name}` is declared in multiple packages ({}); add the import manually",
+                path.display(),
+                pkgs.join(", ")
+            );
+            needs_attention = true;
+        }
+
+        if fix.changed(&source) {
+            changed += 1;
+            let n: usize = fix.added.iter().map(|(_, names)| names.len()).sum();
+            added_total += n;
+            if check {
+                let _ = writeln!(stderr, "{}: {n} import(s) missing", path.display());
+            } else {
+                std::fs::write(path, &fix.new_text).map_err(|e| {
+                    CliError::Internal(anyhow::anyhow!("cannot write {:?}: {}", path, e))
+                })?;
+                let _ = writeln!(stderr, "{}: added {n} import(s)", path.display());
+            }
+        }
+    }
+
+    if check {
+        let _ = writeln!(
+            stderr,
+            "deal fix-imports --check: {changed} file(s) not import-clean ({added_total} import(s) missing)"
+        );
+        if changed > 0 || needs_attention {
+            return Err(CliError::User(String::new()));
+        }
+    } else {
+        let _ = writeln!(
+            stderr,
+            "deal fix-imports: {changed} file(s) updated, {added_total} import(s) added"
+        );
+    }
+    Ok(())
+}
+
 fn run(cli: Cli) -> Result<(), CliError> {
     match cli.command {
         Command::Parse { paths } => run_parse(&paths, cli.json, cli.color),
@@ -1923,6 +2076,7 @@ fn run(cli: Cli) -> Result<(), CliError> {
             simulate::run_simulate(&names, all, stale, color_pref(cli.color))
         }
         Command::Evidence { subcommand } => evidence::run_evidence(subcommand),
+        Command::FixImports { paths, check } => run_fix_imports(&paths, check, cli.color),
     }
 }
 

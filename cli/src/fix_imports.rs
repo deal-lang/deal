@@ -39,7 +39,9 @@ pub fn collect_referenced_types(ast: &serde_json::Value) -> BTreeSet<String> {
 fn walk(v: &serde_json::Value, out: &mut BTreeSet<String>) {
     match v {
         serde_json::Value::Object(map) => {
-            if let Some(kind) = map.get("kind").and_then(|k| k.as_str()) {
+            // AST nodes carry their kind as "k" (json.zig writeNode); the index
+            // `elements` use "kind" — this walk is over the AST, so "k".
+            if let Some(kind) = map.get("k").and_then(|k| k.as_str()) {
                 let segs_key = match kind {
                     "type_annotation" => Some("name_segments"),
                     "specialization" | "redefinition" => Some("target_segments"),
@@ -313,12 +315,13 @@ mod tests {
 
     #[test]
     fn collects_bare_type_refs_from_ast() {
+        // AST nodes use "k" for kind (json.zig writeNode), matching reality.
         let ast = serde_json::json!({
-            "kind": "part_def",
+            "k": "part_def",
             "members": [
-                {"kind": "attribute_usage", "type": {"kind": "type_annotation", "name_segments": ["Mass"]}},
-                {"kind": "specialization", "target_segments": ["Vehicle"]},
-                {"kind": "type_annotation", "name_segments": ["deal", "std", "units", "Power"]}
+                {"k": "attribute_usage", "type": {"k": "type_annotation", "name_segments": ["Mass"]}},
+                {"k": "specialization", "target_segments": ["Vehicle"]},
+                {"k": "type_annotation", "name_segments": ["deal", "std", "units", "Power"]}
             ]
         });
         let got = collect_referenced_types(&ast);
