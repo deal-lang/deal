@@ -6,6 +6,7 @@
 
 pub mod closure;
 pub mod evidence;
+pub mod fix_imports;
 pub mod model_values;
 pub mod reporter;
 pub mod reqif;
