@@ -20,12 +20,16 @@
 //! here mirror the snippet labels so the editor IntelliSense surface is
 //! visually consistent across the snippet UI and the LSP completion UI.
 
+use std::collections::HashSet;
+
+use ropey::Rope;
 use tower_lsp::jsonrpc::Result as LspResult;
 use tower_lsp::lsp_types::{
     CompletionItem, CompletionItemKind, CompletionParams, CompletionResponse, Documentation,
-    InsertTextFormat, MarkupContent, MarkupKind,
+    InsertTextFormat, MarkupContent, MarkupKind, Position, Range, TextEdit,
 };
 
+use crate::documents::Documents;
 use crate::index::Index;
 
 /// The 16 DEAL element-definition keywords from SD-1 / SD-18 / SD-20 / SD-21.
@@ -120,14 +124,70 @@ pub const ELEMENT_KEYWORDS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The line index where a new `import` statement should be inserted: just after
+/// the last existing `import` line, else just after the `package …;` line, else
+/// the top of the file (ADR-0004 P5 WS-D auto-import).
+fn import_insert_line(rope: &Rope) -> u32 {
+    let mut last_import: Option<usize> = None;
+    let mut package_line: Option<usize> = None;
+    for (i, line) in rope.lines().enumerate() {
+        let s = line.to_string();
+        let t = s.trim_start();
+        if t.starts_with("import ") {
+            last_import = Some(i);
+        } else if package_line.is_none() && t.starts_with("package ") {
+            package_line = Some(i);
+        }
+    }
+    let line = last_import.map(|i| i + 1).or(package_line.map(|i| i + 1)).unwrap_or(0);
+    line as u32
+}
+
 /// Implementation of `textDocument/completion`.
 ///
-/// Tolerates a not-yet-populated index gracefully — the element-keyword
-/// items are always returned even before eager_parse completes.
+/// Tolerates a not-yet-populated index gracefully — the element-keyword items
+/// are always returned even before eager_parse completes.
+///
+/// ADR-0004 P5 WS-D: completion is **additive**. Visible types (own package or
+/// already imported) insert the bare name; types from an un-imported package are
+/// offered as auto-import items carrying an `additionalTextEdits` that inserts
+/// the `import <pkg>.{<Name>};` line — matching the vscode-java / TS norm for a
+/// strict-import language (you complete it, the import is added for you).
 pub async fn handle_completion(
+    documents: &Documents,
     index: &Index,
-    _params: CompletionParams,
+    params: CompletionParams,
 ) -> LspResult<Option<CompletionResponse>> {
+    let uri = &params.text_document_position.text_document.uri;
+
+    // The editing file's own package + already-imported packages + where a new
+    // import line would go — read from its already-parsed handle + buffer (no
+    // re-parse). Absent (file not analyzed) → no auto-import edits (plain items).
+    let mut own_package = String::new();
+    let mut imported: HashSet<String> = HashSet::new();
+    let mut insert_line: Option<u32> = None;
+    if let Some(handle) = documents.get_handle(uri) {
+        let env_bytes = {
+            let guard = handle.lock().await;
+            deal_ffi::safe::index_json(&guard).unwrap_or_default()
+        };
+        if let Ok(env) = serde_json::from_slice::<serde_json::Value>(&env_bytes) {
+            if let Some(p) = env.get("package").and_then(|v| v.as_str()) {
+                own_package = p.to_string();
+            }
+            if let Some(arr) = env.get("imports_graph").and_then(|v| v.as_array()) {
+                for e in arr {
+                    if let Some(ip) = e.get("import_path").and_then(|v| v.as_str()) {
+                        imported.insert(ip.to_string());
+                    }
+                }
+            }
+        }
+        if let Some(rope) = documents.get_buffer(uri) {
+            insert_line = Some(import_insert_line(&rope));
+        }
+    }
+
     let mut items: Vec<CompletionItem> = Vec::with_capacity(64);
 
     // Group 1: element keywords as snippet items.
@@ -146,15 +206,14 @@ pub async fn handle_completion(
         });
     }
 
-    // Group 2: workspace types — every PathString in the index whose
-    // terminal segment starts with an uppercase letter (DEAL type-name
-    // convention).
+    // Group 2: workspace + dependency types — every PathString in the index
+    // whose terminal segment starts uppercase (DEAL type-name convention).
     for (path, _loc) in index.snapshot() {
-        let last_segment = match path.rsplit_once('.') {
-            Some((_, last)) => last,
-            None => path.as_str(),
+        let (pkg, name) = match path.rsplit_once('.') {
+            Some((p, n)) => (p, n),
+            None => ("", path.as_str()),
         };
-        let is_type_name = last_segment
+        let is_type_name = name
             .chars()
             .next()
             .map(|c| c.is_ascii_uppercase())
@@ -162,12 +221,34 @@ pub async fn handle_completion(
         if !is_type_name {
             continue;
         }
+
+        // Visible if it's the file's own package or an imported package; only
+        // a genuinely un-imported package gets an auto-import edit (and only
+        // when we know where to insert it).
+        let in_scope = pkg.is_empty() || pkg == own_package || imported.contains(pkg);
+        let additional_text_edits = if in_scope {
+            None
+        } else {
+            insert_line.map(|line| {
+                vec![TextEdit {
+                    range: Range::new(Position::new(line, 0), Position::new(line, 0)),
+                    new_text: format!("import {pkg}.{{{name}}};\n"),
+                }]
+            })
+        };
+        let detail = if additional_text_edits.is_some() {
+            format!("{path}  (auto-import)")
+        } else {
+            path.clone()
+        };
+
         items.push(CompletionItem {
-            label: last_segment.to_string(),
+            label: name.to_string(),
             kind: Some(CompletionItemKind::CLASS),
-            detail: Some(path.clone()),
-            insert_text: Some(last_segment.to_string()),
+            detail: Some(detail),
+            insert_text: Some(name.to_string()),
             insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+            additional_text_edits,
             ..Default::default()
         });
     }
@@ -201,7 +282,7 @@ mod tests {
     #[tokio::test]
     async fn keywords_always_returned_even_with_empty_index() {
         let idx = Index::new();
-        let resp = handle_completion(&idx, dummy_params())
+        let resp = handle_completion(&Documents::new(), &idx, dummy_params())
             .await
             .unwrap()
             .unwrap();
@@ -236,7 +317,7 @@ mod tests {
             "vehicle.battery.lowercaseHelper":{"id":"x","kind":"attribute_usage","source_file":"a","span":[0,10]}
         }}"#;
         idx.update_from_envelope(&url, env, &Rope::from_str("part def X {} "));
-        let resp = handle_completion(&idx, dummy_params())
+        let resp = handle_completion(&Documents::new(), &idx, dummy_params())
             .await
             .unwrap()
             .unwrap();
@@ -258,6 +339,72 @@ mod tests {
             .find(|i| i.label == "BatteryPack")
             .unwrap();
         assert_eq!(pack.detail.as_deref(), Some("vehicle.battery.BatteryPack"));
+    }
+
+    fn params_at(uri: &Url) -> CompletionParams {
+        CompletionParams {
+            text_document_position: TextDocumentPositionParams {
+                text_document: TextDocumentIdentifier { uri: uri.clone() },
+                position: Position::new(2, 0),
+            },
+            work_done_progress_params: WorkDoneProgressParams::default(),
+            partial_result_params: PartialResultParams::default(),
+            context: None,
+        }
+    }
+
+    /// WS-D: a type from an un-imported package is offered with an auto-import
+    /// `additionalTextEdits`; a same-package type is offered plain.
+    #[tokio::test]
+    async fn unimported_type_offers_auto_import_edit() {
+        let docs = Documents::new();
+        let index = Index::new();
+        let app = Url::parse("file:///app.deal").unwrap();
+        // The editing file: package app, no imports, one local def.
+        docs.open_silent(
+            app.clone(),
+            "package app;\npart def Local {\n    public (\n        attribute n : Real [1];\n    )\n}\n"
+                .to_string(),
+            &index,
+        )
+        .await
+        .unwrap();
+        // A type from an un-imported package, injected into the index.
+        let other = Url::parse("file:///other.deal").unwrap();
+        let env = br#"{"v":1,"elements":{
+            "deal.std.units.Mass":{"id":"x","kind":"part_def","source_file":"o","span":[0,10]}
+        }}"#;
+        index.update_from_envelope(&other, env, &Rope::from_str("package deal.std.units;"));
+
+        let resp = handle_completion(&docs, &index, params_at(&app))
+            .await
+            .unwrap()
+            .unwrap();
+        let CompletionResponse::Array(items) = resp else {
+            panic!("expected Array variant");
+        };
+
+        let mass = items
+            .iter()
+            .find(|i| i.label == "Mass")
+            .expect("Mass offered");
+        let edits = mass
+            .additional_text_edits
+            .as_ref()
+            .expect("unimported Mass carries an auto-import edit");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].new_text, "import deal.std.units.{Mass};\n");
+        // Inserted after the `package app;` line (line 0) → line 1.
+        assert_eq!(edits[0].range.start.line, 1);
+
+        let local = items
+            .iter()
+            .find(|i| i.label == "Local")
+            .expect("Local offered");
+        assert!(
+            local.additional_text_edits.is_none(),
+            "own-package type must not carry an import edit"
+        );
     }
 
     #[test]

@@ -246,7 +246,7 @@ impl LanguageServer for Backend {
     }
 
     async fn completion(&self, params: CompletionParams) -> LspResult<Option<CompletionResponse>> {
-        completion::handle_completion(&self.index, params).await
+        completion::handle_completion(&self.documents, &self.index, params).await
     }
 
     async fn hover(&self, params: HoverParams) -> LspResult<Option<Hover>> {
