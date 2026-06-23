@@ -87,8 +87,15 @@ pub fn discover_files(roots: &[PathBuf]) -> Vec<PathBuf> {
 /// Returns `None` on read/parse failure (the caller decides how to surface it).
 pub fn parse_module(path: &Path) -> Option<ParsedModule> {
     let source = std::fs::read(path).ok()?;
+    parse_module_from(path, &source)
+}
+
+/// Like `parse_module` but parses the GIVEN bytes rather than reading from disk.
+/// Used by the LSP to build the closure from live editor buffers (unsaved
+/// content) instead of stale disk (ADR-0004 P5 WS-C.2).
+pub fn parse_module_from(path: &Path, source: &[u8]) -> Option<ParsedModule> {
     let filename = path.to_str()?;
-    let handle = deal_ffi::safe::parse(&source, filename)?;
+    let handle = deal_ffi::safe::parse(source, filename)?;
     // index_json is None when the file parsed but produced no symbol table
     // (e.g. parse errors). Such a file still belongs in the map under package
     // "" so the analysis loop reports its diagnostics rather than silently
@@ -104,6 +111,21 @@ pub fn parse_module(path: &Path) -> Option<ParsedModule> {
     })
 }
 
+/// The sorted, de-duplicated import paths declared by a module, parsed from its
+/// index_json envelope. The LSP compares this across an edit to detect when a
+/// file's reachability changed and the closure must be rebuilt (WS-C.2).
+pub fn imports_from_index_json(index_json: &[u8]) -> Vec<String> {
+    let env: Envelope = serde_json::from_slice(index_json).unwrap_or_default();
+    let mut imports: Vec<String> = env
+        .imports_graph
+        .into_iter()
+        .map(|e| e.import_path)
+        .collect();
+    imports.sort();
+    imports.dedup();
+    imports
+}
+
 /// A workspace module map: package FQ → files declaring it, + the parsed cache.
 #[derive(Debug, Default)]
 pub struct ModuleMap {
@@ -112,21 +134,37 @@ pub struct ModuleMap {
 }
 
 impl ModuleMap {
-    /// Build the map by parsing every file in `files`. A file with an empty
-    /// package (e.g. a parse failure) is recorded under "" — it never silently
-    /// vanishes from the map.
+    /// Build the map by parsing every file in `files` from disk. A file with an
+    /// empty package (e.g. a parse failure) is recorded under "" — it never
+    /// silently vanishes from the map.
     pub fn build(files: &[PathBuf]) -> Self {
         let mut map = ModuleMap::default();
         for path in files {
             if let Some(parsed) = parse_module(path) {
-                map.by_package
-                    .entry(parsed.package.clone())
-                    .or_default()
-                    .push(path.clone());
-                map.modules.insert(path.clone(), parsed);
+                map.insert(path.clone(), parsed);
             }
         }
         map
+    }
+
+    /// Build the map from `(path, source_bytes)` pairs rather than from disk, so
+    /// the LSP can include unsaved editor-buffer content (WS-C.2).
+    pub fn build_from(sources: &[(PathBuf, Vec<u8>)]) -> Self {
+        let mut map = ModuleMap::default();
+        for (path, bytes) in sources {
+            if let Some(parsed) = parse_module_from(path, bytes) {
+                map.insert(path.clone(), parsed);
+            }
+        }
+        map
+    }
+
+    fn insert(&mut self, path: PathBuf, parsed: ParsedModule) {
+        self.by_package
+            .entry(parsed.package.clone())
+            .or_default()
+            .push(path.clone());
+        self.modules.insert(path, parsed);
     }
 
     /// All files declaring package `pkg` (empty slice if unknown).

@@ -25,14 +25,14 @@
 //! The `aliases` table feeds the PS-5 alias-resolution layer in `Index`
 //! (`resolve_with_alias`).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
 use walkdir::WalkDir;
 
-use crate::documents::Documents;
+use crate::documents::{ClosureCache, Documents};
 use crate::index::Index;
 
 /// Maximum directory depth walked by the eager parse. Defends against
@@ -284,15 +284,78 @@ fn dependency_roots(root: &Path, stdlib_path: Option<&Path>) -> Vec<PathBuf> {
     roots
 }
 
+/// Build the workspace import-closure cache (ADR-0004 P5 WS-B/WS-C.2): discover
+/// workspace + dependency files, build the module map (preferring live editor
+/// `overrides` over disk so unsaved edits are reflected), compute the closure
+/// seeded from the workspace files, and collect the external source blob, the
+/// per-file import sets (the WS-C.2 reachability gate), and the rebuild context.
+/// Returns `None` if the workspace root cannot be (re-)discovered.
+pub fn build_closure_cache(
+    root: &Path,
+    stdlib_path: Option<&Path>,
+    overrides: &BTreeMap<PathBuf, Vec<u8>>,
+) -> Option<ClosureCache> {
+    let workspace = Workspace::discover(root).ok()?;
+    let workspace_files = workspace.enumerate_files();
+    let dep_roots = dependency_roots(root, stdlib_path);
+    let dep_files = deal_closure::discover_files(&dep_roots);
+
+    let mut all_files = workspace_files.clone();
+    all_files.extend(dep_files.iter().cloned());
+    all_files.sort();
+    all_files.dedup();
+
+    // Source bytes for every candidate file: a live buffer override if open,
+    // else disk. Files that cannot be read are skipped.
+    let mut sources: Vec<(PathBuf, Vec<u8>)> = Vec::with_capacity(all_files.len());
+    for path in &all_files {
+        let bytes = match overrides.get(path) {
+            Some(b) => b.clone(),
+            None => match std::fs::read(path) {
+                Ok(b) => b,
+                Err(_) => continue,
+            },
+        };
+        sources.push((path.clone(), bytes));
+    }
+
+    let map = deal_closure::ModuleMap::build_from(&sources);
+    let closure = deal_closure::closure_files(&map, &workspace_files);
+
+    // path → bytes for blob assembly (consumes `sources`; the map borrowed it above).
+    let src_map: BTreeMap<PathBuf, Vec<u8>> = sources.into_iter().collect();
+    let blob: Vec<Vec<u8>> = closure
+        .iter()
+        .filter_map(|p| src_map.get(p).cloned())
+        .collect();
+
+    let mut imports: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    for path in &closure {
+        if let Some(m) = map.modules.get(path) {
+            let mut imps: Vec<String> = m.imports.iter().map(|e| e.import_path.clone()).collect();
+            imps.sort();
+            imps.dedup();
+            imports.insert(path.clone(), imps);
+        }
+    }
+
+    Some(ClosureCache {
+        blob,
+        imports,
+        root: root.to_path_buf(),
+        stdlib_path: stdlib_path.map(|p| p.to_path_buf()),
+    })
+}
+
 /// Eagerly parse every workspace file (silently — no publishDiagnostics) against
 /// the workspace **import closure** (workspace files + reachable dependency
 /// packages, including the stdlib) and populate the symbol index. Invoked as a
 /// background tokio task from `backend::initialized` so the LSP responds to
 /// `initialized` immediately.
 ///
-/// The closure's source bytes are cached on `Documents` (`set_closure_external`)
-/// as the durable external table the live-strict `did_change` path re-analyzes
-/// against (WS-7). Per-file failures are logged and skipped.
+/// The closure is cached on `Documents` (`set_closure_cache`) as the durable
+/// external table the live-strict `did_change` path re-analyzes against (WS-7).
+/// Per-file failures are logged and skipped.
 pub async fn eager_parse(
     workspace: Arc<Workspace>,
     documents: Arc<Documents>,
@@ -307,57 +370,30 @@ pub async fn eager_parse(
         workspace.root.display()
     );
 
-    // Dependency/stdlib package files become EXTERNAL sources; only the
-    // reachable packages enter the closure (computed below).
-    let dep_roots = dependency_roots(&workspace.root, stdlib_path.as_deref());
-    let dep_files = deal_closure::discover_files(&dep_roots);
-    tracing::info!(
-        "eager_parse: {} dependency file(s) under {} root(s)",
-        dep_files.len(),
-        dep_roots.len()
-    );
-
-    // Build the module map over workspace + deps, then compute the import
-    // closure seeded from every workspace file (so the whole project is indexed
-    // and only the imported dependency packages — e.g. deal.std.units — load).
-    let mut all_files = workspace_files.clone();
-    all_files.extend(dep_files.iter().cloned());
-    all_files.sort();
-    all_files.dedup();
-    let map = deal_closure::ModuleMap::build(&all_files);
-    let closure = deal_closure::closure_files(&map, &workspace_files);
-
-    // Read each closure file's source once.
-    let mut source_by_path: HashMap<PathBuf, Vec<u8>> = HashMap::with_capacity(closure.len());
-    for path in &closure {
-        match std::fs::read(path) {
-            Ok(bytes) => {
-                source_by_path.insert(path.clone(), bytes);
-            }
-            Err(e) => tracing::warn!("eager_parse: read {} failed: {e}", path.display()),
+    // Build the closure (workspace + reachable deps incl. stdlib). At init there
+    // are no open buffers, so the rebuild reads from disk.
+    let cache = match build_closure_cache(&workspace.root, stdlib_path.as_deref(), &BTreeMap::new())
+    {
+        Some(c) => c,
+        None => {
+            tracing::warn!(
+                "eager_parse: could not build closure cache for {}",
+                workspace.root.display()
+            );
+            return;
         }
-    }
+    };
+    let closure_count = cache.blob.len();
+    let external_refs: Vec<&[u8]> = cache.blob.iter().map(|v| v.as_slice()).collect();
 
-    // Cache the external blob (workspace + reachable deps incl. stdlib) for the
-    // did-change live-strict path. Deterministic order = closure order.
-    let closure_sources: Vec<Vec<u8>> = closure
-        .iter()
-        .filter_map(|p| source_by_path.get(p).cloned())
-        .collect();
-    documents.set_closure_external(closure_sources.clone());
-
-    // Phase 2: analyze each workspace file against the closure external set so
-    // cross-file AND stdlib references resolve; populate the index.
-    let external_refs: Vec<&[u8]> = closure_sources.iter().map(|v| v.as_slice()).collect();
+    // Phase 2: analyze each workspace file against the closure so cross-file AND
+    // stdlib references resolve; populate the index.
     let mut indexed = 0usize;
     for path in &workspace_files {
-        let Some(bytes) = source_by_path.get(path) else {
-            continue;
-        };
-        let text = match std::str::from_utf8(bytes) {
-            Ok(t) => t.to_string(),
-            Err(_) => {
-                tracing::warn!("eager_parse: {} is not valid UTF-8 — skipping", path.display());
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("eager_parse: read {} failed: {e}", path.display());
                 continue;
             }
         };
@@ -377,9 +413,15 @@ pub async fn eager_parse(
         }
         indexed += 1;
     }
+
+    // Install the cache after analysis (so a did_change racing eager_parse falls
+    // back to lenient rather than seeing a half-built table). `external_refs`
+    // borrowed `cache.blob`; its last use was the loop above, so the move is ok.
+    drop(external_refs);
+    documents.set_closure_cache(cache);
+
     tracing::info!(
-        "eager_parse: completed — {indexed}/{total} workspace files; closure = {} files; index size = {}",
-        closure.len(),
+        "eager_parse: completed — {indexed}/{total} workspace files; closure = {closure_count} files; index size = {}",
         index.len()
     );
 }

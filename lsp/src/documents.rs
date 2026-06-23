@@ -13,6 +13,7 @@
 //! integration test verify that rapid did_change events collapse into a
 //! single re-parse.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -27,6 +28,22 @@ use tower_lsp::Client;
 
 use crate::diagnostics;
 use crate::index::Index;
+
+/// The cached workspace import closure (ADR-0004 P5 WS-B/WS-C). `eager_parse`
+/// builds it; the did-change live-strict path re-analyzes the edited file
+/// against `blob` (the salsa "durable global"), and rebuilds the whole cache
+/// when an edit changes a file's reachability (its import set).
+pub struct ClosureCache {
+    /// Source bytes of every file in the closure (workspace + reachable deps,
+    /// incl. stdlib), in deterministic closure order — the external table fed to
+    /// `check_with_external`.
+    pub blob: Vec<Vec<u8>>,
+    /// path → that file's sorted import paths, for the WS-C.2 reachability gate.
+    pub imports: BTreeMap<PathBuf, Vec<String>>,
+    /// Rebuild context: the workspace root and the configured stdlib path.
+    pub root: PathBuf,
+    pub stdlib_path: Option<PathBuf>,
+}
 
 /// Per-document handle + buffer table.
 ///
@@ -50,12 +67,11 @@ pub struct Documents {
     /// `initialize` reads it from `initializationOptions` and stashes it here for
     /// `initialized` → `eager_parse` to seed the stdlib into the closure.
     pending_stdlib_path: StdMutex<Option<PathBuf>>,
-    /// Cached external source set (ADR-0004 P5 WS-B/WS-7): the source bytes of
-    /// every file in the workspace import closure (workspace + reachable deps,
-    /// incl. stdlib). Built once by `eager_parse`; `did_change` re-analyzes the
-    /// edited file against this durable blob (the salsa "global derived data"
-    /// boundary) instead of re-parsing it alone. `Arc` so readers clone cheaply.
-    closure_external: StdMutex<Option<Arc<Vec<Vec<u8>>>>>,
+    /// Cached workspace import closure (ADR-0004 P5 WS-B/WS-7). Built once by
+    /// `eager_parse`; `did_change` re-analyzes the edited file against
+    /// `cache.blob` (the salsa "global derived data" boundary) and rebuilds the
+    /// cache when an edit changes reachability. `Arc` so readers clone cheaply.
+    closure: StdMutex<Option<Arc<ClosureCache>>>,
 }
 
 impl Documents {
@@ -67,7 +83,7 @@ impl Documents {
             pending_workspace_root: StdMutex::new(None),
             tokens_cache: DashMap::new(),
             pending_stdlib_path: StdMutex::new(None),
-            closure_external: StdMutex::new(None),
+            closure: StdMutex::new(None),
         }
     }
 
@@ -86,17 +102,29 @@ impl Documents {
             .and_then(|mut s| s.take())
     }
 
-    /// Install the cached closure external set (WS-B). Replaces any prior cache
-    /// (closure rebuilds overwrite).
-    pub fn set_closure_external(&self, external: Vec<Vec<u8>>) {
-        if let Ok(mut slot) = self.closure_external.lock() {
-            *slot = Some(Arc::new(external));
+    /// Install the cached workspace closure (WS-B; replaced on WS-C.2 rebuild).
+    pub fn set_closure_cache(&self, cache: ClosureCache) {
+        if let Ok(mut slot) = self.closure.lock() {
+            *slot = Some(Arc::new(cache));
         }
     }
 
-    /// Read the cached closure external set, if built (WS-7 did-change path).
-    pub fn closure_external(&self) -> Option<Arc<Vec<Vec<u8>>>> {
-        self.closure_external.lock().ok().and_then(|s| s.clone())
+    /// Read the cached workspace closure, if built (WS-7 did-change path).
+    pub fn closure_cache(&self) -> Option<Arc<ClosureCache>> {
+        self.closure.lock().ok().and_then(|s| s.clone())
+    }
+
+    /// Snapshot all open editor buffers as `(path, bytes)` for a buffer-aware
+    /// closure rebuild (WS-C.2) — so unsaved edits are reflected. Files not open
+    /// in the editor fall back to disk during the rebuild.
+    pub fn buffer_sources(&self) -> BTreeMap<PathBuf, Vec<u8>> {
+        let mut out = BTreeMap::new();
+        for kv in self.buffers.iter() {
+            if let Ok(path) = kv.key().to_file_path() {
+                out.insert(path, kv.value().to_string().into_bytes());
+            }
+        }
+        out
     }
 
     /// Store the most recently emitted (result_id, data) pair for
@@ -274,18 +302,38 @@ impl Documents {
         index: Option<&Index>,
     ) -> anyhow::Result<()> {
         let filename = uri.path();
-        let handle = deal_ffi::safe::parse(text.as_bytes(), filename)
-            .ok_or_else(|| anyhow::anyhow!("deal_parse returned null for {uri}"))?;
+
+        // ADR-0004 P5 WS-7 (live-strict): if the workspace import closure has
+        // been built, analyze the edited file against its cached external table
+        // (cross-file + stdlib references resolve, import-scoping is enforced) —
+        // the salsa "global derived data" boundary: the closure is the durable
+        // global, this keystroke is the local recompute. With no closure (a
+        // scratch file, or before eager_parse finishes) fall back to lenient
+        // single-file parse so a file outside any workspace shows no false
+        // strict errors (D6).
+        //
+        // SAFETY/D-88: the safe wrappers clone all JSON out before the handle is
+        // freed, and analyzeWithExternalTable copies resolved entries into the
+        // handle's own arena, so the stored handle is self-contained (same
+        // pattern as `open_silent_with_external`).
+        let cache = self.closure_cache();
+        let handle = if let Some(cache) = &cache {
+            let refs: Vec<&[u8]> = cache.blob.iter().map(|v| v.as_slice()).collect();
+            deal_ffi::safe::check_with_external(text.as_bytes(), filename, &refs)
+                .ok_or_else(|| anyhow::anyhow!("deal_check_with_external returned null for {uri}"))?
+        } else {
+            deal_ffi::safe::parse(text.as_bytes(), filename)
+                .ok_or_else(|| anyhow::anyhow!("deal_parse returned null for {uri}"))?
+        };
         self.parse_count.fetch_add(1, Ordering::SeqCst);
 
         let rope = Rope::from_str(&text);
         let diag_bytes = deal_ffi::safe::diagnostics_json(&handle).unwrap_or_default();
         let diagnostics_vec = diagnostics::parse_diagnostics(&diag_bytes, &rope);
 
-        // Refresh the workspace index for this URI (drop stale entries,
-        // ingest fresh ones) BEFORE dropping the handle.
+        // Envelope for the index refresh + the WS-C.2 reachability gate.
+        let envelope_bytes = deal_ffi::safe::index_json(&handle).unwrap_or_default();
         if let Some(idx) = index {
-            let envelope_bytes = deal_ffi::safe::index_json(&handle).unwrap_or_default();
             idx.refresh_file(&uri, &envelope_bytes, &rope);
         }
 
@@ -295,6 +343,27 @@ impl Documents {
         // OwnedDealHandle which calls deal_free.
         self.handles
             .insert(uri.clone(), Arc::new(Mutex::new(handle)));
+
+        // WS-C.2 invalidation: if this edit changed the file's import set, the
+        // cached closure's reachability is stale — rebuild it from the live
+        // editor buffers (+ disk) so OTHER files re-analyze against the new
+        // structure. Body edits (imports unchanged) reuse the cache. The buffer
+        // was inserted above, so the rebuild snapshot already includes this edit.
+        if let Some(cache) = &cache {
+            if let Ok(path) = uri.to_file_path() {
+                let new_imports = deal_closure::imports_from_index_json(&envelope_bytes);
+                if cache.imports.get(&path) != Some(&new_imports) {
+                    let overrides = self.buffer_sources();
+                    if let Some(rebuilt) = crate::workspace::build_closure_cache(
+                        &cache.root,
+                        cache.stdlib_path.as_deref(),
+                        &overrides,
+                    ) {
+                        self.set_closure_cache(rebuilt);
+                    }
+                }
+            }
+        }
 
         client
             .publish_diagnostics(uri, diagnostics_vec, version)
