@@ -1321,6 +1321,83 @@ async fn workspace_index_populated_after_initialize() {
 }
 
 // ---------------------------------------------------------------------
+// Test 9 (ADR-0004 P5 WS-E): a configured stdlib path makes goto/hover INTO
+// deal.std.units resolve end-to-end — the gap that motivated P5.
+// ---------------------------------------------------------------------
+
+const CLOSURE_PROJ_ROOT: &str = "tests/fixtures/closure-proj";
+const STDLIB_LIB_ROOT: &str = "tests/fixtures/stdlib-lib";
+
+/// Like `initialize_with_root` but also passes `initializationOptions.stdlibPath`
+/// so the closure loader seeds the (out-of-tree) stdlib (WS-B).
+async fn initialize_with_root_and_stdlib(
+    service: &mut LspService<Backend>,
+    root: &str,
+    stdlib: &str,
+) {
+    let abs_root = std::fs::canonicalize(root).expect("root canonicalize");
+    let root_uri = Url::from_file_path(&abs_root).expect("root URL");
+    let abs_stdlib = std::fs::canonicalize(stdlib).expect("stdlib canonicalize");
+    let init_req = JsonRpcRequest::build("initialize")
+        .id(1)
+        .params(
+            serde_json::to_value(InitializeParams {
+                capabilities: ClientCapabilities::default(),
+                workspace_folders: Some(vec![WorkspaceFolder {
+                    uri: root_uri,
+                    name: "closure-proj".to_string(),
+                }]),
+                initialization_options: Some(serde_json::json!({
+                    "stdlibPath": abs_stdlib.to_string_lossy(),
+                })),
+                ..Default::default()
+            })
+            .unwrap(),
+        )
+        .finish();
+    let _: Option<JsonRpcResponse> = service.call(init_req).await.unwrap();
+    let initialized_req = JsonRpcRequest::build("initialized")
+        .params(serde_json::to_value(InitializedParams {}).unwrap())
+        .finish();
+    let _: Option<JsonRpcResponse> = service.call(initialized_req).await.unwrap();
+}
+
+#[tokio::test]
+async fn stdlib_definition_indexed_via_configured_path() {
+    let (mut service, _docs, index, _sink) = spawn_service_full().await;
+    initialize_with_root_and_stdlib(&mut service, CLOSURE_PROJ_ROOT, STDLIB_LIB_ROOT).await;
+
+    // Poll until eager_parse indexes the out-of-tree stdlib definition. The
+    // package lives OUTSIDE the workspace root, so it can only appear via the
+    // configured stdlib path entering the closure (cf. the negative unit test
+    // `closure_cache_excludes_stdlib_without_path` in workspace.rs).
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if index.lookup("deal.std.units.Mass").is_some() {
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            let snap = index.snapshot();
+            let paths: Vec<String> = snap.iter().map(|(p, _)| p.clone()).collect();
+            panic!(
+                "eager_parse did not index deal.std.units.Mass within 5s (stdlib not loaded?); paths: {:?}",
+                &paths[..paths.len().min(20)]
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    // Goto-definition lands on the real declaration in the out-of-tree stdlib.
+    let (uri, _range) = index
+        .lookup("deal.std.units.Mass")
+        .expect("deal.std.units.Mass indexed");
+    assert!(
+        uri.path().ends_with("units.deal"),
+        "deal.std.units.Mass should resolve into the stdlib units.deal, got {uri}"
+    );
+}
+
+// ---------------------------------------------------------------------
 // Helpers used by the 5 Plan 04 tests above
 // ---------------------------------------------------------------------
 

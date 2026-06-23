@@ -324,13 +324,18 @@ pub fn build_closure_cache(
 
     // path → bytes for blob assembly (consumes `sources`; the map borrowed it above).
     let src_map: BTreeMap<PathBuf, Vec<u8>> = sources.into_iter().collect();
-    let blob: Vec<Vec<u8>> = closure
-        .iter()
-        .filter_map(|p| src_map.get(p).cloned())
-        .collect();
 
+    // `files` and `blob` are kept strictly parallel: only closure files whose
+    // source was read are included (a file we couldn't read can't be analyzed).
+    let mut files: Vec<PathBuf> = Vec::with_capacity(closure.len());
+    let mut blob: Vec<Vec<u8>> = Vec::with_capacity(closure.len());
     let mut imports: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
     for path in &closure {
+        let Some(bytes) = src_map.get(path) else {
+            continue;
+        };
+        files.push(path.clone());
+        blob.push(bytes.clone());
         if let Some(m) = map.modules.get(path) {
             let mut imps: Vec<String> = m.imports.iter().map(|e| e.import_path.clone()).collect();
             imps.sort();
@@ -340,6 +345,7 @@ pub fn build_closure_cache(
     }
 
     Some(ClosureCache {
+        files,
         blob,
         imports,
         root: root.to_path_buf(),
@@ -386,14 +392,17 @@ pub async fn eager_parse(
     let closure_count = cache.blob.len();
     let external_refs: Vec<&[u8]> = cache.blob.iter().map(|v| v.as_slice()).collect();
 
-    // Phase 2: analyze each workspace file against the closure so cross-file AND
-    // stdlib references resolve; populate the index.
+    // Phase 2: analyze AND index every closure file — workspace files plus
+    // reachable dependency/stdlib files — against the closure external set, so
+    // cross-file references resolve AND goto/hover INTO dependency declarations
+    // (e.g. deal.std.units.Mass) lands on the real definition. Source bytes come
+    // from the cache (no re-read); `files` and `blob` are parallel.
     let mut indexed = 0usize;
-    for path in &workspace_files {
-        let text = match std::fs::read_to_string(path) {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("eager_parse: read {} failed: {e}", path.display());
+    for (path, bytes) in cache.files.iter().zip(cache.blob.iter()) {
+        let text = match std::str::from_utf8(bytes) {
+            Ok(t) => t.to_string(),
+            Err(_) => {
+                tracing::warn!("eager_parse: {} is not valid UTF-8 — skipping", path.display());
                 continue;
             }
         };
@@ -421,7 +430,7 @@ pub async fn eager_parse(
     documents.set_closure_cache(cache);
 
     tracing::info!(
-        "eager_parse: completed — {indexed}/{total} workspace files; closure = {closure_count} files; index size = {}",
+        "eager_parse: completed — indexed {indexed}/{closure_count} closure files ({total} workspace); index size = {}",
         index.len()
     );
 }
@@ -528,5 +537,86 @@ name = "x"
         );
         assert_eq!(files.len(), 2, "exactly the 2 root files, got {files:?}");
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    // ── ADR-0004 P5 WS-E: closure loader + stdlib + buffer-override tests ──────
+
+    fn fixtures() -> PathBuf {
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.push("tests/fixtures");
+        p
+    }
+
+    fn imports_for<'a>(cache: &'a ClosureCache, file_name: &str) -> Option<&'a Vec<String>> {
+        cache
+            .imports
+            .iter()
+            .find(|(p, _)| p.file_name().map(|n| n == file_name).unwrap_or(false))
+            .map(|(_, v)| v)
+    }
+
+    fn in_closure(cache: &ClosureCache, file_name: &str) -> bool {
+        cache
+            .imports
+            .keys()
+            .any(|p| p.file_name().map(|n| n == file_name).unwrap_or(false))
+    }
+
+    /// WS-B/WS-E: a configured stdlib path pulls the imported stdlib package into
+    /// the closure (the deal.std.units hover/goto gap that motivated P5).
+    #[test]
+    fn closure_cache_includes_stdlib_when_path_provided() {
+        let proj = fixtures().join("closure-proj");
+        let stdlib = fixtures().join("stdlib-lib");
+        let cache = build_closure_cache(&proj, Some(&stdlib), &BTreeMap::new())
+            .expect("closure cache builds");
+
+        let app = imports_for(&cache, "app.deal").expect("app.deal in closure");
+        assert!(
+            app.iter().any(|i| i == "deal.std.units"),
+            "app.deal should import deal.std.units, got {app:?}"
+        );
+        assert!(
+            in_closure(&cache, "units.deal"),
+            "the out-of-tree stdlib units.deal must enter the closure when a stdlib path is given"
+        );
+        assert!(!cache.blob.is_empty(), "external blob populated");
+    }
+
+    /// Without a stdlib path the imported package is unavailable, so it does NOT
+    /// load — only the workspace file is in the closure.
+    #[test]
+    fn closure_cache_excludes_stdlib_without_path() {
+        let proj = fixtures().join("closure-proj");
+        let cache =
+            build_closure_cache(&proj, None, &BTreeMap::new()).expect("closure cache builds");
+        assert!(in_closure(&cache, "app.deal"), "workspace app.deal present");
+        assert!(
+            !in_closure(&cache, "units.deal"),
+            "stdlib must NOT load without a configured stdlib path"
+        );
+    }
+
+    /// WS-C.2: the rebuild reads live editor buffers (unsaved content), not disk —
+    /// an override changing the import set is reflected in the cache.
+    #[test]
+    fn closure_cache_reflects_buffer_overrides() {
+        let proj = fixtures().join("closure-proj");
+        // The cache keys are canonical (discovery canonicalizes the root), so the
+        // override key must be canonical too.
+        let app_path = std::fs::canonicalize(proj.join("model/app.deal")).unwrap();
+        let mut overrides = BTreeMap::new();
+        overrides.insert(
+            app_path,
+            b"package app;\nimport deal.std.other.{Foo};\npart def T {\n    public (\n        attribute f : Foo [1];\n    )\n}\n"
+                .to_vec(),
+        );
+        let cache = build_closure_cache(&proj, None, &overrides).expect("closure cache builds");
+        let app = imports_for(&cache, "app.deal").expect("app.deal in closure");
+        assert_eq!(
+            app,
+            &vec!["deal.std.other".to_string()],
+            "buffer override import set must be reflected (not stale disk), got {app:?}"
+        );
     }
 }

@@ -1,0 +1,11 @@
+// Workspace entry that imports a type from the (out-of-tree) stdlib so the
+// closure loader must pull `deal.std.units` in when a stdlib path is provided.
+package app;
+
+import deal.std.units.{Mass};
+
+part def Thing {
+    public (
+        attribute m : Mass [1];
+    )
+}

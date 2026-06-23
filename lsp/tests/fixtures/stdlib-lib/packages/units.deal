@@ -1,0 +1,10 @@
+// Stand-in stdlib package, deliberately OUTSIDE the project root so workspace
+// discovery does not see it — it enters the closure only via the configured
+// stdlib path (dependency_roots).
+package deal.std.units;
+
+part def Mass {
+    public (
+        attribute kg : Real [1];
+    )
+}

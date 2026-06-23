@@ -34,9 +34,13 @@ use crate::index::Index;
 /// against `blob` (the salsa "durable global"), and rebuilds the whole cache
 /// when an edit changes a file's reachability (its import set).
 pub struct ClosureCache {
-    /// Source bytes of every file in the closure (workspace + reachable deps,
-    /// incl. stdlib), in deterministic closure order — the external table fed to
-    /// `check_with_external`.
+    /// Every file in the closure (workspace + reachable deps, incl. stdlib), in
+    /// deterministic closure order — parallel to `blob`. `eager_parse` analyzes
+    /// and INDEXES each of these (not just workspace files) so goto/hover INTO
+    /// dependency/stdlib declarations resolves.
+    pub files: Vec<PathBuf>,
+    /// Source bytes of every file in `files` (same order) — the external table
+    /// fed to `check_with_external`.
     pub blob: Vec<Vec<u8>>,
     /// path → that file's sorted import paths, for the WS-C.2 reachability gate.
     pub imports: BTreeMap<PathBuf, Vec<String>>,
