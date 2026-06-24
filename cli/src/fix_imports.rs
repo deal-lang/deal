@@ -26,17 +26,18 @@ fn is_primitive(name: &str) -> bool {
     PRIMITIVES.contains(&name)
 }
 
-/// Recursively collect BARE type-reference names from an AST JSON value:
+/// Recursively collect type-reference segment paths from an AST JSON value:
 /// `type_annotation.name_segments`, `specialization.target_segments`, and
-/// `redefinition.target_segments`. Only single-segment (unqualified) references
-/// are import candidates — a multi-segment reference is already package-qualified.
-pub fn collect_referenced_types(ast: &serde_json::Value) -> BTreeSet<String> {
+/// `redefinition.target_segments`. Each entry is the full segment list — a
+/// single-segment list is a bare reference (`Mass`); a multi-segment list is a
+/// qualified reference (`spacecraft.structure.Deployable`).
+pub fn collect_referenced_types(ast: &serde_json::Value) -> BTreeSet<Vec<String>> {
     let mut out = BTreeSet::new();
     walk(ast, &mut out);
     out
 }
 
-fn walk(v: &serde_json::Value, out: &mut BTreeSet<String>) {
+fn walk(v: &serde_json::Value, out: &mut BTreeSet<Vec<String>>) {
     match v {
         serde_json::Value::Object(map) => {
             // AST nodes carry their kind as "k" (json.zig writeNode); the index
@@ -44,15 +45,22 @@ fn walk(v: &serde_json::Value, out: &mut BTreeSet<String>) {
             if let Some(kind) = map.get("k").and_then(|k| k.as_str()) {
                 let segs_key = match kind {
                     "type_annotation" => Some("name_segments"),
-                    "specialization" | "redefinition" => Some("target_segments"),
+                    // `:>` specialization, `:>>` redefinition, and the `<<…>>`
+                    // guillemet relationship form (structural_relationship) all
+                    // carry the referenced type in `target_segments`.
+                    "specialization" | "redefinition" | "structural_relationship" => {
+                        Some("target_segments")
+                    }
                     _ => None,
                 };
                 if let Some(key) = segs_key {
                     if let Some(arr) = map.get(key).and_then(|s| s.as_array()) {
-                        if arr.len() == 1 {
-                            if let Some(name) = arr[0].as_str() {
-                                out.insert(name.to_string());
-                            }
+                        let segs: Vec<String> = arr
+                            .iter()
+                            .filter_map(|s| s.as_str().map(String::from))
+                            .collect();
+                        if !segs.is_empty() {
+                            out.insert(segs);
                         }
                     }
                 }
@@ -121,7 +129,7 @@ impl FileFix {
 /// Plan the import fixes for one file (pure — no FFI/IO).
 pub fn plan_file_fix(
     source: &str,
-    referenced: &BTreeSet<String>,
+    referenced: &BTreeSet<Vec<String>>,
     own_package: &str,
     edges: &[ImportEdge],
     global: &BTreeMap<String, BTreeSet<String>>,
@@ -136,22 +144,53 @@ pub fn plan_file_fix(
         .filter(|e| e.is_wildcard)
         .map(|e| e.import_path.as_str())
         .collect();
+    // Every imported package path (exact), for qualified-ref in-scope checks
+    // (sema resolves `Q.item` only when an import edge's path is exactly `Q`).
+    let import_paths: BTreeSet<&str> = edges.iter().map(|e| e.import_path.as_str()).collect();
 
     let mut needed: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut unresolved: Vec<String> = Vec::new();
     let mut ambiguous: Vec<(String, Vec<String>)> = Vec::new();
 
-    for name in referenced {
-        if is_primitive(name) {
+    for segs in referenced {
+        let item = match segs.last() {
+            Some(s) => s,
+            None => continue,
+        };
+
+        if segs.len() >= 2 {
+            // ── Qualified reference `Q.item` ──────────────────────────────────
+            // Resolves under strict scoping only if `Q` is exactly an imported
+            // package path that declares `item`. If `Q` is not a real declaring
+            // package (a relative/terminal-segment qualifier like `structure`),
+            // no import can fix it — report it for a rewrite.
+            let q = segs[..segs.len() - 1].join(".");
+            let q_declares = global
+                .get(item)
+                .map(|pkgs| pkgs.iter().any(|p| *p == q))
+                .unwrap_or(false);
+            if !q_declares {
+                unresolved.push(segs.join("."));
+                continue;
+            }
+            if q == own_package || import_paths.contains(q.as_str()) {
+                continue; // already in scope
+            }
+            needed.entry(q).or_default().insert(item.clone());
             continue;
         }
-        let pkgs = global.get(name);
+
+        // ── Bare reference `item` ────────────────────────────────────────────
+        if is_primitive(item) {
+            continue;
+        }
+        let pkgs = global.get(item);
         // In scope locally: declared in this file's own package.
         if pkgs.map(|p| p.contains(own_package)).unwrap_or(false) {
             continue;
         }
         // In scope via import: a selective item, or a wildcard of a declaring package.
-        if imported_items.contains(name.as_str()) {
+        if imported_items.contains(item.as_str()) {
             continue;
         }
         if let Some(pkgs) = pkgs {
@@ -161,20 +200,20 @@ pub fn plan_file_fix(
         }
         // Needs an import: resolve to a single declaring package (excluding own).
         match pkgs {
-            None => unresolved.push(name.clone()),
+            None => unresolved.push(item.clone()),
             Some(pkgs) => {
                 let candidates: Vec<&String> =
                     pkgs.iter().filter(|p| p.as_str() != own_package).collect();
                 match candidates.len() {
-                    0 => unresolved.push(name.clone()),
+                    0 => unresolved.push(item.clone()),
                     1 => {
                         needed
                             .entry(candidates[0].clone())
                             .or_default()
-                            .insert(name.clone());
+                            .insert(item.clone());
                     }
                     _ => ambiguous
-                        .push((name.clone(), candidates.into_iter().cloned().collect())),
+                        .push((item.clone(), candidates.into_iter().cloned().collect())),
                 }
             }
         }
@@ -309,8 +348,16 @@ mod tests {
         g
     }
 
-    fn refs(names: &[&str]) -> BTreeSet<String> {
-        names.iter().map(|s| s.to_string()).collect()
+    /// Bare references (single-segment).
+    fn refs(names: &[&str]) -> BTreeSet<Vec<String>> {
+        names.iter().map(|s| vec![s.to_string()]).collect()
+    }
+
+    /// A single qualified reference from dotted segments.
+    fn qref(path: &[&str]) -> BTreeSet<Vec<String>> {
+        let mut s = BTreeSet::new();
+        s.insert(path.iter().map(|x| x.to_string()).collect());
+        s
     }
 
     #[test]
@@ -325,10 +372,51 @@ mod tests {
             ]
         });
         let got = collect_referenced_types(&ast);
-        assert!(got.contains("Mass"));
-        assert!(got.contains("Vehicle"));
-        // Multi-segment (qualified) ref is NOT collected as a bare candidate.
-        assert!(!got.contains("Power"));
+        assert!(got.contains(&vec!["Mass".to_string()]));
+        assert!(got.contains(&vec!["Vehicle".to_string()]));
+        // Multi-segment (qualified) ref is collected as its full segment path.
+        assert!(got.contains(&vec![
+            "deal".to_string(),
+            "std".to_string(),
+            "units".to_string(),
+            "Power".to_string()
+        ]));
+    }
+
+    #[test]
+    fn qualified_ref_to_real_package_gets_imported() {
+        // A fully-qualified ref whose prefix IS the declaring package → import it.
+        let g = global(&[("Deployable", &["spacecraft.structure"])]);
+        let fix = plan_file_fix(
+            "package spacecraft.eps;\n",
+            &qref(&["spacecraft", "structure", "Deployable"]),
+            "spacecraft.eps",
+            &[],
+            &g,
+        );
+        assert!(fix.new_text.contains("import spacecraft.structure.{Deployable};"));
+        assert!(fix.unresolved.is_empty());
+    }
+
+    #[test]
+    fn relative_qualified_ref_is_reported_not_imported() {
+        // `structure.Deployable` — prefix `structure` is NOT the declaring
+        // package (`spacecraft.structure`), so no import resolves it. Reported.
+        let g = global(&[("Deployable", &["spacecraft.structure"])]);
+        let fix = plan_file_fix(
+            "package spacecraft.eps;\n",
+            &qref(&["structure", "Deployable"]),
+            "spacecraft.eps",
+            &[],
+            &g,
+        );
+        assert!(fix.added.is_empty(), "must not invent an import: {:?}", fix.added);
+        assert!(
+            fix.unresolved.contains(&"structure.Deployable".to_string()),
+            "relative qualified ref must be reported: {:?}",
+            fix.unresolved
+        );
+        assert!(!fix.changed("package spacecraft.eps;\n"));
     }
 
     #[test]
