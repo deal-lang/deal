@@ -47,11 +47,13 @@ hex = "0.4"
 walkdir = { workspace = true }
 # git2: libgit2 bindings for deal install git dep resolution (Plan 04-02).
 # vendored-libgit2 avoids system-libgit2 CI fragility (RESEARCH A4).
-# vendored-openssl (ADR-0004 P6): vendored libgit2 alone ships NO TLS backend, so
-# HTTPS clones fail with "no TLS stream available" — `deal install` of an
-# https:// git dep is broken without it. Vendoring OpenSSL links a TLS transport
-# so HTTPS resolution works hermetically across platforms/CI.
-git2 = { version = "0.21", features = ["vendored-libgit2", "vendored-openssl"] }
+git2 = { version = "0.21", features = ["vendored-libgit2"] }
+# ADR-0004 P6: vendored libgit2 ships NO usable TLS backend on macOS (HTTPS
+# clones fail "no TLS stream available"; vendored-openssl did not help). Route
+# git's smart-HTTP transport through libcurl (which uses the system TLS) via
+# git2-curl, registered at startup — the standard fix for a no-TLS libgit2.
+git2-curl = "0.21"
+curl = "0.4"
 toml = { workspace = true }
 # ReqIF emitter deps (Plan 04-06):
 # quick-xml 0.40.x for structural validation and XML writing (D-61).

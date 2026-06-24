@@ -2081,6 +2081,13 @@ fn run(cli: Cli) -> Result<(), CliError> {
 }
 
 fn main() -> std::process::ExitCode {
+    // ADR-0004 P6: the vendored libgit2 has no usable TLS backend, so HTTPS git
+    // clones in `deal install` fail. Register a libcurl-backed smart-HTTP
+    // transport (system libcurl carries TLS) before any git operation. Must run
+    // before other threads touch git2 — hence at the very top of main.
+    unsafe {
+        git2_curl::register(curl::easy::Easy::new());
+    }
     let cli = Cli::parse();
     match run(cli) {
         Ok(()) => std::process::ExitCode::SUCCESS,
