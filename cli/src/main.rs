@@ -996,6 +996,18 @@ fn expand_path_args(paths: &[std::path::PathBuf]) -> Result<Vec<std::path::PathB
             let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(&p)
                 .map_err(|e| CliError::Internal(anyhow::anyhow!("cannot read dir {:?}: {}", p, e)))?
                 .filter_map(|r| r.ok().map(|e| e.path()))
+                // Prune DEAL's reserved build directory (`.deal/` holds vendored
+                // dependencies under deps/, the workspace index, and the sim cache)
+                // and VCS metadata. Vendored dependency sources must enter analysis
+                // ONLY through `dep_roots`/`dep_files`; discovering them here as
+                // project files too puts every stdlib unit in the closure twice and
+                // double-declares it (E2002). (ADR-0004 P6.)
+                .filter(|entry| {
+                    !matches!(
+                        entry.file_name().and_then(|n| n.to_str()),
+                        Some(".deal" | ".git")
+                    )
+                })
                 .collect();
             entries.sort();
             for entry in entries.into_iter().rev() {
