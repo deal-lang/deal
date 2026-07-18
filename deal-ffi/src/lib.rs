@@ -354,21 +354,31 @@ mod tests {
         );
     }
 
-    // P2 WS-A / ADR-0003: cross-file name resolution across the FFI + JSON
-    // boundary. `interfaces.thermal` declares ThermallyManaged; `battery`
-    // imports it via the PREFIX package `interfaces` and specializes it (the
-    // showcase's loose-import shape). The reference binding must resolve to the
-    // declaring file's FQ id and surface in the index envelope's references[].
+    // P2 WS-A / ADR-0004: cross-file name resolution across the FFI + JSON
+    // boundary. `interfaces.thermal` declares ThermallyManaged; the `interfaces`
+    // barrel re-exports it; `battery` imports it THROUGH the barrel and
+    // specializes it — the real showcase's shape. Under ADR-0004 strict scoping a
+    // prefix import (`import interfaces.{X}`) resolves ONLY via a re-export
+    // barrel, never by reaching into a sub-package directly, so the externals must
+    // include the barrel. The reference binding must resolve to the *declaring*
+    // file's FQ id (interfaces.thermal.ThermallyManaged, not the barrel) and
+    // surface in the index envelope's references[].
     #[test]
     fn safe_check_with_external_resolves_cross_file_reference() {
-        let interfaces: &[u8] =
+        let interfaces_barrel: &[u8] =
+            b"package interfaces;\nexport thermal.{ThermallyManaged};\n";
+        let interfaces_thermal: &[u8] =
             b"package interfaces.thermal;\ninterface def ThermallyManaged { }\n";
         let battery: &[u8] = b"package vehicle.battery;\n\
             import interfaces.{ThermallyManaged};\n\
             part def BatteryPack <<specializes>> ThermallyManaged { }\n";
 
-        let handle = safe::check_with_external(battery, "vehicle/battery.deal", &[interfaces])
-            .expect("check_with_external returned null");
+        let handle = safe::check_with_external(
+            battery,
+            "vehicle/battery.deal",
+            &[interfaces_barrel, interfaces_thermal],
+        )
+        .expect("check_with_external returned null");
         let index = safe::index_json(&handle).expect("index_json failed");
         let s = std::str::from_utf8(&index).expect("index json not UTF-8");
 

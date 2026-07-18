@@ -9,7 +9,7 @@
 }
 package vehicle.battery;
 
-import deal.std.units.{kg, kWh, V, A, kW, degC, ohm, percent};
+import deal.std.units.{A, Current, Energy, Mass, Resistance, V, Voltage, degC, kW, kWh, kg, ohm, percent};
 import interfaces.{HVDCPort, CoolantPort, ThermallyManaged, CANBus};
 
 /**
