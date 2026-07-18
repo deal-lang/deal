@@ -34,36 +34,6 @@ fn repo_root() -> std::path::PathBuf {
     p
 }
 
-// ─── Test 1: Clean showcase file exits 0 ─────────────────────────────────────
-
-/// A clean showcase file passes sema with zero diagnostics → exit 0 (D-34).
-///
-/// ADR-0004 P4: under strict import-scoped resolution this showcase file is no
-/// longer clean — `system.deal` uses the `Temperature`/`Power` *types* but its
-/// `import deal.std.units.{…}` list brings in only unit *constructors*, not
-/// those types (`E2100`). Re-enable once the examples are import-clean (P6);
-/// WS-F adds a positive "clean synthetic project exits 0" test in its place.
-#[ignore = "ADR-0004 P6: showcase not import-clean (uses Temperature/Power without importing the types); re-enable in P6"]
-#[test]
-fn check_clean_file_exits_zero() {
-    let path = repo_root().join("tests/showcase/packages/requirements/system.deal");
-
-    let output = Command::new(deal_bin())
-        .args(["check"])
-        .arg(&path)
-        .output()
-        .expect("failed to run deal check");
-
-    let exit_code = output.status.code().unwrap_or(99);
-    assert_eq!(
-        exit_code,
-        0,
-        "deal check on clean showcase file expected exit 0 but got {}\nstderr: {}",
-        exit_code,
-        String::from_utf8_lossy(&output.stderr),
-    );
-}
-
 // ─── Test 2: Name-resolution regression fixture exits 1, stderr has E2000 ────
 
 /// Fixture 01 (name resolution) produces an E2000 diagnostic → exit 1 (D-34 user).

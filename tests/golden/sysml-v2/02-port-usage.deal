@@ -2,8 +2,15 @@
 // Exercises: PortUsage mapping with in/out direction (RESEARCH §Pattern 8)
 // Package: gold02.ports
 // Element: Battery (part_def) with chargeIn (in port) and hvOut (out port)
+//
+// ADR-0004 P6: golden fixtures build standalone (no workspace/stdlib closure),
+// so the port payload type is declared locally here rather than imported from
+// deal.std.units — this keeps the fixture import-clean under strict scoping while
+// still exercising the in/out PortUsage mapping.
 
 package gold02.ports;
+
+attribute def Power { }
 
 part def Battery {
     public (

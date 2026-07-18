@@ -77,6 +77,14 @@
         }
       ],
       "qualifiedName": "gold02::ports::Battery::hvOut"
+    },
+    {
+      "@id": "2d8542e2-6d0c-5111-a9d5-91fdc0515ca2",
+      "@type": "AttributeUsage",
+      "declaredName": "Power",
+      "elementId": "2d8542e2-6d0c-5111-a9d5-91fdc0515ca2",
+      "ownedRelationship": [],
+      "qualifiedName": "gold02::ports::Power"
     }
   ],
   "qualifiedName": "Workspace"
