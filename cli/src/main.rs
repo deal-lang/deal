@@ -1862,10 +1862,13 @@ fn run_install(_json: bool, color: ColorMode) -> Result<(), CliError> {
     let mut stdout = anstream::AutoStream::new(std::io::stdout(), color_choice);
 
     // Print per-dep Downloading messages (UI-SPEC §CLI Copywriting).
+    // The ref is printed as-is: tags already carry their own `v` prefix
+    // (e.g. `v0.4.1`), so prepending another produced `vv0.4.1`; `HEAD` must
+    // not gain a spurious `v` either.
     for (name, dep) in &manifest.dependencies {
         if let resolver::Dependency::Git { git, tag, .. } = dep {
             let version_str = tag.as_deref().unwrap_or("HEAD");
-            let _ = writeln!(stdout, "Downloading {name} v{version_str} from {git}...");
+            let _ = writeln!(stdout, "Downloading {name} {version_str} from {git}...");
         }
     }
 
