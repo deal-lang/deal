@@ -1543,6 +1543,12 @@ pub fn run_verify(
     // Best-effort: a missing registry or absent tool must not abort verification
     // — the staleness check below still reports the truth on whatever is on disk.
     if run_sims {
+        // ADR-0004 P6 (WS-C): fail CLOSED on the model gate. A model that does not
+        // analyze must not degrade to "refresh skipped" and then be evaluated
+        // against stale evidence — that is exactly how a compliance report could
+        // claim PASS for a model that is broken. Other simulate failures (missing
+        // registry, absent tool) stay best-effort warnings below.
+        crate::simulate::gate_model(&project_root)?;
         if let Err(e) = crate::simulate::run_simulate_in(&project_root, &[], true, false) {
             let mut stderr = std::io::stderr();
             let _ = writeln!(stderr, "warning: --run-sims refresh skipped: {}", e);

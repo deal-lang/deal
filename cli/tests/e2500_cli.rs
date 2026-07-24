@@ -89,13 +89,27 @@ fn deal_bin() -> PathBuf {
     }
 }
 
-/// Write the minimal stdlib seed into the tempdir's `.deal/deps/` tree.
+/// Write a minimal project manifest + the stdlib seed into the tempdir.
 ///
-/// D-49 in run_check searches `.deal/deps/<dep>/packages/**/*.deal` relative
-/// to the current working directory. This function creates the required layout
-/// so D-49 picks up the stdlib seed when the CLI is invoked with the tempdir
-/// as cwd.
+/// Dependency roots are resolved from the PROJECT MANIFEST root — never from the
+/// process cwd. (A cwd-relative scan let an unrelated directory's `.deal/deps`
+/// leak into an analysis, so results depended on where the command was run;
+/// ADR-0004 requires determinism.) The manifest is what makes this tempdir a
+/// project, so `.deal/deps/<dep>/packages/**` beside it is found regardless of cwd.
+///
+/// Writing a `deal.toml` also matches reality: `.deal/deps` only ever exists next
+/// to a manifest, because `deal install` reads `[dependencies]` from it.
 fn write_stdlib_seed(tempdir: &tempfile::TempDir) {
+    std::fs::write(
+        tempdir.path().join("deal.toml"),
+        "[project]\n\
+         name = \"e2500-fixture\"\n\
+         version = \"0.1.0\"\n\
+         schema = \"deal/0.1\"\n\
+         marking = \"Unclassified\"\n",
+    )
+    .expect("write fixture manifest");
+
     let units_dir = tempdir
         .path()
         .join(".deal")

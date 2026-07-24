@@ -68,11 +68,22 @@ fn copy_showcase_to_temp() -> tempfile::TempDir {
         "packages/interfaces",
         "packages/requirements",
         "packages/use-cases",
+        "packages/analysis",
         "simulations",
         "simulations/thermal",
         "simulations/dynamics",
         "test",
         "test/data",
+        // ADR-0004 P6 (WS-C): the vendored stdlib must come along, otherwise every
+        // `import deal.std.units.{…}` is unresolvable in the copy and the simulate
+        // model gate refuses to run. `.deal/deps/*/packages` is what the closure
+        // loader scans for dependency roots.
+        ".deal",
+        ".deal/deps",
+        ".deal/deps/deal-stdlib",
+        ".deal/deps/deal-stdlib/packages",
+        ".deal/deps/deal-stdlib/packages/units",
+        ".deal/deps/deal-stdlib/packages/actors",
     ];
     static FILES: &[&str] = &[
         "deal.toml",
@@ -86,9 +97,20 @@ fn copy_showcase_to_temp() -> tempfile::TempDir {
         // vehicle package
         "packages/vehicle/battery.deal",
         "packages/vehicle/behaviors.deal",
+        // Same-package sibling of behaviors.deal (package vehicle.behaviors) — the
+        // package-complete closure pulls it in, so it must exist in the copy.
+        "packages/vehicle/charging-states.deal",
         "packages/vehicle/components.deal",
         "packages/vehicle/index.deal",
         "packages/vehicle/motor.deal",
+        // System-of-interest part def (vehicle.system.EVPlatform) — the use-cases
+        // import it as their `subject` type; without it the copy doesn't resolve.
+        "packages/vehicle/system.deal",
+        // analysis package (not reachable from the .dealx entries, so not analyzed —
+        // copied for fidelity with the real showcase tree).
+        "packages/analysis/calcs.deal",
+        "packages/analysis/constraints.deal",
+        "packages/analysis/precision.deal",
         // interfaces package
         "packages/interfaces/connections.deal",
         "packages/interfaces/electrical.deal",
@@ -113,6 +135,17 @@ fn copy_showcase_to_temp() -> tempfile::TempDir {
         "test/data/charge-cycle-data.csv",
         "test/data/dyno-results-2026-q2.csv",
         "test/data/thermal-cycle-report.pdf",
+        // Vendored stdlib (deal.std.units barrel + every re-export target, plus
+        // deal.std.actors). Required for the copy to resolve imports under strict
+        // scoping; `deal install` produces this tree in the real showcase.
+        ".deal/deps/deal-stdlib/packages/units/index.deal",
+        ".deal/deps/deal-stdlib/packages/units/dimensions.deal",
+        ".deal/deps/deal-stdlib/packages/units/si.deal",
+        ".deal/deps/deal-stdlib/packages/units/si_catalog.deal",
+        ".deal/deps/deal-stdlib/packages/units/dimensionless.deal",
+        ".deal/deps/deal-stdlib/packages/units/conversions.deal",
+        ".deal/deps/deal-stdlib/packages/units/imperial.deal",
+        ".deal/deps/deal-stdlib/packages/actors/index.deal",
     ];
 
     for rel_dir in DIRS {

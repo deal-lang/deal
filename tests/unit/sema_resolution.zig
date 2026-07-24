@@ -308,3 +308,64 @@ test "ADR-0003: same-file specializes binds to local FQ id" {
     }
     try std.testing.expect(found);
 }
+
+// ADR-0004 P6: name/type diagnostics must carry the PRECISE reference span (the
+// name token), not the enclosing node whose span is unset (byte 0), which made
+// the caret render at the `@header` line instead of the offending reference.
+// Guards the span fix in checkDefinition (<<specializes>>) and
+// checkTypeAnnotation (type refs) — both now mirror their recordBinding spans.
+test "ADR-0004 P6: name/type diagnostics point at the reference, not @header" {
+    const gpa = std.testing.allocator;
+
+    // (1) Undefined <<specializes>> target → E2000 caret on the target name.
+    {
+        const src =
+            \\package app;
+            \\part def Widget <<specializes>> UndeclaredBase { }
+        ;
+        const handle = try lib.deal_parse_internal_with_stdlib(
+            gpa,
+            src,
+            "app.deal",
+            &[_]lib.StdlibSource{},
+            true,
+        );
+        defer lib.deal_free_internal(handle);
+        var found = false;
+        for (handle.diagnostics.items) |d| {
+            if (std.mem.eql(u8, d.code, "E2000")) {
+                found = true;
+                const slice = src[@as(usize, d.span.start)..@as(usize, d.span.end)];
+                try std.testing.expectEqualStrings("UndeclaredBase", slice);
+            }
+        }
+        try std.testing.expect(found);
+    }
+
+    // (2) Un-imported type annotation → E2100 caret on the type name.
+    {
+        const src =
+            \\package app;
+            \\part def Pack {
+            \\  part cell : Cell;
+            \\}
+        ;
+        const handle = try lib.deal_parse_internal_with_stdlib(
+            gpa,
+            src,
+            "app.deal",
+            &[_]lib.StdlibSource{},
+            true,
+        );
+        defer lib.deal_free_internal(handle);
+        var found = false;
+        for (handle.diagnostics.items) |d| {
+            if (std.mem.eql(u8, d.code, "E2100")) {
+                found = true;
+                const slice = src[@as(usize, d.span.start)..@as(usize, d.span.end)];
+                try std.testing.expectEqualStrings("Cell", slice);
+            }
+        }
+        try std.testing.expect(found);
+    }
+}
