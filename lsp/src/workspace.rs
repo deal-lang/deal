@@ -322,6 +322,20 @@ pub fn build_closure_cache(
     let map = deal_closure::ModuleMap::build_from(&sources);
     let closure = deal_closure::closure_files(&map, &workspace_files);
 
+    // ADR-0004 R1: derive each alias's namespace from the packages declared under
+    // its directory (`workspace.aliases` holds `name → dir`). The LSP seeds every
+    // workspace file as a closure entry, so aliases do not change closure
+    // membership — but they DO drive resolution (goto/hover/diagnostics), so the
+    // derived `name → namespace` map is carried on the cache.
+    let alias_dirs: Vec<(String, PathBuf)> = workspace
+        .aliases
+        .iter()
+        .map(|(name, dir)| (name.clone(), workspace.root.join(dir)))
+        .collect();
+    // derive_aliases returns a BTreeMap; the index's alias table is a HashMap.
+    let aliases: HashMap<String, String> =
+        deal_closure::derive_aliases(&map, &alias_dirs).into_iter().collect();
+
     // path → bytes for blob assembly (consumes `sources`; the map borrowed it above).
     let src_map: BTreeMap<PathBuf, Vec<u8>> = sources.into_iter().collect();
 
@@ -350,6 +364,7 @@ pub fn build_closure_cache(
         imports,
         root: root.to_path_buf(),
         stdlib_path: stdlib_path.map(|p| p.to_path_buf()),
+        aliases,
     })
 }
 
@@ -392,6 +407,13 @@ pub async fn eager_parse(
     let closure_count = cache.blob.len();
     let external_refs: Vec<&[u8]> = cache.blob.iter().map(|v| v.as_slice()).collect();
 
+    // ADR-0004 R1: publish the DERIVED namespaces (`name → namespace`) to the
+    // index, replacing the raw `name → dir` the index booted with — so
+    // `resolve_with_alias` (goto/hover) expands `reqs.system` to the real package
+    // `requirements.system`, not the directory `packages/requirements.system`.
+    index.replace_aliases(cache.aliases.clone());
+    let alias_map = cache.aliases.clone();
+
     // Phase 2: analyze AND index every closure file — workspace files plus
     // reachable dependency/stdlib files — against the closure external set, so
     // cross-file references resolve AND goto/hover INTO dependency declarations
@@ -414,7 +436,7 @@ pub async fn eager_parse(
             continue;
         };
         if let Err(e) = documents
-            .open_silent_with_external(uri.clone(), text, &external_refs, &index)
+            .open_silent_with_external(uri.clone(), text, &external_refs, &alias_map, &index)
             .await
         {
             tracing::warn!("eager_parse: analyze {uri} failed: {e}");

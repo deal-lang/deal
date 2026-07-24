@@ -47,6 +47,10 @@ pub struct ClosureCache {
     /// Rebuild context: the workspace root and the configured stdlib path.
     pub root: PathBuf,
     pub stdlib_path: Option<PathBuf>,
+    /// ADR-0004 R1: derived import aliases (`name → namespace`) for this
+    /// workspace, applied by sema when analyzing files so aliased imports resolve
+    /// exactly as under `deal check`. Empty for alias-free workspaces.
+    pub aliases: std::collections::HashMap<String, String>,
 }
 
 /// Per-document handle + buffer table.
@@ -275,11 +279,21 @@ impl Documents {
         uri: Url,
         text: String,
         external_sources: &[&[u8]],
+        aliases: &std::collections::HashMap<String, String>,
         index: &Index,
     ) -> anyhow::Result<()> {
         let filename = uri.path();
-        let handle = deal_ffi::safe::check_with_external(text.as_bytes(), filename, external_sources)
-            .ok_or_else(|| anyhow::anyhow!("deal_check_with_external returned null for {uri}"))?;
+        // ADR-0004 R1: resolve aliased imports (via `deal_check_with_stdlib_aliases`)
+        // so the eager-parse index + diagnostics match `deal check`.
+        let aliases: std::collections::BTreeMap<String, String> =
+            aliases.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let handle = deal_ffi::safe::check_with_external_aliases(
+            text.as_bytes(),
+            filename,
+            external_sources,
+            &aliases,
+        )
+        .ok_or_else(|| anyhow::anyhow!("deal_check_with_external returned null for {uri}"))?;
         self.parse_count.fetch_add(1, Ordering::SeqCst);
 
         let rope = Rope::from_str(&text);
@@ -323,7 +337,10 @@ impl Documents {
         let cache = self.closure_cache();
         let handle = if let Some(cache) = &cache {
             let refs: Vec<&[u8]> = cache.blob.iter().map(|v| v.as_slice()).collect();
-            deal_ffi::safe::check_with_external(text.as_bytes(), filename, &refs)
+            // ADR-0004 R1: resolve aliased imports so live diagnostics match the CLI.
+            let aliases: std::collections::BTreeMap<String, String> =
+                cache.aliases.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            deal_ffi::safe::check_with_external_aliases(text.as_bytes(), filename, &refs, &aliases)
                 .ok_or_else(|| anyhow::anyhow!("deal_check_with_external returned null for {uri}"))?
         } else {
             deal_ffi::safe::parse(text.as_bytes(), filename)
