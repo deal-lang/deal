@@ -305,7 +305,26 @@ const Analyzer = struct {
     /// imported names to the unique declaration in the imported package's
     /// subtree. Null in single-file analysis (then only local names resolve).
     external: ?*const SymbolTable = null,
+    /// ADR-0004 R1: import aliases (`name → namespace`). When present,
+    /// `collectImport` rewrites an import path's leading alias segment to the
+    /// namespace it names BEFORE recording the edge — so `import reqs.system.*`
+    /// with `reqs → requirements` records (and resolves against) the declared
+    /// package `requirements.system`. Null / absent ⇒ no rewrite (identity).
+    aliases: ?*const std.StringHashMap([]const u8) = null,
 };
+
+/// ADR-0004 R1: rewrite a dotted import path's leading segment through the alias
+/// map (`reqs.system` + `reqs → requirements` ⇒ `requirements.system`). Only the
+/// head is an alias key — the alias owns that namespace (TS `paths` semantics), so
+/// at most one substitution occurs. Non-alias paths (and the null-map case) pass
+/// through unchanged.
+fn aliasNormalizePath(a: *Analyzer, path: []const u8) []const u8 {
+    const aliases = a.aliases orelse return path;
+    const head_end = std.mem.indexOfScalar(u8, path, '.') orelse path.len;
+    const ns = aliases.get(path[0..head_end]) orelse return path;
+    if (head_end == path.len) return ns;
+    return std.fmt.allocPrint(a.arena, "{s}{s}", .{ ns, path[head_end..] }) catch path;
+}
 
 /// Run all 7 blocking semantic checks against the AST.
 ///
@@ -363,6 +382,20 @@ pub fn analyzeWithExternalTable(
     diag_list: *std.ArrayList(Diagnostic),
     source_file: []const u8,
     external_table: ?*const SymbolTable,
+) !*SymbolTable {
+    return analyzeWithExternalTableAliases(arena, root, diag_list, source_file, external_table, null);
+}
+
+/// As `analyzeWithExternalTable`, plus an ADR-0004 R1 alias table (`name →
+/// namespace`) that `collectImport` applies to import paths. Existing callers use
+/// the null-alias wrapper above; only the alias-aware FFI entry point passes a map.
+pub fn analyzeWithExternalTableAliases(
+    arena: std.mem.Allocator,
+    root: ?*ast.Node,
+    diag_list: *std.ArrayList(Diagnostic),
+    source_file: []const u8,
+    external_table: ?*const SymbolTable,
+    aliases: ?*const std.StringHashMap([]const u8),
 ) !*SymbolTable {
     // Allocate the symbol table in the arena.
     const table = try arena.create(SymbolTable);
@@ -422,6 +455,7 @@ pub fn analyzeWithExternalTable(
         // ADR-0003: the seed table doubles as the workspace declaration set for
         // cross-file resolution. Null in pure single-file analysis.
         .external = external_table,
+        .aliases = aliases,
     };
 
     if (root) |r| {
@@ -482,8 +516,11 @@ fn passA(a: *Analyzer, root: *ast.Node) !void {
 
 fn collectImport(a: *Analyzer, node: *ast.Node) !void {
     const imp = node.payload.import_decl;
-    // Build the import path string (dot-joined segments).
-    const path_str = try std.mem.join(a.arena, ".", imp.path);
+    // Build the import path string (dot-joined segments), then normalize any
+    // leading `[aliases]` segment (ADR-0004 R1). Every consumer below — the edge,
+    // imported_packages, surfaces lookup, importReaches, bindings — sees the one
+    // canonical namespace, so the alias resolves rather than merely loading.
+    const path_str = aliasNormalizePath(a, try std.mem.join(a.arena, ".", imp.path));
 
     // Classify the import and register names into the symbol table.
     switch (imp.kind) {
@@ -1420,7 +1457,10 @@ fn checkDefinition(a: *Analyzer, node: *ast.Node) !void {
             try a.collector.emitFmt(
                 Codes.e_name_not_found,
                 .err,
-                spec_node.span,
+                // Caret on the target name, not the whole <<specializes>> node
+                // (unset span → byte 0 → renders at `@header`). Mirrors the
+                // precise span used by the recordBinding success path below.
+                preferSpan(spec.target_span, spec_node.span),
                 "name `{s}` not found in scope",
                 .{target_name},
             );
@@ -1675,7 +1715,9 @@ fn checkConstraintDef(a: *Analyzer, node: *ast.Node) !void {
         const target_name = try std.mem.join(a.arena, ".", spec.target_segments);
         if (!isKnownName(a, target_name, spec.target_segments)) {
             try a.collector.emitFmt(
-                Codes.e_name_not_found, .err, spec_node.span,
+                // Precise caret on the target name, not the whole <<specializes>>
+                // node (unset span → byte 0 → renders at `@header`).
+                Codes.e_name_not_found, .err, preferSpan(spec.target_span, spec_node.span),
                 "name `{s}` not found in scope", .{target_name},
             );
         } else if (resolveName(a, target_name, spec.target_segments)) |resolved| {
@@ -2079,7 +2121,10 @@ fn checkTypeAnnotation(a: *Analyzer, node: *ast.Node) !void {
         try a.collector.emitFmt(
             Codes.e_type_mismatch,
             .err,
-            node.span,
+            // Point the caret at the type name itself, not the whole annotation
+            // node (whose span is unset → byte 0 → renders at `@header`). Mirrors
+            // the precise span used by the recordBinding success path below.
+            preferSpan(ta.terminal_span, node.span),
             "type `{s}` is not defined; use a declared or imported type",
             .{type_name},
         );

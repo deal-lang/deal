@@ -133,6 +133,21 @@ extern "C" {
         out_diag_ptr: *mut *const u8,
         out_diag_len: *mut usize,
     ) -> *mut DealHandle;
+
+    /// ADR-0004 R1: as `deal_check_with_stdlib`, plus `alias_ptr`/`alias_len` — a
+    /// NUL-separated list of `name=namespace` pairs sema applies to import paths.
+    pub fn deal_check_with_stdlib_aliases(
+        source_ptr: *const u8,
+        source_len: usize,
+        filename_ptr: *const u8,
+        filename_len: usize,
+        stdlib_ir_ptr: *const u8,
+        stdlib_ir_len: usize,
+        out_diag_ptr: *mut *const u8,
+        out_diag_len: *mut usize,
+        alias_ptr: *const u8,
+        alias_len: usize,
+    ) -> *mut DealHandle;
 }
 
 /// Owning wrapper for `*mut DealHandle` introduced in Plan 03-03 (D-45).
@@ -250,6 +265,54 @@ pub mod safe {
                 blob.len(),
                 &mut diag_ptr,
                 &mut diag_len,
+            )
+        };
+        OwnedDealHandle::from_raw(ptr)
+    }
+
+    /// As `check_with_external`, plus ADR-0004 R1 import aliases (`name →
+    /// namespace`) that sema applies to import paths. `aliases` empty ⇒ identical
+    /// to `check_with_external`.
+    pub fn check_with_external_aliases(
+        source: &[u8],
+        filename: &str,
+        external_sources: &[&[u8]],
+        aliases: &std::collections::BTreeMap<String, String>,
+    ) -> Option<OwnedDealHandle> {
+        let mut blob: Vec<u8> = Vec::new();
+        for (i, src) in external_sources.iter().enumerate() {
+            if i > 0 {
+                blob.push(0);
+            }
+            blob.extend_from_slice(src);
+        }
+        // Alias blob: `name=namespace` pairs, NUL-separated (same delimiter — no
+        // '=' or NUL occurs in a package name, so parsing is unambiguous).
+        let mut alias_blob: Vec<u8> = Vec::new();
+        for (i, (name, ns)) in aliases.iter().enumerate() {
+            if i > 0 {
+                alias_blob.push(0);
+            }
+            alias_blob.extend_from_slice(name.as_bytes());
+            alias_blob.push(b'=');
+            alias_blob.extend_from_slice(ns.as_bytes());
+        }
+        let mut diag_ptr: *const u8 = std::ptr::null();
+        let mut diag_len: usize = 0;
+        // SAFETY: all slices live for the call; Zig copies what it needs into the
+        // handle arena. out pointers are valid &mut.
+        let ptr = unsafe {
+            deal_check_with_stdlib_aliases(
+                source.as_ptr(),
+                source.len(),
+                filename.as_bytes().as_ptr(),
+                filename.len(),
+                blob.as_ptr(),
+                blob.len(),
+                &mut diag_ptr,
+                &mut diag_len,
+                alias_blob.as_ptr(),
+                alias_blob.len(),
             )
         };
         OwnedDealHandle::from_raw(ptr)

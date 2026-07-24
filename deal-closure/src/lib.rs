@@ -197,7 +197,97 @@ impl ModuleMap {
 /// reachable package (package-complete — this is what includes same-package
 /// siblings + barrel-target files, which P3 sema's Tier-2 + computeSurfaces
 /// require in the external table). Cycle-safe via a visited set over packages.
+/// Longest common **segment** prefix of a set of dotted package names, joined
+/// with `.`. `["requirements", "requirements.needs", "requirements.system"]` →
+/// `"requirements"`; `["analysis.calcs", "analysis.constraints"]` → `"analysis"`;
+/// unrelated names → `""`. Segment-boundary comparison is deliberate: a byte
+/// prefix would fold `foo` and `foobar` together.
+pub fn longest_common_segment_prefix(packages: &[String]) -> String {
+    let mut iter = packages.iter().filter(|p| !p.is_empty());
+    let Some(first) = iter.next() else {
+        return String::new();
+    };
+    let mut prefix: Vec<&str> = first.split('.').collect();
+    for pkg in iter {
+        let segs: Vec<&str> = pkg.split('.').collect();
+        let common = prefix
+            .iter()
+            .zip(segs.iter())
+            .take_while(|(a, b)| a == b)
+            .count();
+        prefix.truncate(common);
+        if prefix.is_empty() {
+            break;
+        }
+    }
+    prefix.join(".")
+}
+
+/// ADR-0004 R1: derive each alias's import namespace from the packages actually
+/// declared under its directory. `aliases` is `(name, dir)` with `dir` the alias's
+/// location (any form). Returns `name → namespace` for every alias that resolves
+/// to a non-empty namespace **distinct from its own name** (a redundant alias whose
+/// name already equals the namespace — e.g. `vehicle = packages/vehicle` declaring
+/// `package vehicle;` — is dropped: substituting it is a no-op).
+///
+/// Namespace = longest common segment prefix of the packages of all modules whose
+/// canonicalized path is under the canonicalized alias dir. An alias whose dir holds
+/// no modules, or whose packages share no common prefix, yields nothing (never a
+/// guess). Paths are canonicalized on both sides so a relative module path (from
+/// `expand_path_args`) still matches an absolute alias dir.
+pub fn derive_aliases(map: &ModuleMap, aliases: &[(String, PathBuf)]) -> BTreeMap<String, String> {
+    fn canon(p: &Path) -> PathBuf {
+        std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    }
+    let mut out = BTreeMap::new();
+    for (name, dir) in aliases {
+        let dir_c = canon(dir);
+        let mut pkgs: Vec<String> = map
+            .modules
+            .values()
+            .filter(|m| !m.package.is_empty() && canon(&m.path).starts_with(&dir_c))
+            .map(|m| m.package.clone())
+            .collect();
+        pkgs.sort();
+        pkgs.dedup();
+        let namespace = longest_common_segment_prefix(&pkgs);
+        if !namespace.is_empty() && &namespace != name {
+            out.insert(name.clone(), namespace);
+        }
+    }
+    out
+}
+
+/// Substitute a leading alias segment: `reqs.system` with `reqs → requirements`
+/// becomes `requirements.system`. Only the first segment is an alias key (R1:
+/// the alias owns that namespace — TypeScript `paths` semantics), so at most one
+/// substitution happens. Non-alias paths pass through unchanged.
+pub fn apply_alias(path: &str, aliases: &BTreeMap<String, String>) -> String {
+    if aliases.is_empty() {
+        return path.to_string();
+    }
+    match path.split_once('.') {
+        Some((head, rest)) => match aliases.get(head) {
+            Some(ns) => format!("{ns}.{rest}"),
+            None => path.to_string(),
+        },
+        None => aliases.get(path).cloned().unwrap_or_else(|| path.to_string()),
+    }
+}
+
 pub fn closure_files(map: &ModuleMap, entries: &[PathBuf]) -> Vec<PathBuf> {
+    closure_files_with_aliases(map, entries, &BTreeMap::new())
+}
+
+/// Like `closure_files`, but rewrites each import path's leading alias segment
+/// through `aliases` before following it — so an aliased import reaches the
+/// package it actually names. With an empty map this is identical to
+/// `closure_files`.
+pub fn closure_files_with_aliases(
+    map: &ModuleMap,
+    entries: &[PathBuf],
+    aliases: &BTreeMap<String, String>,
+) -> Vec<PathBuf> {
     let mut visited: BTreeSet<String> = BTreeSet::new();
     let mut queue: Vec<String> = Vec::new();
 
@@ -218,8 +308,9 @@ pub fn closure_files(map: &ModuleMap, entries: &[PathBuf]) -> Vec<PathBuf> {
                 continue;
             };
             for imp in &m.imports {
-                if visited.insert(imp.import_path.clone()) {
-                    queue.push(imp.import_path.clone());
+                let resolved = apply_alias(&imp.import_path, aliases);
+                if visited.insert(resolved.clone()) {
+                    queue.push(resolved);
                 }
             }
             for exp in &m.exports {
@@ -259,6 +350,11 @@ pub struct LoadPlan {
     /// silently dropped). Unreachable, cleanly-parsed project files are
     /// excluded — their errors must not surface (entry-point semantics).
     pub analyze: Vec<PathBuf>,
+    /// ADR-0004 R1: derived import aliases (`name → namespace`) used to compute
+    /// this closure. Empty for `plan_load`. The CLI/LSP forward it to sema (via
+    /// the alias-aware FFI entry points) so an aliased import also *resolves*, not
+    /// merely loads. `apply_alias` applies one entry.
+    pub aliases: BTreeMap<String, String>,
 }
 
 /// Build the load plan: discovery is done by the caller (so workspace excludes
@@ -274,6 +370,20 @@ pub fn plan_load(
     dep_files: &[PathBuf],
     explicit_files: &[PathBuf],
 ) -> Result<LoadPlan, String> {
+    plan_load_with_aliases(project_files, dep_files, explicit_files, &[])
+}
+
+/// Like `plan_load`, but resolves imports through `[aliases]` (ADR-0004 R1).
+/// `aliases` is `(name, dir)` from the manifest; the namespaces are derived from
+/// the built module map (see `derive_aliases`) and both drive the closure walk and
+/// are recorded on `LoadPlan.aliases` for sema. With an empty `aliases` this is
+/// identical to `plan_load`.
+pub fn plan_load_with_aliases(
+    project_files: &[PathBuf],
+    dep_files: &[PathBuf],
+    explicit_files: &[PathBuf],
+    aliases: &[(String, PathBuf)],
+) -> Result<LoadPlan, String> {
     if project_files.is_empty() {
         return Err("no .deal or .dealx files found".to_string());
     }
@@ -285,6 +395,10 @@ pub fn plan_load(
     all_files.sort();
     all_files.dedup();
     let map = ModuleMap::build(&all_files);
+
+    // Derive alias namespaces from the packages actually declared under each
+    // alias dir (needs the built map — a raw parse can't know packages yet).
+    let alias_map = derive_aliases(&map, aliases);
 
     // Entry points (Decision 4).
     let entries: Vec<PathBuf> = if !explicit_files.is_empty() {
@@ -305,7 +419,7 @@ pub fn plan_load(
         return Err("no entry points (.dealx or .deal) found".to_string());
     }
 
-    let closure = closure_files(&map, &entries);
+    let closure = closure_files_with_aliases(&map, &entries, &alias_map);
     let closure_set: BTreeSet<PathBuf> = closure.iter().cloned().collect();
     let project_set: BTreeSet<PathBuf> = project_files.iter().cloned().collect();
 
@@ -336,6 +450,7 @@ pub fn plan_load(
         map,
         closure,
         analyze,
+        aliases: alias_map,
     })
 }
 
@@ -392,6 +507,87 @@ mod tests {
             .iter()
             .map(|p| p.to_string_lossy().into_owned())
             .collect()
+    }
+
+    // ── ADR-0004 R1 alias resolution ────────────────────────────────────────
+
+    #[test]
+    fn lcsp_is_segment_wise() {
+        let lcsp = |v: &[&str]| {
+            longest_common_segment_prefix(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        };
+        assert_eq!(lcsp(&["requirements", "requirements.needs", "requirements.system"]), "requirements");
+        // No bare `package analysis;` — must NOT collapse to `analysis.calcs`.
+        assert_eq!(lcsp(&["analysis.calcs", "analysis.constraints", "analysis.precision"]), "analysis");
+        assert_eq!(lcsp(&["foo", "bar"]), "", "unrelated packages share no namespace");
+        // Segment boundary: `foo` and `foobar` are not a common prefix.
+        assert_eq!(lcsp(&["foo", "foobar"]), "");
+        assert_eq!(lcsp(&[]), "");
+    }
+
+    #[test]
+    fn apply_alias_substitutes_only_the_leading_segment() {
+        let mut a = BTreeMap::new();
+        a.insert("reqs".to_string(), "requirements".to_string());
+        assert_eq!(apply_alias("reqs.system", &a), "requirements.system");
+        assert_eq!(apply_alias("reqs", &a), "requirements");
+        assert_eq!(apply_alias("vehicle.reqs", &a), "vehicle.reqs", "only the head is an alias key");
+        assert_eq!(apply_alias("other.system", &a), "other.system");
+        assert_eq!(apply_alias("reqs.system", &BTreeMap::new()), "reqs.system", "empty map is identity");
+    }
+
+    /// The load-bearing case: a package reachable ONLY through an alias whose name
+    /// differs from the declared package. Derivation must find the namespace, and
+    /// the walker must then pull the aliased package into the closure.
+    #[test]
+    fn aliased_import_derives_and_reaches_the_package() {
+        let tmp = std::env::temp_dir().join(format!("deal-closure-alias-{}", std::process::id()));
+        let reqs_dir = tmp.join("packages").join("requirements");
+        std::fs::create_dir_all(&reqs_dir).unwrap();
+        let entry = tmp.join("model.dealx");
+        let idx = reqs_dir.join("index.deal");
+        let sys = reqs_dir.join("system.deal");
+        std::fs::write(&entry, "x").unwrap();
+        std::fs::write(&idx, "x").unwrap();
+        std::fs::write(&sys, "x").unwrap();
+
+        // Realistic showcase layout: packages/requirements/ declares a bare
+        // `package requirements;` (index.deal) plus `requirements.system`
+        // (system.deal). LCSP over the two → namespace `requirements`. The entry
+        // imports via the ALIAS name `reqs`.
+        let map = map_of(vec![
+            pm(entry.to_str().unwrap(), "model", &["reqs.system"], &[]),
+            pm(idx.to_str().unwrap(), "requirements", &[], &[]),
+            pm(sys.to_str().unwrap(), "requirements.system", &[], &[]),
+        ]);
+
+        let aliases = derive_aliases(&map, &[("reqs".to_string(), reqs_dir.clone())]);
+        assert_eq!(aliases.get("reqs").map(String::as_str), Some("requirements"));
+
+        // Without the alias, the `reqs.system` import reaches neither file.
+        let plain = names(&closure_files(&map, &[entry.clone()]));
+        assert!(!plain.contains(sys.to_str().unwrap()), "control: unaliased walk misses it");
+        assert!(!plain.contains(idx.to_str().unwrap()), "control: unaliased walk misses the barrel too");
+
+        // With the alias, the walker reaches packages/requirements/system.deal.
+        let aliased = names(&closure_files_with_aliases(&map, &[entry.clone()], &aliases));
+        assert!(aliased.contains(sys.to_str().unwrap()), "aliased walk must reach requirements.system");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn redundant_alias_is_dropped() {
+        let tmp = std::env::temp_dir().join(format!("deal-closure-redundant-{}", std::process::id()));
+        let veh_dir = tmp.join("packages").join("vehicle");
+        std::fs::create_dir_all(&veh_dir).unwrap();
+        let f = veh_dir.join("battery.deal");
+        std::fs::write(&f, "x").unwrap();
+        let map = map_of(vec![pm(f.to_str().unwrap(), "vehicle", &[], &[])]);
+        // Alias name == declared package → no-op substitution → not recorded.
+        let aliases = derive_aliases(&map, &[("vehicle".to_string(), veh_dir.clone())]);
+        assert!(aliases.is_empty(), "an alias whose name equals its namespace is redundant");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// Risk F: a single `import app.geo` must pull in EVERY file of `app.geo`

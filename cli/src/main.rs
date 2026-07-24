@@ -245,10 +245,15 @@ fn run_check(
         // being present. The previous logic used the first directory arg (or `.`
         // if none), so `deal check packages/foo.deal` from outside the project
         // root silently skipped the E2402 not-installed gate.
-        let check_root: std::path::PathBuf =
-            find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
+        // No manifest for these paths → no declared dependencies → nothing to gate.
+        // Falling back to `"."` would apply the CWD project's `[dependencies]`
+        // E2402 gate to files outside it (the cwd leak — see find_deal_toml_root).
+        let check_root: std::path::PathBuf = match find_deal_toml_root(paths) {
+            Some(r) => r,
+            None => std::path::PathBuf::new(),
+        };
         let toml_path = check_root.join("deal.toml");
-        if toml_path.exists() {
+        if !check_root.as_os_str().is_empty() && toml_path.exists() {
             if let Ok(toml_bytes) = std::fs::read(&toml_path) {
                 if let Ok(toml_str) = std::str::from_utf8(&toml_bytes) {
                     if let Ok(manifest) = toml::from_str::<resolver::DealToml>(toml_str) {
@@ -320,6 +325,10 @@ fn run_check(
     let stderr_choice = color_choice(color);
     let mut stderr = anstream::AutoStream::new(std::io::stderr(), stderr_choice);
 
+    // ADR-0004 R1: the derived import aliases, applied by sema to every file's
+    // import paths (built once; empty for alias-free projects).
+    let alias_blob = build_alias_blob(&plan.aliases);
+
     for path in &plan.analyze {
         let source_bytes = match source_cache.get(path) {
             Some(b) => b.clone(),
@@ -339,7 +348,7 @@ fn run_check(
         let handle = unsafe {
             let mut _out_diag_ptr: *const u8 = std::ptr::null();
             let mut _out_diag_len: usize = 0;
-            ffi::deal_check_with_stdlib(
+            ffi::deal_check_with_stdlib_aliases(
                 source_bytes.as_ptr(),
                 source_bytes.len(),
                 filename.as_bytes().as_ptr(),
@@ -348,6 +357,8 @@ fn run_check(
                 externals.len(),
                 &mut _out_diag_ptr,
                 &mut _out_diag_len,
+                alias_blob.as_ptr(),
+                alias_blob.len(),
             )
         };
         if handle.is_null() {
@@ -1030,7 +1041,12 @@ fn apply_workspace_excludes(
     paths: &[std::path::PathBuf],
     mut resolved: Vec<std::path::PathBuf>,
 ) -> Vec<std::path::PathBuf> {
-    let root = find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
+    // No manifest for these paths → no workspace excludes apply. Falling back to
+    // `"."` here would read the CWD project's `[workspace].exclude` and silently
+    // drop files of an unrelated project (the cwd leak — see find_deal_toml_root).
+    let Some(root) = find_deal_toml_root(paths) else {
+        return resolved;
+    };
     if let Ok(bytes) = std::fs::read(root.join("deal.toml")) {
         if let Ok(s) = std::str::from_utf8(&bytes) {
             if let Ok(manifest) = toml::from_str::<resolver::DealToml>(s) {
@@ -1060,10 +1076,15 @@ fn apply_workspace_excludes(
 /// Per-command concerns (E2402 not-installed gating, output inference) stay in
 /// the individual commands.
 fn plan_load_from_paths(paths: &[std::path::PathBuf]) -> Result<closure::LoadPlan, CliError> {
-    let project_root =
-        find_deal_toml_root(paths).unwrap_or_else(|| std::path::PathBuf::from("."));
-    let manifest: Option<resolver::DealToml> = std::fs::read(project_root.join("deal.toml"))
-        .ok()
+    // The manifest root stays an Option: there may genuinely be no project for
+    // these paths (a standalone file). Substituting `"."` would make the manifest
+    // read AND the dependency scan below resolve against the CWD, pulling an
+    // unrelated project's `.deal/deps` into this closure (the cwd leak — see
+    // find_deal_toml_root). No manifest ⇒ no dependencies.
+    let manifest_root: Option<std::path::PathBuf> = find_deal_toml_root(paths);
+    let manifest: Option<resolver::DealToml> = manifest_root
+        .as_ref()
+        .and_then(|root| std::fs::read(root.join("deal.toml")).ok())
         .and_then(|b| String::from_utf8(b).ok())
         .and_then(|s| toml::from_str::<resolver::DealToml>(&s).ok());
 
@@ -1085,10 +1106,12 @@ fn plan_load_from_paths(paths: &[std::path::PathBuf]) -> Result<closure::LoadPla
     // - a standalone file with no manifest discovers just the given files.
     let project_files: Vec<std::path::PathBuf> = {
         let has_dir_arg = paths.iter().any(|p| p.is_dir());
-        let discovered = if has_dir_arg || manifest.is_none() {
-            expand_path_args(paths)?
-        } else {
-            expand_path_args(std::slice::from_ref(&project_root))?
+        let discovered = match (has_dir_arg, manifest.is_some(), manifest_root.as_ref()) {
+            // File-only invocation inside a real project: widen discovery to the
+            // whole project tree so the entry's import closure resolves.
+            (false, true, Some(root)) => expand_path_args(std::slice::from_ref(root))?,
+            // Dir args, or no project at all: discover exactly what was asked for.
+            _ => expand_path_args(paths)?,
         };
         let mut pf = apply_workspace_excludes(paths, discovered);
         pf.extend(explicit_files.iter().cloned());
@@ -1104,8 +1127,11 @@ fn plan_load_from_paths(paths: &[std::path::PathBuf]) -> Result<closure::LoadPla
 
     // Dependency roots (git deps under .deal/deps/<name>/packages, path deps
     // under <path>/packages) → external sources entering only via the closure.
+    // Only a located project has dependencies. Without a manifest root there is
+    // no `.deal/deps` to scan — resolving one relative to the CWD would import a
+    // different project's vendored sources into this analysis.
     let mut dep_roots: Vec<std::path::PathBuf> = Vec::new();
-    {
+    if let Some(project_root) = manifest_root.as_ref() {
         let deps_base = project_root.join(".deal").join("deps");
         if let Ok(entries) = std::fs::read_dir(&deps_base) {
             for e in entries.flatten() {
@@ -1128,12 +1154,47 @@ fn plan_load_from_paths(paths: &[std::path::PathBuf]) -> Result<closure::LoadPla
     }
     let dep_files = closure::discover_files(&dep_roots);
 
-    closure::plan_load(&project_files, &dep_files, &explicit_files).map_err(CliError::User)
+    // ADR-0004 R1: alias name → directory (resolved against the manifest root).
+    // Top-level `[aliases]` is authoritative; the deprecated `[workspace.aliases]`
+    // is folded in for manifests still on the old form (a top-level entry wins on
+    // key collision). deal-closure derives each namespace from the packages
+    // actually declared under the directory.
+    let alias_dirs: Vec<(String, std::path::PathBuf)> = match (&manifest, manifest_root.as_ref()) {
+        (Some(m), Some(root)) => {
+            let mut merged: std::collections::BTreeMap<String, String> =
+                m.workspace.aliases.clone();
+            merged.extend(m.aliases.clone());
+            merged
+                .into_iter()
+                .map(|(name, dir)| (name, root.join(dir)))
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+
+    closure::plan_load_with_aliases(&project_files, &dep_files, &explicit_files, &alias_dirs)
+        .map_err(CliError::User)
 }
 
 /// Assemble the NUL-separated external-source blob for `file` = every OTHER
 /// closure file's source (ADR-0004 P4 strict mode: external table present →
 /// import-scoped resolution). `source_cache` must already hold the closure.
+/// ADR-0004 R1: serialize the derived alias map (`name → namespace`) into the
+/// `name=namespace`, NUL-separated blob the alias-aware FFI entry point parses.
+/// Empty map → empty blob (the FFI treats len 0 as "no aliases").
+fn build_alias_blob(aliases: &std::collections::BTreeMap<String, String>) -> Vec<u8> {
+    let mut blob: Vec<u8> = Vec::new();
+    for (i, (name, ns)) in aliases.iter().enumerate() {
+        if i > 0 {
+            blob.push(0);
+        }
+        blob.extend_from_slice(name.as_bytes());
+        blob.push(b'=');
+        blob.extend_from_slice(ns.as_bytes());
+    }
+    blob
+}
+
 fn externals_for<'a>(
     file: &std::path::Path,
     closure_files: &[std::path::PathBuf],
@@ -1203,10 +1264,11 @@ fn run_build(
         // freed external arena, so IR must come from the deal_parse pass below,
         // never this handle (D-88).
         let externals = externals_for(path, &plan.closure, &source_cache);
+        let alias_blob = build_alias_blob(&plan.aliases);
         let check_handle = unsafe {
             let mut _o: *const u8 = std::ptr::null();
             let mut _ol: usize = 0;
-            ffi::deal_check_with_stdlib(
+            ffi::deal_check_with_stdlib_aliases(
                 source_bytes.as_ptr(),
                 source_bytes.len(),
                 filename.as_bytes().as_ptr(),
@@ -1215,6 +1277,8 @@ fn run_build(
                 externals.len(),
                 &mut _o,
                 &mut _ol,
+                alias_blob.as_ptr(),
+                alias_blob.len(),
             )
         };
         if check_handle.is_null() {
@@ -1413,10 +1477,11 @@ fn run_build_reqif(
         // ── Enforce (strict): deal_check_with_stdlib with the closure external
         // table. Violations block codegen. Diagnostics-only handle (D-88).
         let externals = externals_for(path, &plan.closure, &source_cache);
+        let alias_blob = build_alias_blob(&plan.aliases);
         let check_handle = unsafe {
             let mut _o: *const u8 = std::ptr::null();
             let mut _ol: usize = 0;
-            ffi::deal_check_with_stdlib(
+            ffi::deal_check_with_stdlib_aliases(
                 source_bytes.as_ptr(),
                 source_bytes.len(),
                 filename.as_bytes().as_ptr(),
@@ -1425,6 +1490,8 @@ fn run_build_reqif(
                 externals.len(),
                 &mut _o,
                 &mut _ol,
+                alias_blob.as_ptr(),
+                alias_blob.len(),
             )
         };
         if check_handle.is_null() {
@@ -1590,11 +1657,20 @@ fn infer_reqif_output_path(paths: &[std::path::PathBuf]) -> Result<std::path::Pa
 /// E2402 not-installed gate fires regardless of whether the user passed a
 /// directory argument or a bare file path, and independent of the cwd.
 fn find_deal_toml_root(paths: &[std::path::PathBuf]) -> Option<std::path::PathBuf> {
-    // Always consider the current working directory as a fallback search origin
-    // so `deal check` with no path args still resolves the enclosing project.
+    // The cwd is a search origin ONLY for the bare invocation (`deal check` with
+    // no path args), which must still resolve the enclosing project.
+    //
+    // When explicit paths ARE given, the cwd must never be consulted: falling back
+    // to it binds an unrelated project's manifest — and with it that project's
+    // `[workspace].exclude`, its `[dependencies]` E2402 gate, and its
+    // `.deal/deps` — to files that live outside it, making resolution depend on
+    // where the command happened to be run. ADR-0004 requires the opposite
+    // (determinism / single source of truth).
     let mut origins: Vec<std::path::PathBuf> = paths.to_vec();
-    if let Ok(cwd) = std::env::current_dir() {
-        origins.push(cwd);
+    if paths.is_empty() {
+        if let Ok(cwd) = std::env::current_dir() {
+            origins.push(cwd);
+        }
     }
 
     for origin in &origins {

@@ -837,6 +837,11 @@ fn run_simulate_in_reported(
         names.to_vec()
     };
 
+    // ADR-0004 P6 (WS-C): strict model gate. Runs once, before any IR loading or
+    // sim dispatch — a simulation reads values out of the model, so running one
+    // against a model that does not analyze is garbage-in/garbage-out.
+    gate_model(project_root)?;
+
     // Load project IR for model_path resolution
     let ir_elements = load_project_ir(project_root);
 
@@ -1034,6 +1039,165 @@ fn run_simulate_in_reported(
 ///
 /// Runs `deal_ir_json` FFI call over all `.deal`/`.dealx` files in the project,
 /// returning the merged IR elements map. Falls back to an empty map on any error.
+/// ADR-0004 P6 (WS-C): refuse to simulate a model that fails strict import-scoped
+/// analysis.
+///
+/// Why: a simulation reads values *out of* the model, so running one against a model
+/// with unresolved references is garbage-in/garbage-out. Worse, `load_project_ir` and
+/// `ModelValueIndex::build` both silently skip files that fail to parse, so before
+/// this gate a broken model quietly produced `null` sim inputs instead of an error.
+///
+/// The gate is deliberately VACUOUS when the project contributes no model files, or
+/// when the closure cannot be planned: `deal simulate` supports sim-only projects
+/// driven entirely by pre-seeded `input.json` (D-72), and those must keep working.
+///
+/// Diagnostics are intentionally NOT rendered here — the refusal points at
+/// `deal check`, which stays the single source of truth for diagnostic output.
+pub(crate) fn gate_model(project_root: &Path) -> Result<(), CliError> {
+    // Vacuous: nothing to analyze (sim-only / pre-seeded project).
+    let project_files = collect_deal_files(project_root);
+    if project_files.is_empty() {
+        return Ok(());
+    }
+
+    // Dependency roots — `.deal/deps/<name>/packages`, the tree `deal install`
+    // vendors. `collect_deal_files` prunes `.deal/`, so dependency sources can only
+    // enter here: the same project-vs-dependency split `deal check` uses.
+    //
+    // NOTE: this module is compiled into BOTH the `deal` binary and the `deal`
+    // library, so the closure is planned here via `crate::closure` rather than
+    // through main.rs's private `plan_load_from_paths`/`externals_for`.
+    let mut dep_roots: Vec<PathBuf> = Vec::new();
+    let deps_base = project_root.join(".deal").join("deps");
+    if let Ok(entries) = std::fs::read_dir(&deps_base) {
+        for e in entries.flatten() {
+            let pkgs = e.path().join("packages");
+            if pkgs.is_dir() {
+                dep_roots.push(pkgs);
+            }
+        }
+    }
+    let dep_files = crate::closure::discover_files(&dep_roots);
+
+    // ADR-0004 R1: derive alias dirs from the manifest so an aliased model
+    // resolves in the gate exactly as it does under `deal check` — otherwise the
+    // gate would refuse a valid model whose imports use `[aliases]`.
+    let alias_dirs: Vec<(String, PathBuf)> = std::fs::read(project_root.join("deal.toml"))
+        .ok()
+        .and_then(|b| String::from_utf8(b).ok())
+        .and_then(|s| toml::from_str::<crate::resolver::DealToml>(&s).ok())
+        .map(|m| {
+            let mut merged = m.workspace.aliases.clone();
+            merged.extend(m.aliases.clone());
+            merged
+                .into_iter()
+                .map(|(name, dir)| (name, project_root.join(dir)))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Vacuous: closure cannot be planned — preserve the prior behaviour rather
+    // than converting an unplannable workspace into a hard failure.
+    let plan = match crate::closure::plan_load_with_aliases(
+        &project_files,
+        &dep_files,
+        &[],
+        &alias_dirs,
+    ) {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+    // Serialize the derived aliases to the `name=namespace` NUL blob (built inline:
+    // this module compiles into the library too, where main.rs helpers are absent).
+    let mut alias_blob: Vec<u8> = Vec::new();
+    for (i, (name, ns)) in plan.aliases.iter().enumerate() {
+        if i > 0 {
+            alias_blob.push(0);
+        }
+        alias_blob.extend_from_slice(name.as_bytes());
+        alias_blob.push(b'=');
+        alias_blob.extend_from_slice(ns.as_bytes());
+    }
+
+    let mut source_cache: std::collections::BTreeMap<PathBuf, Vec<u8>> =
+        std::collections::BTreeMap::new();
+    for p in &plan.closure {
+        if let Ok(b) = std::fs::read(p) {
+            source_cache.insert(p.clone(), b);
+        }
+    }
+
+    // Gate on `plan.analyze` (project files) — never `plan.closure`, which also
+    // carries dependency sources whose diagnostics are not the user's to fix.
+    let mut bad: Vec<PathBuf> = Vec::new();
+    for path in &plan.analyze {
+        let source_bytes = match source_cache.get(path) {
+            Some(b) => b.clone(),
+            None => continue,
+        };
+        let filename = path.to_string_lossy();
+
+        // External table = every OTHER closure file's source, NUL-separated —
+        // byte-identical to the blob `deal check` builds (main.rs::externals_for).
+        let mut externals: Vec<u8> = Vec::new();
+        for other in &plan.closure {
+            if other == path {
+                continue;
+            }
+            if let Some(src) = source_cache.get(other) {
+                if !externals.is_empty() {
+                    externals.push(0u8);
+                }
+                externals.extend_from_slice(src);
+            }
+        }
+
+        use deal_ffi as ffi;
+        // SAFETY: every slice outlives the call and the handle is freed before the
+        // loop continues. The handle is read ONLY for its error flag — its symbol
+        // table aliases the freed external arena, so IR/index must never be taken
+        // from it (D-88).
+        let has_errors = unsafe {
+            let mut _out_ptr: *const u8 = std::ptr::null();
+            let mut _out_len: usize = 0;
+            let handle = ffi::deal_check_with_stdlib_aliases(
+                source_bytes.as_ptr(),
+                source_bytes.len(),
+                filename.as_bytes().as_ptr(),
+                filename.len(),
+                externals.as_ptr(),
+                externals.len(),
+                &mut _out_ptr,
+                &mut _out_len,
+                alias_blob.as_ptr(),
+                alias_blob.len(),
+            );
+            if handle.is_null() {
+                continue;
+            }
+            let e = ffi::deal_has_errors(handle);
+            ffi::deal_free(handle);
+            e
+        };
+        if has_errors {
+            bad.push(path.clone());
+        }
+    }
+
+    if bad.is_empty() {
+        return Ok(());
+    }
+
+    Err(CliError::User(format!(
+        "refusing to simulate: {} model file(s) have errors — simulating an \
+         unresolved model produces meaningless results.\n  first: {}\n\
+         Run `deal check {}` for the diagnostics.",
+        bad.len(),
+        bad[0].display(),
+        project_root.display(),
+    )))
+}
+
 fn load_project_ir(project_root: &Path) -> serde_json::Map<String, serde_json::Value> {
     // Collect .deal and .dealx files from the project
     let deal_files = collect_deal_files(project_root);

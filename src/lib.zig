@@ -533,7 +533,36 @@ pub fn deal_parse_internal_with_stdlib(
 /// Ownership: the caller must call `deal_free(handle)` on the returned pointer
 /// to release the arena. The out_diag_ptr/out_diag_len buffer becomes invalid
 /// after `deal_free`. Clone the bytes before calling deal_free (Pitfall 3).
-pub export fn deal_check_with_stdlib(
+/// ADR-0004 R1: parse a NUL-separated `name=namespace` alias blob into a table
+/// (allocated in `alloc`). Empty/absent ⇒ null (no aliasing). Malformed pairs
+/// (no `=`, empty side) are skipped, never fatal across the C ABI.
+fn parseAliasBlob(
+    alloc: std.mem.Allocator,
+    ptr: ?[*]const u8,
+    len: usize,
+) ?*std.StringHashMap([]const u8) {
+    if (len == 0) return null;
+    const p = ptr orelse return null;
+    const map = alloc.create(std.StringHashMap([]const u8)) catch return null;
+    map.* = std.StringHashMap([]const u8).init(alloc);
+    var it = std.mem.splitScalar(u8, p[0..len], 0);
+    while (it.next()) |pair| {
+        if (pair.len == 0) continue;
+        const eq = std.mem.indexOfScalar(u8, pair, '=') orelse continue;
+        const name = pair[0..eq];
+        const ns = pair[eq + 1 ..];
+        if (name.len == 0 or ns.len == 0) continue;
+        const name_c = alloc.dupe(u8, name) catch continue;
+        const ns_c = alloc.dupe(u8, ns) catch continue;
+        map.put(name_c, ns_c) catch {};
+    }
+    return map;
+}
+
+/// Shared body for the strict-check exports. `alias_ptr`/`alias_len` carry the
+/// ADR-0004 R1 alias blob; the plain `deal_check_with_stdlib` export passes
+/// `(null, 0)` so its behaviour is unchanged.
+fn checkWithStdlibImpl(
     source_ptr: [*]const u8,
     source_len: usize,
     filename_ptr: [*]const u8,
@@ -542,7 +571,9 @@ pub export fn deal_check_with_stdlib(
     stdlib_ir_len: usize,
     out_diag_ptr: *[*]const u8,
     out_diag_len: *usize,
-) callconv(.c) ?*anyopaque {
+    alias_ptr: ?[*]const u8,
+    alias_len: usize,
+) ?*anyopaque {
     // Step 0: Guard NULL + non-zero length pairs (ASVS V5 / T-05-01).
     if (source_len > 0 and @intFromPtr(source_ptr) == 0) return null;
     if (filename_len > 0 and @intFromPtr(filename_ptr) == 0) return null;
@@ -680,15 +711,19 @@ pub export fn deal_check_with_stdlib(
         &handle.diagnostics,
     ) catch null;
 
-    // Step 8: Analyze with external stdlib table.
-    // analyzeWithExternalTable copies all needed keys/metadata into the handle's
-    // arena, so it is safe to deinit stdlib_arena after this call.
-    handle.index_root = sema.analyzeWithExternalTable(
+    // Step 8: Analyze with external stdlib table + ADR-0004 R1 import aliases.
+    // The alias map lives in stdlib_arena, which outlives this call (its `defer`
+    // runs on return); collectImport reads it during Pass A. analyzeWithExternal-
+    // Table copies all needed keys/metadata into the handle's arena, so it is safe
+    // to deinit stdlib_arena after this call.
+    const alias_map = parseAliasBlob(stdlib_alloc, alias_ptr, alias_len);
+    handle.index_root = sema.analyzeWithExternalTableAliases(
         handle.arena.allocator(),
         handle.ast_root,
         &handle.diagnostics,
         handle.filename,
         external_table,
+        alias_map,
     ) catch null;
 
     // Step 9: Serialize diagnostics to JSON and write output pointers.
@@ -703,6 +738,62 @@ pub export fn deal_check_with_stdlib(
     out_diag_len.* = buf.len;
 
     return @ptrCast(handle);
+}
+
+/// C ABI: strict check with an external stdlib table (no import aliases).
+/// Unchanged signature/behaviour — delegates to the shared impl with no aliases.
+pub export fn deal_check_with_stdlib(
+    source_ptr: [*]const u8,
+    source_len: usize,
+    filename_ptr: [*]const u8,
+    filename_len: usize,
+    stdlib_ir_ptr: [*]const u8,
+    stdlib_ir_len: usize,
+    out_diag_ptr: *[*]const u8,
+    out_diag_len: *usize,
+) callconv(.c) ?*anyopaque {
+    return checkWithStdlibImpl(
+        source_ptr,
+        source_len,
+        filename_ptr,
+        filename_len,
+        stdlib_ir_ptr,
+        stdlib_ir_len,
+        out_diag_ptr,
+        out_diag_len,
+        null,
+        0,
+    );
+}
+
+/// C ABI: as `deal_check_with_stdlib`, plus an ADR-0004 R1 alias table.
+/// `alias_ptr`/`alias_len` is a NUL-separated list of `name=namespace` pairs; sema
+/// rewrites an import path's leading alias segment to its namespace before it
+/// records/resolves the edge.
+pub export fn deal_check_with_stdlib_aliases(
+    source_ptr: [*]const u8,
+    source_len: usize,
+    filename_ptr: [*]const u8,
+    filename_len: usize,
+    stdlib_ir_ptr: [*]const u8,
+    stdlib_ir_len: usize,
+    out_diag_ptr: *[*]const u8,
+    out_diag_len: *usize,
+    alias_ptr: [*]const u8,
+    alias_len: usize,
+) callconv(.c) ?*anyopaque {
+    return checkWithStdlibImpl(
+        source_ptr,
+        source_len,
+        filename_ptr,
+        filename_len,
+        stdlib_ir_ptr,
+        stdlib_ir_len,
+        out_diag_ptr,
+        out_diag_len,
+        alias_ptr,
+        alias_len,
+    );
 }
 
 /// Release every byte the handle ever allocated. Safe to call on null.
