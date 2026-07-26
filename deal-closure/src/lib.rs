@@ -593,7 +593,7 @@ mod tests {
         );
 
         // Without the alias, the `reqs.system` import reaches neither file.
-        let plain = names(&closure_files(&map, &[entry.clone()]));
+        let plain = names(&closure_files(&map, std::slice::from_ref(&entry)));
         assert!(
             !plain.contains(sys.to_str().unwrap()),
             "control: unaliased walk misses it"
@@ -606,7 +606,7 @@ mod tests {
         // With the alias, the walker reaches packages/requirements/system.deal.
         let aliased = names(&closure_files_with_aliases(
             &map,
-            &[entry.clone()],
+            std::slice::from_ref(&entry),
             &aliases,
         ));
         assert!(

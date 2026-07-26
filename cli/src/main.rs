@@ -1195,7 +1195,7 @@ fn build_alias_blob(aliases: &std::collections::BTreeMap<String, String>) -> Vec
     blob
 }
 
-fn externals_for<'a>(
+fn externals_for(
     file: &std::path::Path,
     closure_files: &[std::path::PathBuf],
     source_cache: &std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>,

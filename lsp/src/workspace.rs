@@ -249,6 +249,7 @@ pub fn extract_aliases(deal_toml: &str) -> Option<HashMap<String, String>> {
 ///   3. a configured stdlib path (`initializationOptions.stdlibPath`) — prefer its
 ///      `packages/` subdir — so hover/goto into `deal.std.units` resolves without
 ///      requiring `deal install`.
+///
 /// Only the *reachable* packages actually enter the closure (`closure_files`).
 fn dependency_roots(root: &Path, stdlib_path: Option<&Path>) -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
