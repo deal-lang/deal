@@ -52,5 +52,18 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # cli/tests/phase5_e2e.rs copies spec/examples/showcase into a temp dir and
+      # simulates it. That copy includes the vendored stdlib at
+      # .deal/deps/deal-stdlib, without which every `import deal.std.units.{…}`
+      # is unresolvable and simulate refuses to run. `.deal/` is gitignored, so
+      # a fresh checkout has no stdlib and it must be vendored here — exactly as
+      # spec/examples/showcase/deal.toml documents. The dep is SHA-pinned by
+      # spec/examples/showcase/deal.lock, so this stays reproducible.
+      - name: Vendor showcase dependencies (deal install)
+        run: |
+          cargo build -p deal
+          cd spec/examples/showcase
+          "$GITHUB_WORKSPACE/target/debug/deal" install
+
       - name: cargo test
         run: cargo test --workspace
