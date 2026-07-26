@@ -52,6 +52,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
+        // Rust links this archive into a position-independent executable. On
+        // x86_64-linux that is not the default, so the archive would carry
+        // absolute R_X86_64_32S relocations and rust-lld rejects it with
+        // "cannot be used against symbol ...; recompile with -fPIC". Not
+        // observable on aarch64-macos, where PIC is mandatory and implicit.
+        .pic = true,
     });
     addSrcImports(lib_root, src_mods);
 
