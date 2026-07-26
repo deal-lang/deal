@@ -23,7 +23,10 @@ pub async fn handle_folding_range(
     Ok(folding_ranges(documents, &uri).await)
 }
 
-async fn folding_ranges(documents: &Documents, uri: &tower_lsp::lsp_types::Url) -> Option<Vec<FoldingRange>> {
+async fn folding_ranges(
+    documents: &Documents,
+    uri: &tower_lsp::lsp_types::Url,
+) -> Option<Vec<FoldingRange>> {
     let handle = documents.get_handle(uri)?;
     let rope = documents.get_buffer(uri)?;
     let ast_bytes = {
@@ -147,8 +150,15 @@ mod tests {
         // Pack spans line 1 → its `}` on line 3; Tiny is single-line; package folds.
         let pack = fr.iter().find(|f| f.start_line == 1);
         assert!(pack.is_some(), "Pack fold missing: {fr:?}");
-        assert_eq!(pack.unwrap().end_line, 3, "Pack should fold to its closing-brace line");
-        assert!(!fr.iter().any(|f| f.start_line == 4), "single-line Tiny should not fold");
+        assert_eq!(
+            pack.unwrap().end_line,
+            3,
+            "Pack should fold to its closing-brace line"
+        );
+        assert!(
+            !fr.iter().any(|f| f.start_line == 4),
+            "single-line Tiny should not fold"
+        );
         assert!(fr.iter().any(|f| f.start_line == 0), "package fold missing");
     }
 
@@ -160,7 +170,10 @@ mod tests {
             "doc_comment": { "k": "doc_comment", "span": [0, 15] }
         });
         let fr = folds(&ast, src);
-        let dc = fr.iter().find(|f| f.start_line == 0).expect("doc comment fold");
+        let dc = fr
+            .iter()
+            .find(|f| f.start_line == 0)
+            .expect("doc comment fold");
         assert_eq!(dc.kind, Some(FoldingRangeKind::Comment));
         assert_eq!(dc.end_line, 2);
     }

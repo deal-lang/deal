@@ -133,7 +133,10 @@ fn clean_package_dir_writes_index_json() {
     let keys: Vec<&String> = obj.keys().collect();
     let mut sorted = keys.clone();
     sorted.sort();
-    assert_eq!(keys, sorted, "index.json top-level keys must be alphabetical");
+    assert_eq!(
+        keys, sorted,
+        "index.json top-level keys must be alphabetical"
+    );
     assert!(
         obj.contains_key("elements"),
         "index.json must carry an elements map"

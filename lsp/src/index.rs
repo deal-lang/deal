@@ -251,7 +251,13 @@ impl Index {
                     let nend = byte_to_position(rope, ne);
                     self.decl_names.insert(
                         path.clone(),
-                        (uri.clone(), Range { start: nstart, end: nend }),
+                        (
+                            uri.clone(),
+                            Range {
+                                start: nstart,
+                                end: nend,
+                            },
+                        ),
                     );
                 }
             }
@@ -418,10 +424,10 @@ impl Index {
             .filter_map(|e| {
                 let path = e.key().clone();
                 let kind = e.value().1.clone();
-                let decl_range = self
-                    .symbols
-                    .get(&path)
-                    .and_then(|v| if &v.0 == uri { Some(v.1) } else { None })?;
+                let decl_range =
+                    self.symbols
+                        .get(&path)
+                        .and_then(|v| if &v.0 == uri { Some(v.1) } else { None })?;
                 let name_range = self
                     .decl_names
                     .get(&path)
@@ -649,7 +655,10 @@ mod tests {
             .expect("declaration present");
         // Name token starts at byte 9 ('B' of Battery) on line 0.
         assert_eq!(r.start.line, 0);
-        assert_eq!(r.start.character, 9, "should use the name_span, not the whole-def span");
+        assert_eq!(
+            r.start.character, 9,
+            "should use the name_span, not the whole-def span"
+        );
         assert_eq!(r.end.character, 16);
     }
 

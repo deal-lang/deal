@@ -271,7 +271,10 @@ pub fn apply_alias(path: &str, aliases: &BTreeMap<String, String>) -> String {
             Some(ns) => format!("{ns}.{rest}"),
             None => path.to_string(),
         },
-        None => aliases.get(path).cloned().unwrap_or_else(|| path.to_string()),
+        None => aliases
+            .get(path)
+            .cloned()
+            .unwrap_or_else(|| path.to_string()),
     }
 }
 
@@ -430,8 +433,8 @@ pub fn plan_load_with_aliases(
         .filter(|p| {
             closure_set.contains(*p)
                 || match map.modules.get(*p) {
-                    None => true,                          // parse returned None
-                    Some(m) => m.index_json.is_empty(),    // parsed to no table
+                    None => true,                       // parse returned None
+                    Some(m) => m.index_json.is_empty(), // parsed to no table
                 }
         })
         .cloned()
@@ -516,10 +519,24 @@ mod tests {
         let lcsp = |v: &[&str]| {
             longest_common_segment_prefix(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>())
         };
-        assert_eq!(lcsp(&["requirements", "requirements.needs", "requirements.system"]), "requirements");
+        assert_eq!(
+            lcsp(&["requirements", "requirements.needs", "requirements.system"]),
+            "requirements"
+        );
         // No bare `package analysis;` — must NOT collapse to `analysis.calcs`.
-        assert_eq!(lcsp(&["analysis.calcs", "analysis.constraints", "analysis.precision"]), "analysis");
-        assert_eq!(lcsp(&["foo", "bar"]), "", "unrelated packages share no namespace");
+        assert_eq!(
+            lcsp(&[
+                "analysis.calcs",
+                "analysis.constraints",
+                "analysis.precision"
+            ]),
+            "analysis"
+        );
+        assert_eq!(
+            lcsp(&["foo", "bar"]),
+            "",
+            "unrelated packages share no namespace"
+        );
         // Segment boundary: `foo` and `foobar` are not a common prefix.
         assert_eq!(lcsp(&["foo", "foobar"]), "");
         assert_eq!(lcsp(&[]), "");
@@ -531,9 +548,17 @@ mod tests {
         a.insert("reqs".to_string(), "requirements".to_string());
         assert_eq!(apply_alias("reqs.system", &a), "requirements.system");
         assert_eq!(apply_alias("reqs", &a), "requirements");
-        assert_eq!(apply_alias("vehicle.reqs", &a), "vehicle.reqs", "only the head is an alias key");
+        assert_eq!(
+            apply_alias("vehicle.reqs", &a),
+            "vehicle.reqs",
+            "only the head is an alias key"
+        );
         assert_eq!(apply_alias("other.system", &a), "other.system");
-        assert_eq!(apply_alias("reqs.system", &BTreeMap::new()), "reqs.system", "empty map is identity");
+        assert_eq!(
+            apply_alias("reqs.system", &BTreeMap::new()),
+            "reqs.system",
+            "empty map is identity"
+        );
     }
 
     /// The load-bearing case: a package reachable ONLY through an alias whose name
@@ -562,23 +587,40 @@ mod tests {
         ]);
 
         let aliases = derive_aliases(&map, &[("reqs".to_string(), reqs_dir.clone())]);
-        assert_eq!(aliases.get("reqs").map(String::as_str), Some("requirements"));
+        assert_eq!(
+            aliases.get("reqs").map(String::as_str),
+            Some("requirements")
+        );
 
         // Without the alias, the `reqs.system` import reaches neither file.
         let plain = names(&closure_files(&map, &[entry.clone()]));
-        assert!(!plain.contains(sys.to_str().unwrap()), "control: unaliased walk misses it");
-        assert!(!plain.contains(idx.to_str().unwrap()), "control: unaliased walk misses the barrel too");
+        assert!(
+            !plain.contains(sys.to_str().unwrap()),
+            "control: unaliased walk misses it"
+        );
+        assert!(
+            !plain.contains(idx.to_str().unwrap()),
+            "control: unaliased walk misses the barrel too"
+        );
 
         // With the alias, the walker reaches packages/requirements/system.deal.
-        let aliased = names(&closure_files_with_aliases(&map, &[entry.clone()], &aliases));
-        assert!(aliased.contains(sys.to_str().unwrap()), "aliased walk must reach requirements.system");
+        let aliased = names(&closure_files_with_aliases(
+            &map,
+            &[entry.clone()],
+            &aliases,
+        ));
+        assert!(
+            aliased.contains(sys.to_str().unwrap()),
+            "aliased walk must reach requirements.system"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn redundant_alias_is_dropped() {
-        let tmp = std::env::temp_dir().join(format!("deal-closure-redundant-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("deal-closure-redundant-{}", std::process::id()));
         let veh_dir = tmp.join("packages").join("vehicle");
         std::fs::create_dir_all(&veh_dir).unwrap();
         let f = veh_dir.join("battery.deal");
@@ -586,7 +628,10 @@ mod tests {
         let map = map_of(vec![pm(f.to_str().unwrap(), "vehicle", &[], &[])]);
         // Alias name == declared package → no-op substitution → not recorded.
         let aliases = derive_aliases(&map, &[("vehicle".to_string(), veh_dir.clone())]);
-        assert!(aliases.is_empty(), "an alias whose name equals its namespace is redundant");
+        assert!(
+            aliases.is_empty(),
+            "an alias whose name equals its namespace is redundant"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -604,7 +649,10 @@ mod tests {
         let got = names(&closure_files(&map, &entries));
         assert!(got.contains("main.deal"));
         assert!(got.contains("geo/p1.deal"));
-        assert!(got.contains("geo/p2.deal"), "same-package sibling must load");
+        assert!(
+            got.contains("geo/p2.deal"),
+            "same-package sibling must load"
+        );
         assert!(!got.contains("dead/d.deal"), "unreachable must not load");
     }
 
@@ -615,7 +663,12 @@ mod tests {
         let map = map_of(vec![
             pm("main.deal", "app", &["app.lib"], &[]),
             // app.lib is a barrel re-exporting Thing from sub-package app.lib.impl.
-            pm("lib/index.deal", "app.lib", &[], &[("app.lib", "impl", "Thing")]),
+            pm(
+                "lib/index.deal",
+                "app.lib",
+                &[],
+                &[("app.lib", "impl", "Thing")],
+            ),
             pm("lib/impl.deal", "app.lib.impl", &[], &[]),
         ]);
         let entries = vec![PathBuf::from("main.deal")];

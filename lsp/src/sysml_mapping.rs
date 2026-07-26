@@ -163,8 +163,14 @@ mod tests {
     fn resolve_applies_literal_variants() {
         // int → base LiteralInteger; typed literals → their variant metaclass.
         assert_eq!(resolve("int_literal").unwrap().metaclass, "LiteralInteger");
-        assert_eq!(resolve("real_literal").unwrap().metaclass, "LiteralRational");
-        assert_eq!(resolve("string_literal").unwrap().metaclass, "LiteralString");
+        assert_eq!(
+            resolve("real_literal").unwrap().metaclass,
+            "LiteralRational"
+        );
+        assert_eq!(
+            resolve("string_literal").unwrap().metaclass,
+            "LiteralString"
+        );
         assert_eq!(
             resolve("boolean_literal").unwrap().metaclass,
             "LiteralBoolean"

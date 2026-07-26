@@ -428,8 +428,7 @@ mod tests {
     // surface in the index envelope's references[].
     #[test]
     fn safe_check_with_external_resolves_cross_file_reference() {
-        let interfaces_barrel: &[u8] =
-            b"package interfaces;\nexport thermal.{ThermallyManaged};\n";
+        let interfaces_barrel: &[u8] = b"package interfaces;\nexport thermal.{ThermallyManaged};\n";
         let interfaces_thermal: &[u8] =
             b"package interfaces.thermal;\ninterface def ThermallyManaged { }\n";
         let battery: &[u8] = b"package vehicle.battery;\n\

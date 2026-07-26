@@ -373,8 +373,13 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
     // protocol error; a null/empty result at position (0,0) is acceptable
     // (the point is the advertised capability has a wired, non-erroring
     // handler — the bug the P1 audit found for workspace/symbol).
-    let pos0 = Position { line: 0, character: 0 };
-    let td = TextDocumentIdentifier { uri: exercise_uri.clone() };
+    let pos0 = Position {
+        line: 0,
+        character: 0,
+    };
+    let td = TextDocumentIdentifier {
+        uri: exercise_uri.clone(),
+    };
 
     macro_rules! smoke_request {
         ($id:expr, $method:expr, $params:expr) => {{
@@ -390,8 +395,7 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
                     SmokeError::Capability(format!("{} returned no response", $method))
                 })?;
             let (_id, result) = resp.into_parts();
-            result
-                .map_err(|e| SmokeError::Capability(format!("{} error: {:?}", $method, e)))?;
+            result.map_err(|e| SmokeError::Capability(format!("{} error: {:?}", $method, e)))?;
             println!("PHASE-3-SMOKE: P2 capability {} OK", $method);
         }};
     }
@@ -406,7 +410,9 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
             },
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
-            context: ReferenceContext { include_declaration: true },
+            context: ReferenceContext {
+                include_declaration: true
+            },
         }
     );
     smoke_request!(
@@ -424,7 +430,10 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
     smoke_request!(
         9,
         "textDocument/prepareRename",
-        TextDocumentPositionParams { text_document: td.clone(), position: pos0 }
+        TextDocumentPositionParams {
+            text_document: td.clone(),
+            position: pos0
+        }
     );
     smoke_request!(
         10,
@@ -464,7 +473,10 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
         "textDocument/codeAction",
         CodeActionParams {
             text_document: td.clone(),
-            range: Range { start: pos0, end: pos0 },
+            range: Range {
+                start: pos0,
+                end: pos0
+            },
             context: CodeActionContext {
                 diagnostics: Vec::new(),
                 only: None,
@@ -490,7 +502,10 @@ async fn run_smoke(workspace_abs: &Path) -> Result<(), SmokeError> {
             text_document: td.clone(),
             range: Range {
                 start: pos0,
-                end: Position { line: 100_000, character: 0 },
+                end: Position {
+                    line: 100_000,
+                    character: 0
+                },
             },
             work_done_progress_params: Default::default(),
         }

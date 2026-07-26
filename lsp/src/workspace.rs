@@ -278,7 +278,11 @@ fn dependency_roots(root: &Path, stdlib_path: Option<&Path>) -> Vec<PathBuf> {
 
     if let Some(sp) = stdlib_path {
         let pkgs = sp.join("packages");
-        roots.push(if pkgs.is_dir() { pkgs } else { sp.to_path_buf() });
+        roots.push(if pkgs.is_dir() {
+            pkgs
+        } else {
+            sp.to_path_buf()
+        });
     }
 
     roots
@@ -333,8 +337,9 @@ pub fn build_closure_cache(
         .map(|(name, dir)| (name.clone(), workspace.root.join(dir)))
         .collect();
     // derive_aliases returns a BTreeMap; the index's alias table is a HashMap.
-    let aliases: HashMap<String, String> =
-        deal_closure::derive_aliases(&map, &alias_dirs).into_iter().collect();
+    let aliases: HashMap<String, String> = deal_closure::derive_aliases(&map, &alias_dirs)
+        .into_iter()
+        .collect();
 
     // path → bytes for blob assembly (consumes `sources`; the map borrowed it above).
     let src_map: BTreeMap<PathBuf, Vec<u8>> = sources.into_iter().collect();
@@ -424,7 +429,10 @@ pub async fn eager_parse(
         let text = match std::str::from_utf8(bytes) {
             Ok(t) => t.to_string(),
             Err(_) => {
-                tracing::warn!("eager_parse: {} is not valid UTF-8 — skipping", path.display());
+                tracing::warn!(
+                    "eager_parse: {} is not valid UTF-8 — skipping",
+                    path.display()
+                );
                 continue;
             }
         };

@@ -2047,7 +2047,11 @@ fn run_fix_imports(
         let handle = match deal_ffi::safe::parse(source.as_bytes(), &filename) {
             Some(h) => h,
             None => {
-                let _ = writeln!(stderr, "warning: {} did not parse — skipping", path.display());
+                let _ = writeln!(
+                    stderr,
+                    "warning: {} did not parse — skipping",
+                    path.display()
+                );
                 needs_attention = true;
                 continue;
             }

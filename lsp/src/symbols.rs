@@ -140,9 +140,7 @@ mod tests {
 
     #[test]
     fn gather_nests_members_under_their_definition() {
-        let rope = Rope::from_str(
-            "part def Pack {\n  attribute mass;\n  action charge;\n}\n",
-        );
+        let rope = Rope::from_str("part def Pack {\n  attribute mass;\n  action charge;\n}\n");
         // Minimal AST: a part_def whose body holds two member usages.
         let ast = json!({
             "k": "part_def", "name": "Pack", "span": [0, 50],

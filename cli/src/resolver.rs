@@ -40,7 +40,7 @@ use git2::Repository;
 // call-sites in this crate keep compiling. The git2-backed RESOLUTION
 // (resolve_all / resolve_git_dep) stays in this module.
 pub use deal_config::{
-    Dependency, DealToml, LockFile, LockedPackage, ProjectSection, WorkspaceSection,
+    DealToml, Dependency, LockFile, LockedPackage, ProjectSection, WorkspaceSection,
 };
 
 // ─── Security validation ──────────────────────────────────────────────────────

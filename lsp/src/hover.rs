@@ -137,7 +137,8 @@ async fn declaration_hover_value(
     uri: &Url,
     position: Position,
 ) -> Option<String> {
-    let (_path, decl) = crate::definition::resolved_path_at(documents, index, uri, position).await?;
+    let (_path, decl) =
+        crate::definition::resolved_path_at(documents, index, uri, position).await?;
 
     let handle_arc = documents.get_handle(&decl.uri)?;
     let rope = documents.get_buffer(&decl.uri)?;
@@ -911,7 +912,10 @@ mod tests {
         let n = json!({ "k": "constraint_def", "span": [0, 20], "name": "AlwaysOn" });
         let label = node_label(&n).unwrap();
         assert!(label.contains("constraint def AlwaysOn"), "got: {label}");
-        assert!(!label.contains("AlwaysOn("), "should not render empty parens: {label}");
+        assert!(
+            !label.contains("AlwaysOn("),
+            "should not render empty parens: {label}"
+        );
     }
 
     #[test]

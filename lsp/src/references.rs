@@ -30,8 +30,7 @@ pub async fn handle_references(
     let position = params.text_document_position.position;
     let include_decl = params.context.include_declaration;
 
-    let Some((path, _decl)) =
-        definition::resolved_path_at(documents, index, uri, position).await
+    let Some((path, _decl)) = definition::resolved_path_at(documents, index, uri, position).await
     else {
         return Ok(None);
     };
@@ -57,8 +56,7 @@ pub async fn handle_document_highlight(
     let uri = &params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let Some((path, _decl)) =
-        definition::resolved_path_at(documents, index, uri, position).await
+    let Some((path, _decl)) = definition::resolved_path_at(documents, index, uri, position).await
     else {
         return Ok(None);
     };

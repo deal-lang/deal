@@ -139,7 +139,10 @@ fn import_insert_line(rope: &Rope) -> u32 {
             package_line = Some(i);
         }
     }
-    let line = last_import.map(|i| i + 1).or(package_line.map(|i| i + 1)).unwrap_or(0);
+    let line = last_import
+        .map(|i| i + 1)
+        .or(package_line.map(|i| i + 1))
+        .unwrap_or(0);
     line as u32
 }
 

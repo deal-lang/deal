@@ -601,8 +601,11 @@ async fn references_finds_cross_file_specializes() {
     // binding ADR-0003 provides that goto-definition alone could not.
     let battery_path = std::fs::canonicalize(SHOWCASE_BATTERY).unwrap();
     assert!(
-        locs.iter()
-            .any(|l| l.uri.to_file_path().map(|p| p == battery_path).unwrap_or(false)),
+        locs.iter().any(|l| l
+            .uri
+            .to_file_path()
+            .map(|p| p == battery_path)
+            .unwrap_or(false)),
         "find-references missing the battery.deal <<specializes>> site; got {locs:?}"
     );
     // include_declaration → the declaration in interfaces/thermal.deal is present.
@@ -786,7 +789,10 @@ async fn signature_help_for_calc_invocation() {
 
     // Cursor right after the first argument comma in `Drag(x, 2.0, ...)`.
     let inv = src.find("Drag(x").expect("invocation");
-    let comma = src[inv..].find(',').map(|n| inv + n).expect("first arg comma");
+    let comma = src[inv..]
+        .find(',')
+        .map(|n| inv + n)
+        .expect("first arg comma");
     let (line, char_) = byte_to_line_char(src, comma + 1);
 
     let params = SignatureHelpParams {
@@ -1078,12 +1084,16 @@ async fn code_lens_reference_counts() {
     let lenses: Option<Vec<CodeLens>> =
         call_request(&mut service, "textDocument/codeLens", 81, params).await;
     let lenses = lenses.expect("codeLens returned null");
-    assert!(!lenses.is_empty(), "expected reference-count lenses on definitions");
+    assert!(
+        !lenses.is_empty(),
+        "expected reference-count lenses on definitions"
+    );
     // Every lens routes through the extension bridge command.
     assert!(
-        lenses
-            .iter()
-            .all(|l| l.command.as_ref().is_some_and(|c| c.command == "deal.showReferences")),
+        lenses.iter().all(|l| l
+            .command
+            .as_ref()
+            .is_some_and(|c| c.command == "deal.showReferences")),
         "a lens used the wrong command: {lenses:?}"
     );
     // At least one definition has ≥1 reference (e.g. BatteryCell used in
@@ -1126,7 +1136,10 @@ async fn document_links_for_imports() {
     let links: Option<Vec<DocumentLink>> =
         call_request(&mut service, "textDocument/documentLink", 91, params).await;
     let links = links.expect("documentLink returned null");
-    assert!(!links.is_empty(), "expected document links on the import statement");
+    assert!(
+        !links.is_empty(),
+        "expected document links on the import statement"
+    );
     // `import interfaces.{… ThermallyManaged …}` links to the declaring file.
     assert!(
         links.iter().any(|l| l
@@ -1174,8 +1187,7 @@ async fn hover_on_reference_shows_declaration() {
         },
         work_done_progress_params: WorkDoneProgressParams::default(),
     };
-    let hover: Option<Hover> =
-        call_request(&mut service, "textDocument/hover", 101, params).await;
+    let hover: Option<Hover> = call_request(&mut service, "textDocument/hover", 101, params).await;
     let hover = hover.expect("hover returned null on the specializes reference");
     let text = match hover.contents {
         HoverContents::Markup(m) => m.value,

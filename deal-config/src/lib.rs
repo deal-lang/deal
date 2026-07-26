@@ -243,7 +243,10 @@ docs = { format = "html", output = "build/docs/", template = "program-review" }
         assert_eq!(m.project.name, "halcyon");
         assert_eq!(m.project.schema.as_deref(), Some("deal/0.1"));
         assert_eq!(m.workspace.roots, vec!["packages", "model"]);
-        assert_eq!(m.aliases.get("reqs").map(String::as_str), Some("packages/requirements"));
+        assert_eq!(
+            m.aliases.get("reqs").map(String::as_str),
+            Some("packages/requirements")
+        );
         assert_eq!(m.dependencies.len(), 3);
         match m.dependencies.get("deal-std").unwrap() {
             Dependency::Version(v) => assert_eq!(v, "0.1"),
@@ -260,7 +263,10 @@ docs = { format = "html", output = "build/docs/", template = "program-review" }
             "model/views/structure-bdd.dealview"
         );
         let build = m.build.unwrap();
-        assert_eq!(build.targets.get("docs").unwrap().template.as_deref(), Some("program-review"));
+        assert_eq!(
+            build.targets.get("docs").unwrap().template.as_deref(),
+            Some("program-review")
+        );
     }
 
     #[test]
@@ -273,7 +279,10 @@ version = "0.1.0"
 [workspace]
 rootz = ["packages"]
 "#;
-        assert!(toml::from_str::<DealToml>(bad).is_err(), "deny_unknown_fields must reject `rootz`");
+        assert!(
+            toml::from_str::<DealToml>(bad).is_err(),
+            "deny_unknown_fields must reject `rootz`"
+        );
     }
 
     #[test]
@@ -341,7 +350,10 @@ top = "packages/top"
 nested = "packages/nested"
 "#;
         let m: DealToml = toml::from_str(src).unwrap();
-        assert_eq!(m.aliases.get("top").map(String::as_str), Some("packages/top"));
+        assert_eq!(
+            m.aliases.get("top").map(String::as_str),
+            Some("packages/top")
+        );
         assert_eq!(
             m.workspace.aliases.get("nested").map(String::as_str),
             Some("packages/nested")

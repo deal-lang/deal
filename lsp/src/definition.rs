@@ -103,12 +103,13 @@ fn param_decl_span_at(entry: &Value, byte: usize) -> Option<[usize; 2]> {
     let mut stack: Vec<&Value> = Vec::new();
     collect_containing(entry, byte, &mut stack);
 
-    let ident = stack.iter().rev().find_map(|n| {
-        match n.get("k").and_then(|v| v.as_str()) {
+    let ident = stack
+        .iter()
+        .rev()
+        .find_map(|n| match n.get("k").and_then(|v| v.as_str()) {
             Some("identifier") => n.get("name").and_then(|v| v.as_str()),
             _ => None,
-        }
-    })?;
+        })?;
     let callable = stack.iter().rev().find(|n| {
         matches!(
             n.get("k").and_then(|v| v.as_str()),

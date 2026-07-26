@@ -263,8 +263,7 @@ mod tests {
         // `CI` env var (reporter::new). Assert that exact invariant rather than a
         // fixed value so the test holds whether run piped, in CI, or in a live
         // terminal.
-        let expected_animate =
-            std::io::stderr().is_terminal() && std::env::var_os("CI").is_none();
+        let expected_animate = std::io::stderr().is_terminal() && std::env::var_os("CI").is_none();
         assert_eq!(r.animated(), expected_animate);
     }
 

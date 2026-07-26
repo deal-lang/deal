@@ -18,7 +18,14 @@ use deal_closure::ImportEdge;
 
 /// Prelude primitives (mirrors `sema.zig::isBuiltinType`) — never imported.
 pub const PRIMITIVES: &[&str] = &[
-    "Real", "Integer", "String", "Boolean", "Rational", "Number", "Complex", "Natural",
+    "Real",
+    "Integer",
+    "String",
+    "Boolean",
+    "Rational",
+    "Number",
+    "Complex",
+    "Natural",
     "ScalarValue",
 ];
 
@@ -81,7 +88,9 @@ fn walk(v: &serde_json::Value, out: &mut BTreeSet<Vec<String>>) {
 /// Build the global name→declaring-packages index from each file's `elements`
 /// envelope object. Keys are FQ (`pkg.Name`); `kind=="package"` entries are
 /// skipped (a package is not an importable type).
-pub fn build_global_index(element_maps: &[serde_json::Value]) -> BTreeMap<String, BTreeSet<String>> {
+pub fn build_global_index(
+    element_maps: &[serde_json::Value],
+) -> BTreeMap<String, BTreeSet<String>> {
     let mut index: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for elements in element_maps {
         let Some(obj) = elements.as_object() else {
@@ -212,8 +221,7 @@ pub fn plan_file_fix(
                             .or_default()
                             .insert(item.clone());
                     }
-                    _ => ambiguous
-                        .push((item.clone(), candidates.into_iter().cloned().collect())),
+                    _ => ambiguous.push((item.clone(), candidates.into_iter().cloned().collect())),
                 }
             }
         }
@@ -394,7 +402,9 @@ mod tests {
             &[],
             &g,
         );
-        assert!(fix.new_text.contains("import spacecraft.structure.{Deployable};"));
+        assert!(fix
+            .new_text
+            .contains("import spacecraft.structure.{Deployable};"));
         assert!(fix.unresolved.is_empty());
     }
 
@@ -410,7 +420,11 @@ mod tests {
             &[],
             &g,
         );
-        assert!(fix.added.is_empty(), "must not invent an import: {:?}", fix.added);
+        assert!(
+            fix.added.is_empty(),
+            "must not invent an import: {:?}",
+            fix.added
+        );
         assert!(
             fix.unresolved.contains(&"structure.Deployable".to_string()),
             "relative qualified ref must be reported: {:?}",
@@ -427,29 +441,47 @@ mod tests {
             "app.geo.Point": {"kind": "part_def"}
         });
         let idx = build_global_index(&[elements]);
-        assert_eq!(idx.get("Mass").unwrap().iter().next().unwrap(), "deal.std.units");
+        assert_eq!(
+            idx.get("Mass").unwrap().iter().next().unwrap(),
+            "deal.std.units"
+        );
         assert_eq!(idx.get("Point").unwrap().iter().next().unwrap(), "app.geo");
         assert!(!idx.contains_key("units")); // the package entry was skipped
     }
 
     #[test]
     fn inserts_missing_import_after_package_line() {
-        let src = "package app;\npart def T {\n    public (\n        attribute m : Mass [1];\n    )\n}\n";
+        let src =
+            "package app;\npart def T {\n    public (\n        attribute m : Mass [1];\n    )\n}\n";
         let g = global(&[("Mass", &["deal.std.units"])]);
         let fix = plan_file_fix(src, &refs(&["Mass"]), "app", &[], &g);
         assert!(fix.new_text.contains("import deal.std.units.{Mass};"));
         // Inserted on line 1 (right after `package app;`).
-        assert_eq!(fix.new_text.lines().nth(1).unwrap(), "import deal.std.units.{Mass};");
-        assert_eq!(fix.added, vec![("deal.std.units".to_string(), vec!["Mass".to_string()])]);
+        assert_eq!(
+            fix.new_text.lines().nth(1).unwrap(),
+            "import deal.std.units.{Mass};"
+        );
+        assert_eq!(
+            fix.added,
+            vec![("deal.std.units".to_string(), vec!["Mass".to_string()])]
+        );
     }
 
     #[test]
     fn merges_into_existing_same_package_import() {
         let src = "package app;\nimport deal.std.units.{kg, V};\nattribute def a : Mass;\n";
         let g = global(&[("Mass", &["deal.std.units"])]);
-        let fix = plan_file_fix(src, &refs(&["Mass"]), "app", &[edge("deal.std.units", false, &["kg", "V"])], &g);
+        let fix = plan_file_fix(
+            src,
+            &refs(&["Mass"]),
+            "app",
+            &[edge("deal.std.units", false, &["kg", "V"])],
+            &g,
+        );
         // Merged into the existing line, alphabetically, no duplicate import line.
-        assert!(fix.new_text.contains("import deal.std.units.{Mass, V, kg};"));
+        assert!(fix
+            .new_text
+            .contains("import deal.std.units.{Mass, V, kg};"));
         assert_eq!(fix.new_text.matches("import deal.std.units").count(), 1);
     }
 
@@ -491,7 +523,17 @@ mod tests {
     fn idempotent_when_already_clean() {
         let src = "package app;\nimport deal.std.units.{Mass};\nattribute def a : Mass;\n";
         let g = global(&[("Mass", &["deal.std.units"])]);
-        let fix = plan_file_fix(src, &refs(&["Mass"]), "app", &[edge("deal.std.units", false, &["Mass"])], &g);
-        assert!(!fix.changed(src), "no change expected; got:\n{}", fix.new_text);
+        let fix = plan_file_fix(
+            src,
+            &refs(&["Mass"]),
+            "app",
+            &[edge("deal.std.units", false, &["Mass"])],
+            &g,
+        );
+        assert!(
+            !fix.changed(src),
+            "no change expected; got:\n{}",
+            fix.new_text
+        );
     }
 }

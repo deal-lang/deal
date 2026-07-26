@@ -285,8 +285,10 @@ impl Documents {
         let filename = uri.path();
         // ADR-0004 R1: resolve aliased imports (via `deal_check_with_stdlib_aliases`)
         // so the eager-parse index + diagnostics match `deal check`.
-        let aliases: std::collections::BTreeMap<String, String> =
-            aliases.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let aliases: std::collections::BTreeMap<String, String> = aliases
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         let handle = deal_ffi::safe::check_with_external_aliases(
             text.as_bytes(),
             filename,
@@ -338,10 +340,15 @@ impl Documents {
         let handle = if let Some(cache) = &cache {
             let refs: Vec<&[u8]> = cache.blob.iter().map(|v| v.as_slice()).collect();
             // ADR-0004 R1: resolve aliased imports so live diagnostics match the CLI.
-            let aliases: std::collections::BTreeMap<String, String> =
-                cache.aliases.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            let aliases: std::collections::BTreeMap<String, String> = cache
+                .aliases
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
             deal_ffi::safe::check_with_external_aliases(text.as_bytes(), filename, &refs, &aliases)
-                .ok_or_else(|| anyhow::anyhow!("deal_check_with_external returned null for {uri}"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("deal_check_with_external returned null for {uri}")
+                })?
         } else {
             deal_ffi::safe::parse(text.as_bytes(), filename)
                 .ok_or_else(|| anyhow::anyhow!("deal_parse returned null for {uri}"))?
