@@ -187,7 +187,18 @@ fn test_lockfile_determinism() {
 
 #[test]
 fn test_path_dep_no_clone() {
-    let tmp = tempfile::tempdir().expect("tempdir");
+    // Must NOT use the system temp dir. Path deps are canonicalized and then run
+    // through the T-4-02 guard, whose denylist includes `/tmp` and `/var`. On
+    // Linux those are real directories, so a fixture under /tmp canonicalizes to
+    // /tmp/... and the guard correctly rejects it. On macOS both are symlinks
+    // into /private/..., so canonicalize() rewrites the path out of the denylist
+    // and the guard never fires — which is why this passed locally and failed in
+    // CI. CARGO_TARGET_TMPDIR lives under the workspace's target/ on both
+    // platforms, so it exercises the resolver without tripping a guard that is
+    // doing its job.
+    let tmp = tempfile::Builder::new()
+        .tempdir_in(env!("CARGO_TARGET_TMPDIR"))
+        .expect("tempdir");
     let project_dir = tmp.path().join("path-consumer");
     let sibling_dir = tmp.path().join("my-lib");
 
