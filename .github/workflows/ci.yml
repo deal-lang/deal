@@ -34,6 +34,15 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      # `deal fmt` enforces the FS-3 provenance gate, which fails closed when
+      # `git config user.name` is unset (WR-07). A fresh runner has no identity,
+      # so cli/tests/fmt_subcommand.rs exits 2 on every case. Give the runner an
+      # identity rather than weakening the gate.
+      - name: Configure git identity (FS-3 gate)
+        run: |
+          git config --global user.name "deal CI"
+          git config --global user.email "ci@deal-lang.invalid"
+
       - name: Build libdeal.a (host)
         run: zig build -Doptimize=ReleaseSafe
 
