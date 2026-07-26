@@ -176,7 +176,7 @@ fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
             }
         }
     }
-    resolved.sort_by(|a, b| b.0.cmp(&a.0));
+    resolved.sort_by_key(|e| std::cmp::Reverse(e.0));
     let mut out = text.to_string();
     for (start, end, new) in resolved {
         if end <= out.len() {

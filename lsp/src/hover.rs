@@ -541,11 +541,9 @@ fn find_deepest_node_at(node: &Value, byte_offset: usize) -> Option<&Value> {
     // node (the AST's actual `deal_file` root).
     let entry = if node.get("span").is_some() {
         node
-    } else if let Some(inner) = node.get("root") {
-        inner
     } else {
         // No span and no `root` key — give up.
-        return None;
+        node.get("root")?
     };
     let span = entry.get("span").and_then(parse_span)?;
     if !(byte_offset >= span[0] && byte_offset < span[1]) {
