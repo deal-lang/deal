@@ -59,7 +59,7 @@ toml = { workspace = true }
 # quick-xml 0.40.x for structural validation and XML writing (D-61).
 # zip = "2" stable — NOT the 9.0.0-pre2 pre-release.
 quick-xml = { version = "0.40", features = ["serialize"] }
-zip = "2"
+zip = "9"
 
 [dev-dependencies]
 insta = { workspace = true }
